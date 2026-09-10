@@ -1,5 +1,16 @@
 # Cross_Embodiment_CL
 
+# TLDR 
+
+0. make a cross-embodiment/ folder 
+1. install isaac lab from https://isaac-sim.github.io/IsaacLab/develop/source/setup/installation/index.html#installation-method-uv
+2. make sure this repo and isaaclab folder are in the same parent directory 
+3. `uv sync`
+4. `uv run isaaclab random_agent --task CrossEmbodimentCl-Balance-Cartpole-Direct --viz newton` 
+
+
+# Auto generated stuff below 
+
 An installable downstream Isaac Lab task package generated with a standard uv `src` layout.
 
 The registered tasks are:
