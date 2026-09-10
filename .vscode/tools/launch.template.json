@@ -1,0 +1,212 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Train CrossEmbodimentCl-Balance-Cartpole-Direct with rsl_rl (PPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "train",
+                "--rl_library", "rsl_rl",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "4096"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Play CrossEmbodimentCl-Balance-Cartpole-Direct with rsl_rl (PPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "play",
+                "--rl_library", "rsl_rl",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "32"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Train CrossEmbodimentCl-Balance-Cartpole-Direct with rsl_rl (DISTILLATION)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "train",
+                "--rl_library", "rsl_rl",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "4096"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Play CrossEmbodimentCl-Balance-Cartpole-Direct with rsl_rl (DISTILLATION)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "play",
+                "--rl_library", "rsl_rl",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "32"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Train CrossEmbodimentCl-Balance-Cartpole-Direct with rl_games (PPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "train",
+                "--rl_library", "rl_games",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "4096"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Play CrossEmbodimentCl-Balance-Cartpole-Direct with rl_games (PPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "play",
+                "--rl_library", "rl_games",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "32"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Train CrossEmbodimentCl-Balance-Cartpole-Direct with skrl (PPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "train",
+                "--rl_library", "skrl",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "4096",
+                "--algorithm", "PPO"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Play CrossEmbodimentCl-Balance-Cartpole-Direct with skrl (PPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "play",
+                "--rl_library", "skrl",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "32",
+                "--algorithm", "PPO"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Train CrossEmbodimentCl-Balance-Cartpole-Direct with skrl (AMP)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "train",
+                "--rl_library", "skrl",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "4096",
+                "--algorithm", "AMP"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Play CrossEmbodimentCl-Balance-Cartpole-Direct with skrl (AMP)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "play",
+                "--rl_library", "skrl",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "32",
+                "--algorithm", "AMP"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Train CrossEmbodimentCl-Balance-Cartpole-Direct with sb3 (PPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "train",
+                "--rl_library", "sb3",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "4096"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Play CrossEmbodimentCl-Balance-Cartpole-Direct with sb3 (PPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "play",
+                "--rl_library", "sb3",
+                "--task", "CrossEmbodimentCl-Balance-Cartpole-Direct",
+                "--num_envs", "32"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Train CrossEmbodimentCl-Balance-Marl-Cartpole-Direct with skrl (IPPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "train",
+                "--rl_library", "skrl",
+                "--task", "CrossEmbodimentCl-Balance-Marl-Cartpole-Direct",
+                "--num_envs", "4096",
+                "--algorithm", "IPPO"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Play CrossEmbodimentCl-Balance-Marl-Cartpole-Direct with skrl (IPPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "play",
+                "--rl_library", "skrl",
+                "--task", "CrossEmbodimentCl-Balance-Marl-Cartpole-Direct",
+                "--num_envs", "32",
+                "--algorithm", "IPPO"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Train CrossEmbodimentCl-Balance-Marl-Cartpole-Direct with skrl (MAPPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "train",
+                "--rl_library", "skrl",
+                "--task", "CrossEmbodimentCl-Balance-Marl-Cartpole-Direct",
+                "--num_envs", "4096",
+                "--algorithm", "MAPPO"            ],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Play CrossEmbodimentCl-Balance-Marl-Cartpole-Direct with skrl (MAPPO)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "isaaclab",
+            "args": [
+                "play",
+                "--rl_library", "skrl",
+                "--task", "CrossEmbodimentCl-Balance-Marl-Cartpole-Direct",
+                "--num_envs", "32",
+                "--algorithm", "MAPPO"            ],
+            "console": "integratedTerminal"
+        },
+    ]
+}
