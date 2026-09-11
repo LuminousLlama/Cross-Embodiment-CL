@@ -56,8 +56,12 @@ G1_BASE_CFG = ArticulationCfg(
                 ".*_elbow_joint",
                 ".*_wrist_.*_joint",
             ],
-            joint_effort_limit=300.0,
-            joint_velocity_limit=100.0,
+            joint_effort_limit={
+                ".*_shoulder_.*": 60.0,
+                ".*_elbow_.*": 30.0,
+                ".*_wrist_.*_joint": 5.0,
+            },
+            joint_velocity_limit=1.5,
             stiffness=300.0,
             damping=30.0,
             armature={
@@ -73,8 +77,8 @@ G1_BASE_CFG = ArticulationCfg(
         # freedom.
         "wuji_fingers": ImplicitActuatorCfg(
             joint_names_expr=["right_finger[1-5]_joint[1-4]"],
-            joint_effort_limit=2.0,
-            joint_velocity_limit=1.0,
+            joint_effort_limit=5.0,
+            joint_velocity_limit=0.7,
             stiffness=20.0,
             damping=1.0,
             armature=0.001,
