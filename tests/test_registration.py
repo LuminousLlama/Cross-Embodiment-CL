@@ -22,6 +22,12 @@ def test_task_registrations():
             "env_cfg_entry_point": "Cross_Embodiment_CL.tasks.balance_marl_direct.config.cartpole.env_cfg:BalanceMarlEnvCfg",
             "default_agent": "skrl",
         },
+        "CrossEmbodimentCl-G1-Wuji-Table-Direct": {
+            "entry_point": "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env:G1WujiTableEnv",
+            "env_cfg_entry_point": (
+                "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg:G1WujiTableEnvCfg"
+            ),
+        },
     }
 
     for task_id, expected_values in expected.items():
