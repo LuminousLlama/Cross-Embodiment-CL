@@ -79,9 +79,9 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     decimation = 2
     episode_length_s = 60.0
 
-    # Normalized joint-position deltas: 7 right-arm joints followed by the 20
-    # real Wuji revolute joints. The waist remains internally held.
-    action_space = 27
+    # Normalized joint-position deltas for the 7 right-arm joints, followed by
+    # the frozen 18-D Wuji latent action. The waist remains internally held.
+    action_space = 25
     observation_space = 0
     state_space = 0
 

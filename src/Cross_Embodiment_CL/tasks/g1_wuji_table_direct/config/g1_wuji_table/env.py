@@ -17,11 +17,13 @@ from isaaclab.assets import Articulation, RigidObject
 from isaaclab.envs import DirectRLEnv
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 
+from Cross_Embodiment_CL.models import WujiLatentActionPipeline
+
 from .env_cfg import G1WujiTableEnvCfg
 
 
 class G1WujiTableEnv(DirectRLEnv):
-    """G1-Wuji scene with normalized arm and hand position actions."""
+    """G1-Wuji scene with normalized arm and latent-hand position actions."""
 
     cfg: G1WujiTableEnvCfg
 
@@ -42,15 +44,17 @@ class G1WujiTableEnv(DirectRLEnv):
         self.arm_joint_ids, _ = self.robot.find_joints(self._ARM_JOINT_NAMES, preserve_order=True)
         self.wuji_joint_ids, _ = self.robot.find_joints(self._WUJI_JOINT_NAMES, preserve_order=True)
         self.waist_joint_ids, _ = self.robot.find_joints("waist_.*_joint")
-        self.control_joint_ids = self.arm_joint_ids + self.wuji_joint_ids
-        if self.cfg.action_space != len(self.control_joint_ids):
+        if self.cfg.action_space != len(self.arm_joint_ids) + WujiLatentActionPipeline.latent_dim:
             raise ValueError(
                 f"{type(self.cfg).__name__} declares action_space={self.cfg.action_space}, but the configured "
-                f"right arm and Wuji joints require {len(self.control_joint_ids)} actions."
+                "right arm plus Wuji latent action require "
+                f"{len(self.arm_joint_ids) + WujiLatentActionPipeline.latent_dim}."
             )
+        self.wuji_action_pipeline = WujiLatentActionPipeline(self.device)
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
-        self.control_joint_targets = torch.zeros_like(self.actions)
-        self.control_action_scale = torch.full((self.cfg.action_space,), 0.5, device=self.device)
+        self.arm_joint_targets = torch.zeros((self.num_envs, len(self.arm_joint_ids)), device=self.device)
+        self.wuji_joint_targets = torch.zeros((self.num_envs, len(self.wuji_joint_ids)), device=self.device)
+        self.arm_action_scale = torch.full((len(self.arm_joint_ids),), 0.5, device=self.device)
         self.waist_joint_targets = torch.zeros((self.num_envs, len(self.waist_joint_ids)), device=self.device)
 
     def _setup_scene(self) -> None:
@@ -73,21 +77,31 @@ class G1WujiTableEnv(DirectRLEnv):
         light_cfg.func("/World/Light", light_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
-        """Map normalized deltas around reset pose onto physical joint limits."""
+        """Map arm deltas and Wuji latent actions onto physical joint targets."""
         self.actions[:] = torch.clamp(actions, -1.0, 1.0)
-        limits = self.robot.data.soft_joint_pos_limits.torch[:, self.control_joint_ids]
-        lower, upper = limits[..., 0], limits[..., 1]
-        targets = (
-            self.robot.data.default_joint_pos.torch[:, self.control_joint_ids]
-            + self.control_action_scale.unsqueeze(0) * self.actions
+        arm_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.arm_joint_ids]
+        arm_lower, arm_upper = arm_limits[..., 0], arm_limits[..., 1]
+        arm_actions = self.actions[:, : len(self.arm_joint_ids)]
+        arm_targets = (
+            self.robot.data.default_joint_pos.torch[:, self.arm_joint_ids]
+            + self.arm_action_scale.unsqueeze(0) * arm_actions
         )
-        self.control_joint_targets[:] = torch.clamp(targets, min=lower, max=upper)
+        self.arm_joint_targets[:] = torch.clamp(arm_targets, min=arm_lower, max=arm_upper)
+
+        wuji_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.wuji_joint_ids]
+        self.wuji_joint_targets[:] = self.wuji_action_pipeline.latent_action_to_joint_target(
+            self.actions[:, len(self.arm_joint_ids) :], wuji_limits[..., 0], wuji_limits[..., 1]
+        )
 
     def _apply_action(self) -> None:
-        """Apply arm and Wuji actions while holding all waist joints at zero."""
+        """Apply arm and Wuji targets while holding all waist joints at zero."""
         self.robot.set_joint_position_target_index(
-            target=self.control_joint_targets,
-            joint_ids=self.control_joint_ids,
+            target=self.arm_joint_targets,
+            joint_ids=self.arm_joint_ids,
+        )
+        self.robot.set_joint_position_target_index(
+            target=self.wuji_joint_targets,
+            joint_ids=self.wuji_joint_ids,
         )
         self.robot.set_joint_position_target_index(
             target=self.waist_joint_targets,
