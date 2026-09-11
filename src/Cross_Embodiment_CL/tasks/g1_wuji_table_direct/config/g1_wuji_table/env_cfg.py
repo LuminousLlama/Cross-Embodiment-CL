@@ -13,6 +13,7 @@ from pathlib import Path
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
 from isaaclab.envs import DirectRLEnvCfg
+from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.physics import PhysxAutoCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sim import SimulationCfg
@@ -84,6 +85,25 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     action_space = 25
     observation_space = 0
     state_space = 0
+    arm_action_ema_alpha = 0.25
+    """Weight of the current arm target in the policy-rate EMA."""
+    wuji_action_ema_alpha = 0.1
+    """Weight of the current decoded Wuji target in the policy-rate EMA."""
+    goal_position = (0.35, -0.05, 0.24)
+    """Fixed apple goal position [m] in the environment frame."""
+    goal_marker_debug_vis = True
+    """Whether to draw the debug-only goal marker."""
+    goal_marker_cfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/CrossEmbodiment/goal_marker",
+        markers={
+            "goal": sim_utils.CylinderCfg(
+                radius=0.005,
+                height=0.001,
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)),
+            ),
+        },
+    )
+    """One-centimetre green disc used only to display the fixed goal position."""
 
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,

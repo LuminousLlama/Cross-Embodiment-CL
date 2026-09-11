@@ -30,6 +30,29 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         env.reset(seed=42)
         robot = unwrapped.robot
         joint_ids = unwrapped.wuji_joint_ids
+        assert torch.allclose(unwrapped.goal_position, torch.tensor([[0.35, -0.05, 0.24]], device=unwrapped.device))
+        assert unwrapped.goal_marker is not None
+        arm_actions = torch.zeros((1, unwrapped.cfg.action_space), device=unwrapped.device)
+        arm_actions[:, 0] = 1.0
+        arm_default = robot.data.default_joint_pos.torch[:, unwrapped.arm_joint_ids].clone()
+        arm_limits = robot.data.soft_joint_pos_limits.torch[:, unwrapped.arm_joint_ids]
+        arm_desired = torch.clamp(
+            arm_default + unwrapped.arm_action_scale.unsqueeze(0) * arm_actions[:, : len(unwrapped.arm_joint_ids)],
+            arm_limits[..., 0],
+            arm_limits[..., 1],
+        )
+        unwrapped._pre_physics_step(arm_actions)
+        assert torch.allclose(
+            unwrapped.arm_joint_targets,
+            0.25 * arm_desired + 0.75 * arm_default,
+        )
+        wuji_default = robot.data.default_joint_pos.torch[:, joint_ids].clone()
+        wuji_limits = robot.data.soft_joint_pos_limits.torch[:, joint_ids]
+        wuji_desired = unwrapped.wuji_action_pipeline.latent_action_to_joint_target(
+            arm_actions[:, len(unwrapped.arm_joint_ids) :], wuji_limits[..., 0], wuji_limits[..., 1]
+        )
+        assert torch.allclose(unwrapped.wuji_joint_targets, 0.1 * wuji_desired + 0.9 * wuji_default)
+        env.reset(seed=42)
         limits = robot.data.soft_joint_pos_limits.torch[:, joint_ids]
         lower_limits, upper_limits = limits[..., 0], limits[..., 1]
         generator = torch.Generator(device=unwrapped.device).manual_seed(42)

@@ -15,6 +15,7 @@ import isaaclab.sim as sim_utils
 from isaaclab import cloner
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.envs import DirectRLEnv
+from isaaclab.markers import VisualizationMarkers
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 
 from Cross_Embodiment_CL.models import WujiLatentActionPipeline
@@ -51,11 +52,20 @@ class G1WujiTableEnv(DirectRLEnv):
                 f"{len(self.arm_joint_ids) + WujiLatentActionPipeline.latent_dim}."
             )
         self.wuji_action_pipeline = WujiLatentActionPipeline(self.device)
+        if not 0.0 < self.cfg.arm_action_ema_alpha <= 1.0:
+            raise ValueError("arm_action_ema_alpha must be in (0, 1].")
+        if not 0.0 < self.cfg.wuji_action_ema_alpha <= 1.0:
+            raise ValueError("wuji_action_ema_alpha must be in (0, 1].")
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
         self.arm_joint_targets = torch.zeros((self.num_envs, len(self.arm_joint_ids)), device=self.device)
         self.wuji_joint_targets = torch.zeros((self.num_envs, len(self.wuji_joint_ids)), device=self.device)
         self.arm_action_scale = torch.full((len(self.arm_joint_ids),), 0.5, device=self.device)
         self.waist_joint_targets = torch.zeros((self.num_envs, len(self.waist_joint_ids)), device=self.device)
+        self.goal_position = torch.tensor(self.cfg.goal_position, device=self.device).repeat(self.num_envs, 1)
+        self.goal_marker: VisualizationMarkers | None = None
+        if self.cfg.goal_marker_debug_vis:
+            self.goal_marker = VisualizationMarkers(self.cfg.goal_marker_cfg)
+            self.goal_marker.visualize(translations=self.goal_position + self.scene.env_origins)
 
     def _setup_scene(self) -> None:
         self.robot = Articulation(self.cfg.robot_cfg)
@@ -86,12 +96,14 @@ class G1WujiTableEnv(DirectRLEnv):
             self.robot.data.default_joint_pos.torch[:, self.arm_joint_ids]
             + self.arm_action_scale.unsqueeze(0) * arm_actions
         )
-        self.arm_joint_targets[:] = torch.clamp(arm_targets, min=arm_lower, max=arm_upper)
+        arm_targets = torch.clamp(arm_targets, min=arm_lower, max=arm_upper)
+        self.arm_joint_targets.lerp_(arm_targets, self.cfg.arm_action_ema_alpha)
 
         wuji_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.wuji_joint_ids]
-        self.wuji_joint_targets[:] = self.wuji_action_pipeline.latent_action_to_joint_target(
+        wuji_targets = self.wuji_action_pipeline.latent_action_to_joint_target(
             self.actions[:, len(self.arm_joint_ids) :], wuji_limits[..., 0], wuji_limits[..., 1]
         )
+        self.wuji_joint_targets.lerp_(wuji_targets, self.cfg.wuji_action_ema_alpha)
 
     def _apply_action(self) -> None:
         """Apply arm and Wuji targets while holding all waist joints at zero."""
@@ -141,6 +153,11 @@ class G1WujiTableEnv(DirectRLEnv):
         self.robot.set_joint_position_target_index(
             target=self.robot.data.default_joint_pos.torch[env_ids], env_ids=env_ids
         )
+        # Start each episode's EMA at the reset target, rather than blending
+        # its first policy command with a prior episode's target.
+        if hasattr(self, "arm_joint_targets"):
+            self.arm_joint_targets[env_ids] = self.robot.data.default_joint_pos.torch[env_ids, self.arm_joint_ids]
+            self.wuji_joint_targets[env_ids] = self.robot.data.default_joint_pos.torch[env_ids, self.wuji_joint_ids]
         self.robot.set_joint_position_target_index(
             target=torch.zeros((len(env_ids), len(self.waist_joint_ids)), device=self.device),
             joint_ids=self.waist_joint_ids,
