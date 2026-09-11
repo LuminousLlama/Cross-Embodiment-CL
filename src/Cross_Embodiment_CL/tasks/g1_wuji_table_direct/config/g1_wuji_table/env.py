@@ -51,10 +51,12 @@ class G1WujiTableEnv(DirectRLEnv):
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
         self.control_joint_targets = torch.zeros_like(self.actions)
         self.control_action_scale = torch.full((self.cfg.action_space,), 0.5, device=self.device)
+        self.waist_joint_targets = torch.zeros((self.num_envs, len(self.waist_joint_ids)), device=self.device)
 
     def _setup_scene(self) -> None:
         self.robot = Articulation(self.cfg.robot_cfg)
         self.table = RigidObject(self.cfg.table_cfg)
+        self.apple = RigidObject(self.cfg.apple_cfg)
 
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -1.0))
         source, destination = "/World/envs/env_0", "/World/envs/env_{}"
@@ -68,6 +70,7 @@ class G1WujiTableEnv(DirectRLEnv):
 
         self.scene.articulations["robot"] = self.robot
         self.scene.rigid_objects["table"] = self.table
+        self.scene.rigid_objects["apple"] = self.apple
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
@@ -83,13 +86,13 @@ class G1WujiTableEnv(DirectRLEnv):
         self.control_joint_targets[:] = torch.clamp(targets, min=lower, max=upper)
 
     def _apply_action(self) -> None:
-        """Apply arm and Wuji actions while holding the waist at its reset pose."""
+        """Apply arm and Wuji actions while holding all waist joints at zero."""
         self.robot.set_joint_position_target_index(
             target=self.control_joint_targets,
             joint_ids=self.control_joint_ids,
         )
         self.robot.set_joint_position_target_index(
-            target=self.robot.data.default_joint_pos.torch[:, self.waist_joint_ids],
+            target=self.waist_joint_targets,
             joint_ids=self.waist_joint_ids,
         )
 
@@ -108,7 +111,7 @@ class G1WujiTableEnv(DirectRLEnv):
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int]) -> None:
-        """Restore the authored robot and table poses without randomization."""
+        """Restore the authored robot, table, and apple poses without randomization."""
         super()._reset_idx(env_ids)
 
         robot_pose = self.robot.data.default_root_pose.torch[env_ids].clone()
@@ -126,9 +129,20 @@ class G1WujiTableEnv(DirectRLEnv):
         self.robot.set_joint_position_target_index(
             target=self.robot.data.default_joint_pos.torch[env_ids], env_ids=env_ids
         )
+        self.robot.set_joint_position_target_index(
+            target=torch.zeros((len(env_ids), len(self.waist_joint_ids)), device=self.device),
+            joint_ids=self.waist_joint_ids,
+            env_ids=env_ids,
+        )
         table_pose = self.table.data.default_root_pose.torch[env_ids].clone()
         table_pose[:, :3] += self.scene.env_origins[env_ids]
         self.table.write_root_pose_to_sim_index(root_pose=table_pose, env_ids=env_ids)
         self.table.write_root_velocity_to_sim_index(
             root_velocity=self.table.data.default_root_vel.torch[env_ids], env_ids=env_ids
+        )
+        apple_pose = self.apple.data.default_root_pose.torch[env_ids].clone()
+        apple_pose[:, :3] += self.scene.env_origins[env_ids]
+        self.apple.write_root_pose_to_sim_index(root_pose=apple_pose, env_ids=env_ids)
+        self.apple.write_root_velocity_to_sim_index(
+            root_velocity=self.apple.data.default_root_vel.torch[env_ids], env_ids=env_ids
         )

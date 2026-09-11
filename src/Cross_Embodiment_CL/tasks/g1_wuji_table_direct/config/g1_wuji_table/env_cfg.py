@@ -24,6 +24,7 @@ from isaaclab_physx.physics import PhysxCfg
 from isaaclab_tasks.utils import PresetCfg
 
 _G1_CONFIG_PATH = Path(__file__).resolve().parents[6] / "assets/g1/g1.py"
+_APPLE_USD_PATH = Path(__file__).resolve().parents[6] / "assets/objects/YcbApple/textured.usda"
 _g1_config_spec = importlib.util.spec_from_file_location("cross_embodiment_cl_g1_config", _G1_CONFIG_PATH)
 if _g1_config_spec is None or _g1_config_spec.loader is None:
     raise ImportError(f"Unable to load G1 configuration from {_G1_CONFIG_PATH}.")
@@ -77,6 +78,13 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         ),
         # The G1 asset's fixed pelvis is at z=0; the table top is therefore at pelvis height.
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, -0.02)),
+    )
+    apple_cfg: RigidObjectCfg = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/Apple",
+        spawn=sim_utils.UsdFileCfg(usd_path=str(_APPLE_USD_PATH)),
+        # The apple mesh extends to z=-0.0367 m in its local frame. Start its
+        # root just above the z=0 tabletop and let normal contact settle it.
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, -0.05, 0.04)),
     )
 
     def __post_init__(self) -> None:
