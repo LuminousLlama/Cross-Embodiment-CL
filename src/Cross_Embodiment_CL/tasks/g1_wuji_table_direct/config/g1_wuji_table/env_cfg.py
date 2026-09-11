@@ -21,6 +21,7 @@ from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
 from isaaclab.visualizers import VisualizerCfg
 from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
+from isaaclab_ov.physics import OvPhysxCfg
 from isaaclab_physx.physics import PhysxCfg
 
 from isaaclab_tasks.utils import PresetCfg
@@ -40,7 +41,20 @@ class G1WujiTablePhysicsCfg(PresetCfg):
     """PhysX and Newton backend presets for the G1-Wuji visual scene."""
 
     isaacsim_physx: PhysxCfg = PhysxCfg()
-    physx: PhysxAutoCfg = PhysxAutoCfg(isaacsim_physx=isaacsim_physx)
+    # OvPhysX runs the same PhysX solver without Kit, which is the only way to
+    # reach PhysX on a machine that has no Isaac Sim installation.
+    #
+    # The stock GPU buffer capacities are sized for far heavier scenes than one fixed-base
+    # arm, one apple and one table.  Measured at 2048 environments, the values below cut
+    # PhysX's GPU footprint by ~1.7 GB with byte-identical rollout metrics and no capacity
+    # warnings.  Raise them again if this scene ever gains objects.
+    ovphysx: OvPhysxCfg = OvPhysxCfg(
+        gpu_max_rigid_contact_count=2**20,
+        gpu_found_lost_aggregate_pairs_capacity=2**22,
+        gpu_collision_stack_size=2**24,
+        gpu_total_aggregate_pairs_capacity=2**19,
+    )
+    physx: PhysxAutoCfg = PhysxAutoCfg(isaacsim_physx=isaacsim_physx, ovphysx=ovphysx)
     newton_mjwarp: NewtonCfg = NewtonCfg(
         # MJWarp defaults to explicit Euler and one substep.  This articulated
         # hand scene needs the documented dexterous-manipulation baseline;
@@ -140,7 +154,35 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     reach_reward_scale = 10.0
     goal_reward_scale = 5.0
     goal_reward_alpha = 15.0
-    contact_force_threshold = 1.0
+    lift_reward_scale = 3.0
+    """Per-step reward for carrying the apple the full way from its rest height to the goal.
+
+    Force-graded contact alone is farmable by mashing one body into the apple against the
+    table: measured, that pinned the apple 1.5 cm *below* its rest height at ~50 N while
+    ``tanh`` saturated.  Height cannot be farmed that way and is the behaviour actually wanted.
+    """
+    press_tolerance = 0.005
+    """Depth [m] below rest height past which the apple counts as pressed, not held."""
+    contact_force_threshold = 0.1
+    """Per-body normal force [N] counted as contact.
+
+    The apple weighs 0.667 N and its friction is 2.0, so a correct grasp only needs about
+    0.17 N per finger.  The previous 1.0 N could not be reached by any gentle grasp.
+    """
+    contact_min_bodies = 1
+    """Hand bodies that must be in contact for the grasp gate.
+
+    Deliberately not thumb-specific: ``right_finger1_tip_link`` measured 0.0 N throughout,
+    so requiring it made the gate unsatisfiable.
+    """
+    contact_reward_scale = 0.5
+    """Per-step scale of the dense grasp reward, the stepping stone between reach and lift."""
+    contact_force_reference = 0.2
+    """Force [N] at which one body's dense contact term reaches tanh(1) ~ 0.76.
+
+    The dense term must be graded in force rather than gated: a binary gate pays nothing
+    until it is already satisfied, so it supplies no gradient toward making contact.
+    """
     success_keypoint_error_threshold = 0.10
     """Terminal mean virtual-keypoint error threshold [m] for the success metric."""
     object_max_horizontal_displacement = 0.20
@@ -167,7 +209,20 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     )
     apple_cfg: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Apple",
-        spawn=sim_utils.UsdFileCfg(usd_path=str(_APPLE_USD_PATH)),
+        spawn=sim_utils.UsdFileCfg(
+            usd_path=str(_APPLE_USD_PATH),
+            # The authored asset uses convexDecomposition, which CoACD expands into 61
+            # hulls.  Against a 20-joint hand that inflates the contact and constraint
+            # counts enough to make large environment counts impractical: an njmax high
+            # enough to stay stable costs more memory than it is worth, and an njmax small
+            # enough to be cheap diverges into NaN.  An apple is convex apart from its stem
+            # dimple, so a single convex hull keeps grasp contacts faithful far more cheaply.
+            collision_props=sim_utils.CollisionPropertiesCfg(
+                mesh_collision_property=sim_utils.MeshCollisionPropertiesCfg(
+                    mesh_approximation_name="convexHull"
+                )
+            ),
+        ),
         # The apple mesh extends to z=-0.0367 m in its local frame. Start its
         # root just above the z=0 tabletop and let normal contact settle it.
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, -0.05, 0.04)),

@@ -233,33 +233,53 @@ class G1WujiTableEnv(DirectRLEnv):
         self.extras.pop("log", None)
         hand_points = self.robot.data.body_pos_w.torch[:, self.hand_point_body_ids]
         object_position = self.apple.data.root_pos_w.torch
-        hand_dist = torch.linalg.vector_norm(hand_points - object_position.unsqueeze(1), dim=-1).max(dim=1).values
+        hand_point_dist = torch.linalg.vector_norm(hand_points - object_position.unsqueeze(1), dim=-1)
+        hand_dist = hand_point_dist.max(dim=1).values
+        nearest_hand_dist = hand_point_dist.min(dim=1).values
         reach_reward = torch.exp(-self.cfg.reach_reward_scale * hand_dist)
 
         contact_forces = {
             name: torch.linalg.vector_norm(sensor.data.normal_force_matrix_w.torch[:, 0, 0], dim=-1)
             for name, sensor in self.contact_sensors.items()
         }
-        thumb_contact = contact_forces[self._THUMB_CONTACT_BODY_NAME] > self.cfg.contact_force_threshold
-        other_contact_count = torch.stack(
-            [
-                force > self.cfg.contact_force_threshold
-                for name, force in contact_forces.items()
-                if name != self._THUMB_CONTACT_BODY_NAME
-            ],
-            dim=1,
-        ).sum(dim=1)
-        contact_gate = thumb_contact & (other_contact_count >= 1)
+        contact_force_stack = torch.stack(list(contact_forces.values()), dim=1)
+        contact_body_count = (contact_force_stack > self.cfg.contact_force_threshold).sum(dim=1)
+        contact_gate = contact_body_count >= self.cfg.contact_min_bodies
 
         current_keypoints = self._transform_keypoints(object_position, self.apple.data.root_quat_w.torch)
         goal_keypoints = self._transform_keypoints(
             self.goal_position + self.scene.env_origins, self.goal_rotation
         )
         keypoint_error = torch.linalg.vector_norm(current_keypoints - goal_keypoints, dim=-1).mean(dim=1)
+        # Gating the pose reward on contact is the original design and it is kept, because an
+        # ungated version is a trap: keypoint_error can only rise when the apple is disturbed,
+        # so touching it is net negative.  Measured ungated, the policy hovered with its
+        # nearest hand point 1.8 cm clear of the apple and touched in ~1% of steps.  Gated,
+        # experimenting with contact costs nothing and the lift only competes once the apple
+        # is held.  The gate itself had to be repaired first -- see contact_force_threshold.
         goal_reward = (
             self.cfg.goal_reward_scale * torch.exp(-self.cfg.goal_reward_alpha * keypoint_error) * contact_gate
         )
-        contact_reward = 0.01 * contact_gate
+        # Graded in force rather than gated.  Paying contact_reward_scale * contact_gate is
+        # zero until two fingers already touch, so it supplies no gradient toward touching
+        # at all; this term rises with any contact and bridges reach -> grasp.  tanh bounds
+        # it so pressing the apple into the table cannot out-earn lifting it.
+        # Rest height is the authored spawn height; the apple settles a touch below it, so
+        # the clamp below makes "sitting untouched" score exactly zero.
+        rest_height = self.object_start_position[:, 2] + self.scene.env_origins[:, 2]
+        goal_height = self.goal_position[:, 2] + self.scene.env_origins[:, 2]
+        lift_fraction = torch.clamp(
+            (object_position[:, 2] - rest_height) / (goal_height - rest_height), 0.0, 1.0
+        )
+        lift_reward = self.cfg.lift_reward_scale * lift_fraction
+        # Contact only counts while the apple is not being crushed downward, which is what
+        # closes off the press exploit without removing the gradient toward touching.
+        held = object_position[:, 2] > rest_height - self.cfg.press_tolerance
+        contact_reward = (
+            self.cfg.contact_reward_scale
+            * torch.tanh(contact_force_stack / self.cfg.contact_force_reference).mean(dim=1)
+            * held
+        )
         arm_tracking_error = torch.abs(
             self.robot.data.joint_pos.torch[:, self.arm_joint_ids] - self.arm_joint_targets
         ).mean(dim=-1)
@@ -270,21 +290,24 @@ class G1WujiTableEnv(DirectRLEnv):
             reach_reward,
             goal_reward,
             contact_reward,
+            lift_reward,
             hand_dist,
             keypoint_error,
             object_position[:, 2],
             contact_gate,
             arm_tracking_error,
             wuji_tracking_error,
+            contact_force_stack,
+            nearest_hand_dist,
         )
         self._update_keypoint_markers(current_keypoints=current_keypoints, goal_keypoints=goal_keypoints)
-        return reach_reward + goal_reward + contact_reward
+        return reach_reward + goal_reward + contact_reward + lift_reward
 
     def _init_episode_metrics(self) -> None:
         """Allocate per-environment buffers for completed-episode diagnostics."""
         self._episode_reward_sums = {
             name: torch.zeros(self.num_envs, device=self.device)
-            for name in ("reach_return", "goal_return", "contact_return")
+            for name in ("reach_return", "goal_return", "contact_return", "lift_return")
         }
         self._episode_contact_gate_steps = torch.zeros(self.num_envs, device=self.device)
         self._episode_arm_tracking_error_sum = torch.zeros(self.num_envs, device=self.device)
@@ -301,17 +324,21 @@ class G1WujiTableEnv(DirectRLEnv):
         reach_reward: torch.Tensor,
         goal_reward: torch.Tensor,
         contact_reward: torch.Tensor,
+        lift_reward: torch.Tensor,
         hand_distance: torch.Tensor,
         keypoint_error: torch.Tensor,
         object_height: torch.Tensor,
         contact_gate: torch.Tensor,
         arm_tracking_error: torch.Tensor,
         wuji_tracking_error: torch.Tensor,
+        contact_force_stack: torch.Tensor,
+        nearest_hand_distance: torch.Tensor,
     ) -> None:
         """Accumulate task diagnostics and publish scalar metrics through RSL-RL extras."""
         self._episode_reward_sums["reach_return"] += reach_reward
         self._episode_reward_sums["goal_return"] += goal_reward
         self._episode_reward_sums["contact_return"] += contact_reward
+        self._episode_reward_sums["lift_return"] += lift_reward
         self._episode_contact_gate_steps += contact_gate
         self._episode_arm_tracking_error_sum += arm_tracking_error
         self._episode_wuji_tracking_error_sum += wuji_tracking_error
@@ -323,6 +350,7 @@ class G1WujiTableEnv(DirectRLEnv):
             "Metrics/step_reach_reward": reach_reward.mean(),
             "Metrics/step_goal_reward": goal_reward.mean(),
             "Metrics/step_contact_reward": contact_reward.mean(),
+            "Metrics/step_lift_reward": lift_reward.mean(),
             "Metrics/step_hand_distance": hand_distance.mean(),
             "Metrics/step_keypoint_error": keypoint_error.mean(),
             "Metrics/step_object_height": object_height.mean(),
@@ -330,6 +358,15 @@ class G1WujiTableEnv(DirectRLEnv):
             "Control/step_arm_tracking_error": arm_tracking_error.mean(),
             "Control/step_wuji_tracking_error": wuji_tracking_error.mean(),
             "Control/step_action_saturation_fraction": (self.actions.abs() >= 0.999).float().mean(),
+            "Contact/step_max_force": contact_force_stack.max(dim=1).values.mean(),
+            "Contact/step_thumb_force": contact_force_stack[
+                :, list(self.contact_sensors).index(self._THUMB_CONTACT_BODY_NAME)
+            ].mean(),
+            "Contact/step_any_touch_fraction": (contact_force_stack > 0.0).any(dim=1).float().mean(),
+            "Contact/step_bodies_over_threshold": (
+                contact_force_stack > self.cfg.contact_force_threshold
+            ).float().sum(dim=1).mean(),
+            "Metrics/step_nearest_hand_distance": nearest_hand_distance.mean(),
         }
 
         reset_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
