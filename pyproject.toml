@@ -41,9 +41,11 @@ environments = [
 ]
 override-dependencies = [
     "numpy>=2",
-    "mujoco~=3.11.0",
-    "mujoco-warp~=3.11.0",
-    "newton[sim]==1.5.1",
+    "mujoco~=3.12.0",
+    "mujoco-warp~=3.12.0",
+    # Keep this aligned with the adjacent Isaac Lab checkout: 1.5.1 lacks the
+    # batched-cloner API required by its Newton integration.
+    "newton[sim]==1.6.0rc1",
     "newton-usd-schemas>=0.4.1",
     "torch==2.11.0",
     "torchvision==0.26.0",
@@ -149,4 +151,3 @@ explicit = true
 name = "pytorch-cu130"
 url = "https://download.pytorch.org/whl/cu130"
 explicit = true
-
