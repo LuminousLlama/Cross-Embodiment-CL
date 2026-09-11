@@ -29,9 +29,8 @@ G1_BASE_CFG = ArticulationCfg(
         joint_pos={},
         joint_vel={},
     ),
-    # Unitree G1 reference PD values from Isaac Lab's unitree.py.  They hold
-    # the fixed-base waist and right arm at the nominal reset pose; no policy
-    # action interface is defined in this visual scene.
+    # Unitree G1 joint limits and effort limits, with deliberately moderate
+    # arm PD gains for an initially easy-to-control manipulation interface.
     actuators={
         "waist": ImplicitActuatorCfg(
             joint_names_expr=["waist_.*_joint"],
@@ -59,8 +58,8 @@ G1_BASE_CFG = ArticulationCfg(
             ],
             joint_effort_limit=300.0,
             joint_velocity_limit=100.0,
-            stiffness=3000.0,
-            damping=10.0,
+            stiffness=300.0,
+            damping=30.0,
             armature={
                 ".*_shoulder_.*": 0.001,
                 ".*_elbow_.*": 0.001,

@@ -65,8 +65,6 @@ class G1WujiTableEnv(DirectRLEnv):
             source, destination, self.scene.num_envs, positions, global_paths=("/World/ground",)
         )
         cloner.replicate(plan)
-        if "physx" in self.scene.physics_backend:
-            self.scene.filter_collisions(global_prim_paths=["/World/ground"])
 
         self.scene.articulations["robot"] = self.robot
         self.scene.rigid_objects["table"] = self.table

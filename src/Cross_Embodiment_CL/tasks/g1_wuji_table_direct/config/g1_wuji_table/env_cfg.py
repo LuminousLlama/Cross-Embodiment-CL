@@ -40,9 +40,34 @@ class G1WujiTablePhysicsCfg(PresetCfg):
     isaacsim_physx: PhysxCfg = PhysxCfg()
     physx: PhysxAutoCfg = PhysxAutoCfg(isaacsim_physx=isaacsim_physx)
     newton_mjwarp: NewtonCfg = NewtonCfg(
-        solver_cfg=MJWarpSolverCfg(),
-        debug_mode=False,
+        # MJWarp defaults to explicit Euler and one substep.  This articulated
+        # hand scene needs the documented dexterous-manipulation baseline;
+        # keep it backend-local so the verified PhysX dynamics are unchanged.
+        solver_cfg=MJWarpSolverCfg(
+            solver="newton",
+            integrator="implicitfast",
+            # Random full-range hand motion has reached 581 constraint rows.
+            # Constraints include drives and limits as well as contacts, so
+            # this budget is intentionally independent of nconmax.
+            njmax=1024,
+            # The apple's convex decomposition has 61 hulls.  A deliberately
+            # deep apple-palm overlap exceeds the 70-contact dexterous baseline
+            # before its 144 constraint rows reach njmax.  Reserve headroom for
+            # valid hand-object contacts without changing the PhysX scene.
+            nconmax=512,
+            iterations=100,
+            ls_iterations=50,
+            tolerance=1e-6,
+            cone="elliptic",
+            impratio=10.0,
+        ),
+        num_substeps=2,
+        debug_mode=True,
         use_cuda_graph=True,
+        # The YCB asset intentionally separates an invisible collision mesh
+        # from its render-only textured mesh.  Always import the latter so
+        # either Newton visualizer can display the same apple as Kit/PhysX.
+        load_visual_shapes=True,
     )
     default: PhysxCfg = isaacsim_physx
 
