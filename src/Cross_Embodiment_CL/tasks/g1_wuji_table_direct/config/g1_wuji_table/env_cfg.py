@@ -16,6 +16,7 @@ from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.physics import PhysxAutoCfg
 from isaaclab.scene import InteractiveSceneCfg
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
 from isaaclab.visualizers import VisualizerCfg
@@ -63,7 +64,10 @@ class G1WujiTablePhysicsCfg(PresetCfg):
             impratio=10.0,
         ),
         num_substeps=2,
-        debug_mode=True,
+        # Solver debug mode performs a device-to-host readback after every
+        # simulation step. Keep it disabled for training; enable it only for
+        # a focused Newton solver investigation.
+        debug_mode=False,
         use_cuda_graph=True,
         # The YCB asset intentionally separates an invisible collision mesh
         # from its render-only textured mesh.  Always import the latter so
@@ -78,32 +82,69 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Configuration for a fixed G1-Wuji assembly facing a pelvis-height work table."""
 
     decimation = 2
-    episode_length_s = 60.0
+    episode_length_s = 8.0
 
     # Normalized joint-position deltas for the 7 right-arm joints, followed by
     # the frozen 18-D Wuji latent action. The waist remains internally held.
     action_space = 25
-    observation_space = 0
-    state_space = 0
+    # The policy and critic deliberately receive the identical privileged state.
+    observation_space = 117
+    state_space = 117
+    contact_force_observation_max = 20.0
+    """Maximum apple contact-force magnitude [N] before the log1p observation transform."""
     arm_action_ema_alpha = 0.25
     """Weight of the current arm target in the policy-rate EMA."""
     wuji_action_ema_alpha = 0.1
     """Weight of the current decoded Wuji target in the policy-rate EMA."""
     goal_position = (0.35, -0.05, 0.24)
     """Fixed apple goal position [m] in the environment frame."""
-    goal_marker_debug_vis = True
-    """Whether to draw the debug-only goal marker."""
-    goal_marker_cfg = VisualizationMarkersCfg(
-        prim_path="/Visuals/CrossEmbodiment/goal_marker",
+    debug_vis = False
+    """Whether to draw debug-only object-pose keypoint markers."""
+    goal_keypoint_marker_cfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/CrossEmbodiment/goal_keypoints",
         markers={
-            "goal": sim_utils.CylinderCfg(
-                radius=0.005,
-                height=0.001,
+            "goal": sim_utils.SphereCfg(
+                radius=0.01,
                 visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)),
             ),
         },
     )
-    """One-centimetre green disc used only to display the fixed goal position."""
+    """Two-centimetre green spheres marking the eight fixed goal keypoints."""
+    object_keypoint_marker_cfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/CrossEmbodiment/object_keypoints",
+        markers={
+            "object": sim_utils.SphereCfg(
+                radius=0.01,
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
+            ),
+        },
+    )
+    """Two-centimetre red spheres marking the current object-frame keypoints."""
+    contact_sensor_cfg = ContactSensorCfg(
+        prim_path="/World/envs/env_[^/]+/G1Wuji/wujihand/right_palm_link",
+        update_period=0.0,
+        history_length=0,
+        filter_prim_paths_expr=["/World/envs/env_[^/]+/Apple"],
+        max_contact_data_count_per_prim=64,
+    )
+    """Template for one body-to-apple force sensor; the environment creates six instances."""
+    torso_contact_sensor_cfg = ContactSensorCfg(
+        prim_path="/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link",
+        update_period=0.0,
+        history_length=0,
+        filter_prim_paths_expr=["/World/envs/env_[^/]+/Apple"],
+    )
+    """Filtered torso-to-apple sensor for the collision termination."""
+    keypoint_extent = 0.15
+    """Half-side length [m] of the virtual object-frame cube used for pose reward."""
+    reach_reward_scale = 10.0
+    goal_reward_scale = 5.0
+    goal_reward_alpha = 15.0
+    contact_force_threshold = 1.0
+    success_keypoint_error_threshold = 0.10
+    """Terminal mean virtual-keypoint error threshold [m] for the success metric."""
+    object_max_horizontal_displacement = 0.20
+    """Maximum horizontal displacement [m] from the authored apple reset pose."""
 
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,
