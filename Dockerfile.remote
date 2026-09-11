@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1
+
+ARG ISAACLAB_IMAGE=cross-cl/isaac-lab-base:e78aa3e
+FROM ${ISAACLAB_IMAGE}
+
+USER root
+
+# The project lockfile references ../IsaacLab, while the upstream image keeps
+# its checkout at /workspace/isaaclab.
+RUN ln -sfn /workspace/isaaclab /workspace/IsaacLab \
+    && mkdir -p /workspace/Cross-Embodiment-CL \
+    && chown -R isaaclab:isaaclab /workspace/Cross-Embodiment-CL
+
+COPY --chown=isaaclab:isaaclab . /workspace/Cross-Embodiment-CL
+
+USER isaaclab
+WORKDIR /workspace/Cross-Embodiment-CL
+
+# Keep Isaac Sim and its runtime packages from the parent image while making
+# this project's frozen lockfile authoritative for its Python dependencies.
+RUN --mount=type=cache,target=/root/.cache/uv,uid=1000,gid=1000 \
+    uv sync \
+      --frozen \
+      --inexact \
+      --no-dev \
+      --no-install-package imageio-ffmpeg
+
+ENTRYPOINT []
+CMD ["bash"]

@@ -43,6 +43,54 @@ uv run --extra isaacsim isaaclab random_agent --task <TASK_NAME> physics=isaacsi
 The `ov` extra installs both the `ovphysx` and `ovrtx` runtimes. You can also select `ovrtx` independently when using
 Newton physics with the OVRTX renderer. Commit `pyproject.toml` and `uv.lock` so collaborators use the same environment.
 
+## Remote Docker training
+
+Build the upstream Isaac Lab base image from the adjacent checkout first. The project currently targets Isaac Lab commit
+`e78aa3e21c2d10c0e74b4b28ff537d84f6544fbb` and Isaac Sim 6.1.0. On a headless server, answer `N` if the container helper
+asks whether to enable X11 forwarding.
+
+```bash
+cd ../IsaacLab
+python3 docker/container.py build base
+
+# Preserve this build under the project-specific name expected by Dockerfile.remote.
+docker tag isaac-lab-base:latest cross-cl/isaac-lab-base:e78aa3e
+```
+
+Build the downstream image from this repository. The `assets/` directory is intentionally included in the build context
+because it contains the robot USDs, YCB apple, and Wuji latent checkpoints.
+
+```bash
+cd ../Cross-Embodiment-CL
+docker build --file Dockerfile.remote --tag cross-embodiment-cl:latest .
+```
+
+Prepare a persistent, writable output directory and run the required headless PhysX smoke test:
+
+```bash
+mkdir -p ../runs
+sudo chown -R 1000:1000 ../runs
+
+docker run --rm \
+  --gpus all \
+  --shm-size=8g \
+  -e ACCEPT_EULA=Y \
+  -e OMNI_KIT_ACCEPT_EULA=Y \
+  -v "$(realpath ../runs):/workspace/Cross-Embodiment-CL/logs" \
+  cross-embodiment-cl:latest \
+  uv run --frozen --no-sync isaaclab train \
+    --rl_library rsl_rl \
+    --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+    --num_envs 2048 \
+    --device cuda \
+    --max_iterations 1 \
+    --run_name g1_wuji_table_2048_smoke \
+    physics=isaacsim_physx
+```
+
+After the smoke test succeeds, remove `--max_iterations 1` and select a new run name for full training. For Newton, use
+`physics=newton_mjwarp`; begin with 32 environments because that is the locally established Newton configuration.
+
 ## Run the generated tasks
 
 Replace the placeholders below with a task listed above and a selected RL library.

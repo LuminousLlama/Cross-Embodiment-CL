@@ -1,0 +1,16 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+.vscode
+**/__pycache__
+**/*.egg-info
+build
+dist
+logs
+outputs
+videos
+wandb
+tmp
+imgui.ini
+pyrightconfig.json
