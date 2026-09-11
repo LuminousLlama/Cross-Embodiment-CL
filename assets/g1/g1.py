@@ -90,6 +90,7 @@ G1_BASE_CFG = ArticulationCfg(
 
 G1_WUJI_CFG = G1_BASE_CFG.copy()
 G1_WUJI_CFG.spawn.usd_path = str(_G1_ASSET_DIR / "g1_with_hands/g1_wuji.usda")
+G1_WUJI_CFG.spawn.activate_contact_sensors = True
 G1_WUJI_CFG.init_state = ArticulationCfg.InitialStateCfg(
     pos=(0.0, 0.0, 0.0),
     # The thumb-base lower limit is 0.047 rad; this is its valid neutral pose.
