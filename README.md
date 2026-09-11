@@ -78,7 +78,7 @@ docker run --rm \
   -e OMNI_KIT_ACCEPT_EULA=Y \
   -v "$(realpath ../runs):/workspace/Cross-Embodiment-CL/logs" \
   cross-embodiment-cl:latest \
-  uv run --frozen --no-sync isaaclab train \
+  isaaclab train \
     --rl_library rsl_rl \
     --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
     --num_envs 2048 \

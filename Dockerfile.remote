@@ -8,6 +8,7 @@ USER root
 # The project lockfile references ../IsaacLab, while the upstream image keeps
 # its checkout at /workspace/isaaclab.
 RUN ln -sfn /workspace/isaaclab /workspace/IsaacLab \
+    && ln -sfn /workspace/isaaclab/isaaclab.sh /usr/local/bin/isaaclab \
     && mkdir -p /workspace/Cross-Embodiment-CL \
     && chown -R isaaclab:isaaclab /workspace/Cross-Embodiment-CL
 
