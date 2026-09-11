@@ -1,3 +1,81 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:2bc0106e744b43d2de3eac869b675459ab306e88af099e7b49f087c9b69d465f
-size 3570
+#usda 1.0
+(
+    # Keep the source robot untouched.  This stronger layer retains the pelvis,
+    # waist, torso, and right arm only for fixed-base manipulation.
+    defaultPrim = "g1_29dof_with_hand_rev_1_0"
+    subLayers = [
+        @../configuration/g1_simplified_robot.usda@,
+        @../g1_base/g1_base.usda@
+    ]
+)
+
+over "g1_29dof_with_hand_rev_1_0"
+{
+    # Deactivating a link removes its visual and collision descendants as well
+    # as its rigid body from the resolved articulation.
+    over "left_hip_pitch_link" (active = false) {}
+    over "left_hip_roll_link" (active = false) {}
+    over "left_hip_yaw_link" (active = false) {}
+    over "left_knee_link" (active = false) {}
+    over "left_ankle_pitch_link" (active = false) {}
+    over "left_ankle_roll_link" (active = false) {}
+    over "right_hip_pitch_link" (active = false) {}
+    over "right_hip_roll_link" (active = false) {}
+    over "right_hip_yaw_link" (active = false) {}
+    over "right_knee_link" (active = false) {}
+    over "right_ankle_pitch_link" (active = false) {}
+    over "right_ankle_roll_link" (active = false) {}
+    over "left_shoulder_pitch_link" (active = false) {}
+    over "left_shoulder_roll_link" (active = false) {}
+    over "left_shoulder_yaw_link" (active = false) {}
+    over "left_elbow_link" (active = false) {}
+    over "left_wrist_roll_link" (active = false) {}
+    over "left_wrist_pitch_link" (active = false) {}
+    over "left_wrist_yaw_link" (active = false) {}
+
+    over "joints"
+    {
+        over "left_hip_pitch_joint" (active = false) {}
+        over "left_hip_roll_joint" (active = false) {}
+        over "left_hip_yaw_joint" (active = false) {}
+        over "left_knee_joint" (active = false) {}
+        over "left_ankle_pitch_joint" (active = false) {}
+        over "left_ankle_roll_joint" (active = false) {}
+        over "right_hip_pitch_joint" (active = false) {}
+        over "right_hip_roll_joint" (active = false) {}
+        over "right_hip_yaw_joint" (active = false) {}
+        over "right_knee_joint" (active = false) {}
+        over "right_ankle_pitch_joint" (active = false) {}
+        over "right_ankle_roll_joint" (active = false) {}
+        over "left_shoulder_pitch_joint" (active = false) {}
+        over "left_shoulder_roll_joint" (active = false) {}
+        over "left_shoulder_yaw_joint" (active = false) {}
+        over "left_elbow_joint" (active = false) {}
+        over "left_wrist_roll_joint" (active = false) {}
+        over "left_wrist_pitch_joint" (active = false) {}
+        over "left_wrist_yaw_joint" (active = false) {}
+    }
+}
+
+over "colliders"
+{
+    over "left_hip_pitch_link" (active = false) {}
+    over "left_hip_roll_link" (active = false) {}
+    over "left_hip_yaw_link" (active = false) {}
+    over "left_knee_link" (active = false) {}
+    over "left_ankle_pitch_link" (active = false) {}
+    over "left_ankle_roll_link" (active = false) {}
+    over "right_hip_pitch_link" (active = false) {}
+    over "right_hip_roll_link" (active = false) {}
+    over "right_hip_yaw_link" (active = false) {}
+    over "right_knee_link" (active = false) {}
+    over "right_ankle_pitch_link" (active = false) {}
+    over "right_ankle_roll_link" (active = false) {}
+    over "left_shoulder_pitch_link" (active = false) {}
+    over "left_shoulder_roll_link" (active = false) {}
+    over "left_shoulder_yaw_link" (active = false) {}
+    over "left_elbow_link" (active = false) {}
+    over "left_wrist_roll_link" (active = false) {}
+    over "left_wrist_pitch_link" (active = false) {}
+    over "left_wrist_yaw_link" (active = false) {}
+}

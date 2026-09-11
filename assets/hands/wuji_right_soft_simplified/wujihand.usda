@@ -1,3 +1,899 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:9882fe10efb19679333dfd20d937f7f578fd07f067eef550b9c3181d837add3f
-size 34217
+#usda 1.0
+(
+    customLayerData = {
+        dictionary cameraSettings = {
+            dictionary Front = {
+                double3 position = (5, 0, 0)
+                double radius = 5
+            }
+            dictionary Perspective = {
+                double3 position = (0.4344910041851091, 0.24875128683241252, 0.3166216971229415)
+                double3 target = (0.010083514529891313, 0.02033246827053073, 0.05002585796456621)
+            }
+            dictionary Right = {
+                double3 position = (0, -5, 0)
+                double radius = 5
+            }
+            dictionary Top = {
+                double3 position = (0, 0, 5)
+                double radius = 5
+            }
+            string boundCamera = "/OmniverseKit_Persp"
+        }
+        dictionary omni_layer = {
+            string authoring_layer = "./wujihand.usd"
+            dictionary locked = {
+            }
+            dictionary muteness = {
+            }
+        }
+        dictionary renderSettings = {
+        }
+    }
+    defaultPrim = "wujihand_right"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "wujihand_right" (
+    variants = {
+        string Physics = "PhysX"
+        string Robot = "Robot"
+        string Sensor = "Sensors"
+    }
+    prepend variantSets = ["Physics", "Sensor", "Robot"]
+)
+{
+    variantSet "Physics" = {
+        "None" (
+            prepend references = @./configuration/wujihand_base.usd@
+        ) {
+            over "joints" (
+                active = false
+            )
+            {
+            }
+
+        }
+        "PhysX" (
+            prepend payload = @./configuration/wujihand_physics.usd@
+        ) {
+            # Keep the authored position-drive target within its USD joint limits.
+            over "joints"
+            {
+                over "right_finger1_joint1"
+                {
+                    float drive:angular:physics:targetPosition = 2.7215493
+                }
+            }
+
+            # Newton requires concrete collision geometry.  Replace the legacy
+            # generated collision branches with convex-hull proxies referencing
+            # the existing simplified mesh for every rigid link.
+            over "right_palm_link"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                }
+                def Xform "newton_collision" (
+                    prepend references = </wujihand_right/right_palm_link/visuals/right_palm_link/node_STL_BINARY_>
+                )
+                {
+                    over "mesh" (
+                        prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]
+                    )
+                    {
+                        token physics:approximation = "convexHull"
+                    }
+                }
+            }
+            over "right_finger1_link1"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (
+                        prepend apiSchemas = ["PhysicsCollisionAPI"]
+                    )
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.007259720005095005
+                        double radius = 0.00615197978913784
+                        double3 xformOp:translate = (0, 0, 0.008279119618237019)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.007259720005095005
+                    double radius = 0.00615197978913784
+                    double3 xformOp:translate = (0, 0, 0.008279119618237019)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger1_link2"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.027038399130105972
+                        double radius = 0.006615720223635435
+                        double3 xformOp:translate = (0, 0, 0.01700039952993393)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.027038399130105972
+                    double radius = 0.006615720223635435
+                    double3 xformOp:translate = (0, 0, 0.01700039952993393)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger1_link2_softbody"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                }
+                def Xform "newton_collision" (
+                    prepend references = </wujihand_right/right_finger1_link2_softbody/visuals/right_finger1_link2_softbody/node_STL_BINARY_>
+                )
+                {
+                    over "mesh" (
+                        prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]
+                    )
+                    {
+                        token physics:approximation = "convexHull"
+                    }
+                }
+            }
+            over "right_finger1_link3"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.016345400363206863
+                        double radius = 0.01106759998947382
+                        double3 xformOp:translate = (0, 0, 0.014009100385010242)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.016345400363206863
+                    double radius = 0.01106759998947382
+                    double3 xformOp:translate = (0, 0, 0.014009100385010242)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger1_link4"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                }
+                def Xform "newton_collision" (
+                    prepend references = </wujihand_right/right_finger1_link4/visuals/right_finger1_link4/node_STL_BINARY_>
+                )
+                {
+                    over "mesh" (
+                        prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]
+                    )
+                    {
+                        token physics:approximation = "convexHull"
+                    }
+                }
+            }
+            over "right_finger1_tip_link"
+            {
+                over "collisions" (
+                    active = true
+                )
+                {
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger2_link1"
+            {
+                over "collisions" (
+                    active = true
+                )
+                {
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger2_link2"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.03399360179901123
+                        double radius = 0.010220999829471111
+                        double3 xformOp:translate = (0, 0.003000000026077032, 0.02163100056350231)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.03399360179901123
+                    double radius = 0.010220999829471111
+                    double3 xformOp:translate = (0, 0.003000000026077032, 0.02163100056350231)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger2_link3"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.021777799353003502
+                        double radius = 0.010220999829471111
+                        double3 xformOp:translate = (0, 0, 0.013621300458908081)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.021777799353003502
+                    double radius = 0.010220999829471111
+                    double3 xformOp:translate = (0, 0, 0.013621300458908081)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger2_link4"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                }
+                def Xform "newton_collision" (
+                    prepend references = </wujihand_right/right_finger2_link4/visuals/right_finger2_link4/node_STL_BINARY_>
+                )
+                {
+                    over "mesh" (
+                        prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]
+                    )
+                    {
+                        token physics:approximation = "convexHull"
+                    }
+                }
+            }
+            over "right_finger2_tip_link"
+            {
+                over "collisions" (
+                    active = true
+                )
+                {
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger3_link1"
+            {
+                over "collisions" (
+                    active = true
+                )
+                {
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger3_link2"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.03406760096549988
+                        double radius = 0.010184000246226788
+                        double3 xformOp:translate = (0, 0.003000000026077032, 0.02163100056350231)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.03406760096549988
+                    double radius = 0.010184000246226788
+                    double3 xformOp:translate = (0, 0.003000000026077032, 0.02163100056350231)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger3_link3"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.0218518003821373
+                        double radius = 0.010184000246226788
+                        double3 xformOp:translate = (0, 0, 0.013621199876070023)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.0218518003821373
+                    double radius = 0.010184000246226788
+                    double3 xformOp:translate = (0, 0, 0.013621199876070023)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger3_link4"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                }
+                def Xform "newton_collision" (
+                    prepend references = </wujihand_right/right_finger3_link4/visuals/right_finger3_link4/node_STL_BINARY_>
+                )
+                {
+                    over "mesh" (
+                        prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]
+                    )
+                    {
+                        token physics:approximation = "convexHull"
+                    }
+                }
+            }
+            over "right_finger3_tip_link"
+            {
+                over "collisions" (
+                    active = true
+                )
+                {
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger4_link1"
+            {
+                over "collisions" (
+                    active = true
+                )
+                {
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger4_link2"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.034009598195552826
+                        double radius = 0.010178600437939167
+                        double3 xformOp:translate = (0, 0.003000000026077032, 0.021669000387191772)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.034009598195552826
+                    double radius = 0.010178600437939167
+                    double3 xformOp:translate = (0, 0.003000000026077032, 0.021669000387191772)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger4_link3"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.02179899998009205
+                        double radius = 0.010178600437939167
+                        double3 xformOp:translate = (0, 0, 0.01365320011973381)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.02179899998009205
+                    double radius = 0.010178600437939167
+                    double3 xformOp:translate = (0, 0, 0.01365320011973381)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger4_link4"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                }
+                def Xform "newton_collision" (
+                    prepend references = </wujihand_right/right_finger4_link4/visuals/right_finger4_link4/node_STL_BINARY_>
+                )
+                {
+                    over "mesh" (
+                        prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]
+                    )
+                    {
+                        token physics:approximation = "convexHull"
+                    }
+                }
+            }
+            over "right_finger4_tip_link"
+            {
+                over "collisions" (
+                    active = true
+                )
+                {
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger5_link1"
+            {
+                over "collisions" (
+                    active = true
+                )
+                {
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger5_link2"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.03383399918675423
+                        double radius = 0.0101586002856493
+                        double3 xformOp:translate = (0, 0.003000000026077032, 0.021777700632810593)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.03383399918675423
+                    double radius = 0.0101586002856493
+                    double3 xformOp:translate = (0, 0.003000000026077032, 0.021777700632810593)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger5_link3"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                    over "mesh_0" (active = false) {}
+                    over "mesh_1" (active = false) {}
+                    over "mesh_2" (active = false) {}
+                    def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                    {
+                        uniform token axis = "Z"
+                        double height = 0.019840700551867485
+                        double radius = 0.0101586002856493
+                        double3 xformOp:translate = (0, 0, 0.01465229969471693)
+                        quatf xformOp:orient = (1, 0, 0, 0)
+                        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                    }
+                }
+                def Capsule "physx_newton_capsule" (prepend apiSchemas = ["PhysicsCollisionAPI"])
+                {
+                    uniform token axis = "Z"
+                    double height = 0.019840700551867485
+                    double radius = 0.0101586002856493
+                    double3 xformOp:translate = (0, 0, 0.01465229969471693)
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+            over "right_finger5_link4"
+            {
+                over "collisions" (
+                    active = false
+                )
+                {
+                }
+                def Xform "newton_collision" (
+                    prepend references = </wujihand_right/right_finger5_link4/visuals/right_finger5_link4/node_STL_BINARY_>
+                )
+                {
+                    over "mesh" (
+                        prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]
+                    )
+                    {
+                        token physics:approximation = "convexHull"
+                    }
+                }
+            }
+            over "right_finger5_tip_link"
+            {
+                over "collisions" (
+                    active = true
+                )
+                {
+                }
+                over "newton_collision" (
+                    active = false
+                )
+                {
+                }
+            }
+        }
+    }
+    variantSet "Sensor" = {
+        "None" {
+
+        }
+        "Sensors" (
+            prepend payload = @./configuration/wujihand_sensor.usd@
+        ) {
+
+        }
+    }
+    variantSet "Robot" = {
+        "None" {
+
+        }
+        "Robot" (
+            prepend payload = @./configuration/wujihand_robot.usd@
+        ) {
+
+        }
+    }
+}
+
+def "Render" (
+    hide_in_stage_window = true
+    no_delete = true
+)
+{
+    def "OmniverseKit"
+    {
+        def "HydraTextures" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            def RenderProduct "omni_kit_widget_viewport_ViewportTexture_0" (
+                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </OmniverseKit_Persp>
+                token omni:rtx:ambientOcclusion:denoiserMode = "none"
+                token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
+                token omni:rtx:background:source:type = "domeLight"
+                bool omni:rtx:debug:view:pixelDebug:enableFixedTextPos = 1
+                token omni:rtx:directLighting:sampledLighting:denoisingTechnique = "None"
+                bool omni:rtx:dlss:frameGeneration = 0
+                bool omni:rtx:indirectDiffuse:denoiser:enabled = 0
+                bool omni:rtx:material:db:syncLoads = 1
+                token omni:rtx:post:dlss:execMode = "performance"
+                bool omni:rtx:post:registeredCompositing:invertColorCorrection = 1
+                bool omni:rtx:post:registeredCompositing:invertToneMap = 1
+                bool omni:rtx:pt:adaptiveSampling:filterError = 0
+                uint omni:rtx:pt:adaptiveSampling:fixedSppIterations = 2
+                uint omni:rtx:pt:maxSamplesPerLaunch = 2073600
+                uint omni:rtx:pt:mgpu:maxPixelsPerRegionExponent = 12
+                bool omni:rtx:reflections:denoiser:enabled = 0
+                token omni:rtx:rendermode = "RealTimePathTracing"
+                color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
+                bool omni:rtx:rt:demoire = 0
+                bool omni:rtx:rt:lightcache:spatialCache:dontResolveConflicts = 1
+                int omni:rtx:rt:sss:samples = 1
+                uint omni:rtx:rtpt:maxVolumeBounces = 15
+                float omni:rtx:rtpt:modulatingRoughnessThreshold = 0.08
+                bool omni:rtx:scene:hydra:materialSyncLoads = 1
+                bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (1280, 720)
+            }
+        }
+    }
+
+    def RenderSettings "OmniverseGlobalRenderSettings" (
+        prepend apiSchemas = ["OmniRtxSettingsGlobalRtAdvancedAPI_1", "OmniRtxSettingsGlobalPtAdvancedAPI_1"]
+        no_delete = true
+    )
+    {
+        rel products = </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>
+    }
+
+    def "Vars" (
+        hide_in_stage_window = true
+        no_delete = true
+    )
+    {
+        def RenderVar "LdrColor" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            uniform string sourceName = "LdrColor"
+            uniform token sourceType = "raw"
+        }
+    }
+}
+
+over "OmniverseKit_Persp" (
+    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (0.01, 10000000)
+    float exposure:fStop = 5
+    float exposure:responsivity = 1.1026709
+    float exposure:time = 0.02
+    float focalLength = 18.147562
+    float focusDistance = 400
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.5507905367789173)
+    float3 xformOp:rotateXYZ = (61.051453, -4.770832e-14, 118.28942)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0.4344910041851091, 0.24875128683241252, 0.3166216971229415)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Front" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (90, -1.2722219e-14, 90)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (5, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Right" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (90, -1.41245e-30, 1.2722219e-14)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0, -5, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+over "OmniverseKit_Top" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (-1.2722219e-14, -7.016709e-15, -90)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0, 0, 5)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}

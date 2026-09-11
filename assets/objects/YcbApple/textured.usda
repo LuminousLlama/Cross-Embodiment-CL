@@ -1,3 +1,10 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:5afb229543f613ba543c9e3e3ca38c2118e7ed21555db5a3a70f16e835e41bd2
-size 186
+#usda 1.0
+(
+    defaultPrim = "Object"
+    metersPerUnit = 1
+    upAxis = "Z"
+    subLayers = [
+        @./configuration/appearance.usda@,
+        @./configuration/physics.usda@
+    ]
+)
