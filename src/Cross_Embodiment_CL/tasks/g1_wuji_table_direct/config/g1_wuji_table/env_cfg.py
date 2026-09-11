@@ -27,7 +27,9 @@ from isaaclab_physx.physics import PhysxCfg
 from isaaclab_tasks.utils import PresetCfg
 
 _G1_CONFIG_PATH = Path(__file__).resolve().parents[6] / "assets/g1/g1.py"
+# TODO make a objects CFG file 
 _APPLE_USD_PATH = Path(__file__).resolve().parents[6] / "assets/objects/YcbApple/textured.usda"
+# TODO can we not just do from cross embodiment import assets 
 _g1_config_spec = importlib.util.spec_from_file_location("cross_embodiment_cl_g1_config", _G1_CONFIG_PATH)
 if _g1_config_spec is None or _g1_config_spec.loader is None:
     raise ImportError(f"Unable to load G1 configuration from {_G1_CONFIG_PATH}.")
