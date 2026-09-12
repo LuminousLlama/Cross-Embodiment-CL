@@ -387,8 +387,6 @@ class G1WujiTableEnv(DirectRLEnv):
             nearest_hand_dist,
         )
         self._update_keypoint_markers(current_keypoints=current_keypoints, goal_keypoints=goal_keypoints)
-        if self.cfg.debug.link_contacts and self.common_step_counter % self.cfg.debug.link_contacts_interval == 0:
-            self._print_link_contacts(contact_force_stack)
         return reach_reward + goal_reward + contact_reward + lift_reward
 
     def _contact_group_forces(self) -> torch.Tensor:
@@ -406,32 +404,6 @@ class G1WujiTableEnv(DirectRLEnv):
             ],
             dim=-1,
         )
-
-    def _print_link_contacts(self, group_forces: torch.Tensor) -> None:
-        """Print each contact group's force beside the per-body forces it sums.
-
-        Force is the mean over environments [N]; touch is the share of environments reading
-        any force at all.
-        """
-        lines = [
-            f"[link contacts] step {self.common_step_counter}, {self.num_envs} envs",
-            f"  {'group':<9}{'force':>7}{'touch':>7}   bodies (force / touch)",
-        ]
-        for (group_name, sensor), group_force in zip(
-            self.contact_sensors.items(), group_forces.unbind(dim=1), strict=True
-        ):
-            body_forces = torch.linalg.vector_norm(sensor.data.normal_force_matrix_w.torch[:, :, 0], dim=-1)
-            # Newton renamed ContactSensor.body_names to sensor_names; PhysX only has body_names.
-            body_names = getattr(sensor, "sensor_names", None) or sensor.body_names
-            bodies = []
-            for name, force in zip(body_names, body_forces.unbind(dim=1), strict=True):
-                short_name = name.rsplit("/", 1)[-1].removeprefix("right_")
-                bodies.append(f"{short_name} {force.mean():.2f}/{(force > 0.0).float().mean():.0%}")
-            lines.append(
-                f"  {group_name:<9}{group_force.mean():>7.2f}{(group_force > 0.0).float().mean():>7.0%}   "
-                + "  ".join(bodies)
-            )
-        print("\n".join(lines), flush=True)
 
     def _init_episode_metrics(self) -> None:
         """Allocate per-environment buffers for completed-episode diagnostics."""

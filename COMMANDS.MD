@@ -19,18 +19,20 @@ uv run isaaclab zero_agent --task CrossEmbodimentCl-G1-Wuji-Table-Direct --viz k
 The G1 + Wuji task bundles its launch settings into run presets, selected with
 `presets=NAME` (defined in `g1_wuji_table/env_cfg.py`):
 
-| preset  | physics          | envs | visualizer  | keypoint markers | link-contact prints | Newton visual shapes |
-|---------|------------------|------|-------------|------------------|---------------------|----------------------|
-| (none)  | `isaacsim_physx` | 1    | none        | off              | off                 | on                   |
-| `train` | `newton_mjwarp`  | 2048 | none        | off              | off                 | off                  |
-| `debug` | `newton_mjwarp`  | 4    | `newton_gl` | on               | on                  | on                   |
-| `eval`  | `newton_mjwarp`  | 16   | `newton_gl` | on               | off                 | on                   |
+| preset  | physics          | envs | visualizer  | keypoint markers | Newton visual shapes |
+|---------|------------------|------|-------------|------------------|----------------------|
+| (none)  | `newton_mjwarp`  | 1    | `newton_gl` | on               | on                   |
+| `train` | `newton_mjwarp`  | 2048 | none        | off              | off                  |
+| `debug` | `newton_mjwarp`  | 4    | `newton_gl` | on               | on                   |
+| `eval`  | `newton_mjwarp`  | 16   | none        | off              | off                  |
 
 Anything given explicitly still wins over the preset: `--num_envs 64`, `--viz none`
-(headless eval), `--viz kit`, `env.debug.link_contacts=False`,
-`env.sim.physics.load_visual_shapes=True`.  To change the backend inside a preset, use the path
-selector, e.g. `env.sim.physics=isaacsim_physx`.  Don't combine a preset with `physics=`: that
-errors with "Conflicting global presets" whenever the two pick different physics configs.
+(headless eval), `--viz kit`, `env.debug.keypoint_markers=False`,
+`env.sim.physics.load_visual_shapes=True`.  Without a preset a viewer opens, so pass `--viz none`
+for a headless run on the server.  `physics=isaacsim_physx` swaps the backend with no preset or
+with `debug`; `train` and `eval` pick their own headless physics config, so combining them with
+`physics=` errors with "Conflicting global presets" -- use the path selector
+`env.sim.physics=isaacsim_physx` there.
 
 ## Train the G1 + Wuji tabletop task
 
@@ -55,22 +57,33 @@ env.sim.physics.solver_cfg.njmax=256 env.sim.physics.solver_cfg.nconmax=128
 
 ## Debug the scene
 
-Zero actions, 4 environments, Newton viewer, keypoint markers and per-link contact prints:
+Zero actions, 4 environments, Newton viewer and keypoint markers:
 
 ```
 uv run isaaclab zero_agent --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets=debug
 ```
 
-## Play / evaluate a checkpoint
+## Evaluate a checkpoint
 
-The `newton_gl` viewer renders without Isaac Sim; pass `--viz kit` only where Isaac Sim
-is installed, or `--viz none` for a headless run.
+Headless, for eval-time success analysis: 16 environments, no viewer, markers, or visual shapes.
+
+```
+uv run isaaclab play --rl_library rsl_rl \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --checkpoint logs/rsl_rl/g1_wuji_table_direct/<run>/model_<n>.pt \
+  presets=eval
+```
+
+## Watch a checkpoint
+
+No preset: 1 environment in the `newton_gl` viewer with keypoint markers (add `presets=debug`
+for 4).  The Newton viewer renders without Isaac Sim; pass `--viz kit` only where Isaac Sim is
+installed.
 
 ```
 uv run isaaclab play --rl_library rsl_rl \
   --task CrossEmbodimentCl-G1-Wuji-Table-Direct --real-time \
-  --checkpoint logs/rsl_rl/g1_wuji_table_direct/<run>/model_<n>.pt \
-  presets=eval
+  --checkpoint logs/rsl_rl/g1_wuji_table_direct/<run>/model_<n>.pt
 ```
 
 

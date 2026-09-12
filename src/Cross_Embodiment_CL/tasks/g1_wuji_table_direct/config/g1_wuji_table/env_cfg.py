@@ -101,13 +101,11 @@ class G1WujiTablePhysicsCfg(PresetCfg):
     # from its render-only textured mesh.  Always import the latter so
     # either Newton visualizer can display the same apple as Kit/PhysX.
     newton_mjwarp: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=True)
-    # Run presets (``presets=train|debug|eval``) all select MJWarp.  Headless training never draws the
-    # scene, and Newton clones render meshes per environment, so ``train`` drops them.  Visual shapes do
-    # not collide, so its dynamics match the viewer presets.
+    # Headless runs (``presets=train|eval``) never draw the scene, and Newton clones render meshes per
+    # environment, so those presets drop them.  Visual shapes do not collide, so dynamics match the default.
     train: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=False)
-    debug: NewtonCfg = newton_mjwarp
-    eval: NewtonCfg = newton_mjwarp
-    default: PhysxCfg = isaacsim_physx
+    eval: NewtonCfg = train
+    default: NewtonCfg = newton_mjwarp
 
 
 # Run presets live on whole sections, never on a scalar field: Isaac Lab reads ``env.a.b=value`` on a
@@ -124,26 +122,19 @@ class G1WujiTableSceneCfg(PresetCfg):
 
 @configclass
 class G1WujiTableDebugCfg:
-    """Diagnostic drawing and printouts, all off for training."""
+    """Diagnostic drawing, off for training."""
 
     keypoint_markers: bool = False
     """Whether to draw the goal (green) and current (red) object-pose keypoint markers."""
-    link_contacts: bool = False
-    """Whether to print each contact group's apple force beside the per-body forces it sums.
-
-    Diagnostic only, for checking which hand links touch.
-    """
-    link_contacts_interval: int = 30
-    """Policy steps between diagnostic contact printouts."""
 
 
 @configclass
 class G1WujiTableDebugPresetCfg(PresetCfg):
-    """Diagnostics per run preset: markers when a viewer is open, contact printouts only for ``debug``."""
+    """Diagnostics per run preset: markers whenever a viewer is open, so off for headless ``train`` and ``eval``."""
 
-    default: G1WujiTableDebugCfg = G1WujiTableDebugCfg()
-    debug: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True, link_contacts=True)
-    eval: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True)
+    default: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True)
+    train: G1WujiTableDebugCfg = G1WujiTableDebugCfg()
+    eval: G1WujiTableDebugCfg = train
 
 
 @configclass
@@ -179,7 +170,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     goal_position = (0.35, -0.05, 0.24)
     """Fixed apple goal position [m] in the environment frame."""
     debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
-    """Diagnostics, e.g. ``env.debug.link_contacts=True``; the ``debug`` and ``eval`` presets turn them on."""
+    """Diagnostics, e.g. ``env.debug.keypoint_markers=False``; headless ``train`` and ``eval`` turn them off."""
     goal_keypoint_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/CrossEmbodiment/goal_keypoints",
         markers={
@@ -261,8 +252,9 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         dt=1 / 120,
         render_interval=decimation,
         physics=G1WujiTablePhysicsCfg(),
-        # Headless unless a run preset opens a viewer.  An explicit ``--viz`` still takes precedence.
-        visualizer_cfgs=preset(default=[], debug=[NewtonGLVisualizerCfg()], eval=[NewtonGLVisualizerCfg()]),
+        # The Newton viewer, except for the headless ``train`` and ``eval`` presets.  An explicit ``--viz``
+        # still takes precedence.
+        visualizer_cfgs=preset(default=[NewtonGLVisualizerCfg()], train=[], eval=[]),
     )
     scene: InteractiveSceneCfg = G1WujiTableSceneCfg()
 

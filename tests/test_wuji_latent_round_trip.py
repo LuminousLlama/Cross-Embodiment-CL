@@ -24,6 +24,8 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
     """Project two simulated poses and verify their latent commands move the hand."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
     resolve_presets(env_cfg)
+    # The default preset opens the Newton viewer; keep this runtime test headless.
+    env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = True
     env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
     try:
