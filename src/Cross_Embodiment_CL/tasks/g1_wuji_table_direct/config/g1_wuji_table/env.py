@@ -351,6 +351,12 @@ class G1WujiTableEnv(DirectRLEnv):
             self.goal_position + self.scene.env_origins, self.goal_rotation
         )
         keypoint_error = torch.linalg.vector_norm(current_keypoints - goal_keypoints, dim=-1).mean(dim=1)
+        position_error = torch.linalg.vector_norm(
+            object_position - (self.goal_position + self.scene.env_origins), dim=-1
+        )
+        # Angle between the object and goal quaternions, using |dot| for double cover.
+        rotation_dot = (self.apple.data.root_quat_w.torch * self.goal_rotation).sum(dim=-1).abs().clamp(max=1.0)
+        rotation_error = torch.rad2deg(2.0 * torch.acos(rotation_dot))
         # Gating the pose reward on contact is the original design and it is kept, because an
         # ungated version is a trap: keypoint_error can only rise when the apple is disturbed,
         # so touching it is net negative.  Measured ungated, the policy hovered with its
@@ -393,6 +399,8 @@ class G1WujiTableEnv(DirectRLEnv):
             lift_reward,
             hand_dist,
             keypoint_error,
+            position_error,
+            rotation_error,
             object_position[:, 2],
             contact_gate,
             arm_tracking_error,
@@ -496,6 +504,8 @@ class G1WujiTableEnv(DirectRLEnv):
         lift_reward: torch.Tensor,
         hand_distance_farthest: torch.Tensor,
         keypoint_error: torch.Tensor,
+        position_error: torch.Tensor,
+        rotation_error: torch.Tensor,
         object_height: torch.Tensor,
         contact_gate: torch.Tensor,
         arm_tracking_error: torch.Tensor,
@@ -572,6 +582,8 @@ class G1WujiTableEnv(DirectRLEnv):
                         keypoint_error[reset_ids] < self.cfg.success_keypoint_error_threshold
                     ).float().mean(),
                     "Task/keypoint_error_ep_final": keypoint_error[reset_ids].mean(),
+                    "Task/position_error_ep_final": position_error[reset_ids].mean(),
+                    "Task/rotation_error_ep_final": rotation_error[reset_ids].mean(),
                     "Task/keypoint_error_ep_min": self._episode_min_keypoint_error[reset_ids].mean(),
                     "Task/object_height_ep_max": self._episode_max_object_height[reset_ids].mean(),
                     "Reach/hand_distance_farthest_ep_min": self._episode_min_hand_distance[reset_ids].mean(),
