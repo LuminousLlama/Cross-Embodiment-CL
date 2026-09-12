@@ -122,6 +122,8 @@ class G1WujiTableEnv(DirectRLEnv):
         self.object_start_position = torch.tensor(self.cfg.apple_cfg.init_state.pos, device=self.device).repeat(
             self.num_envs, 1
         )
+        # Read once: the apple's true mass, used to size the weight-curriculum assist force.
+        self._apple_mass = self.apple.data.body_mass.torch.clone()
         self.table_top_height = self.cfg.table_cfg.init_state.pos[2] + 0.5 * self.cfg.table_cfg.spawn.size[2]
         self.local_cube_keypoints = self._make_cube_keypoints(self.cfg.keypoint_extent)
         self._init_episode_metrics()
@@ -198,6 +200,29 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         # The anti-windup clamp follows the measured position, which contact can push backwards; never command that.
         self.wuji_joint_targets.clamp_(min=wuji_command_lower)
+        self._apply_apple_weight_curriculum()
+
+    def _apply_apple_weight_curriculum(self) -> None:
+        """Feed the apple a ramping fraction of its true weight via a world-frame upward assist force.
+
+        The felt weight ramps linearly from ``apple_weight_curriculum_start`` to full over
+        ``apple_weight_curriculum_steps`` env steps.  The assist force at the apple's centre of
+        mass makes up the untaken fraction, with zero torque.  When the start fraction is 1.0 the
+        curriculum is disabled and no wrench call is ever made, so default behaviour is unchanged.
+        """
+        start = self.cfg.apple_weight_curriculum_start
+        ramp = min(1.0, self.common_step_counter / self.cfg.apple_weight_curriculum_steps)
+        self._apple_weight_frac = start + (1.0 - start) * ramp
+        if start == 1.0:
+            return
+        gravity_z = abs(self.cfg.sim.gravity[2])
+        assist_force = (1.0 - self._apple_weight_frac) * self._apple_mass * gravity_z
+        forces = torch.zeros((self.num_envs, 1, 3), device=self.device)
+        forces[:, 0, 2] = assist_force.squeeze(-1)
+        torques = torch.zeros_like(forces)
+        self.apple.permanent_wrench_composer.set_forces_and_torques_index(
+            forces=forces, torques=torques, is_global=True
+        )
 
     def _advance_joint_targets(
         self,
@@ -553,6 +578,7 @@ class G1WujiTableEnv(DirectRLEnv):
             "Control/action_saturation_frac_step": (self.actions.abs() >= 0.999).float().mean(),
             "Control/arm_tracking_error_step": arm_tracking_error.mean(),
             "Control/wuji_tracking_error_step": wuji_tracking_error.mean(),
+            "Curriculum/apple_weight_frac_step": self._apple_weight_frac,
         }
         log.update(
             {

@@ -237,6 +237,17 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     table: measured, that pinned the apple 1.5 cm *below* its rest height at ~50 N while
     ``tanh`` saturated.  Height cannot be farmed that way and is the behaviour actually wanted.
     """
+    apple_weight_curriculum_start: float = 1.0
+    """Fraction of the apple's true weight it feels at the start of training.
+
+    An upward force makes up the rest of its weight.  1.0 disables the curriculum: no wrench
+    is ever applied, so default behaviour is unchanged.
+    """
+    apple_weight_curriculum_steps: int = 25_600
+    """Env steps over which the felt weight ramps linearly from ``apple_weight_curriculum_start`` to full.
+
+    PPO runs 32 steps per iteration, so 25 600 steps is iteration 800.
+    """
     press_tolerance = 0.005
     """Depth [m] below rest height past which the apple counts as pressed, not held."""
     contact_force_threshold = 0.1
