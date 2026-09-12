@@ -112,6 +112,16 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Weight of the current arm target in the policy-rate EMA."""
     wuji_action_ema_alpha = 0.1
     """Weight of the current decoded Wuji target in the policy-rate EMA."""
+    arm_joint_velocity_limit = 0.25
+    """Maximum arm joint speed [rad/s], enforced by rate-limiting the post-EMA arm position targets.
+
+    Solver velocity limits are not a portable clamp: MJWarp drops ``joint_velocity_limit`` and PhysX
+    exceeds it under contact, so the cap is applied to the commanded targets on every backend.  It is
+    also written to the arm actuators' ``joint_velocity_limit``, which PhysX clamps to and which sets
+    ``soft_joint_vel_limits``, the joint-velocity observation scale.
+    """
+    hand_joint_velocity_limit = 0.5
+    """Maximum Wuji finger joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
     goal_position = (0.35, -0.05, 0.24)
     """Fixed apple goal position [m] in the environment frame."""
     debug_vis = False

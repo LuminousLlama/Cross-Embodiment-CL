@@ -96,9 +96,15 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError("arm_action_ema_alpha must be in (0, 1].")
         if not 0.0 < self.cfg.wuji_action_ema_alpha <= 1.0:
             raise ValueError("wuji_action_ema_alpha must be in (0, 1].")
+        if self.cfg.arm_joint_velocity_limit <= 0.0 or self.cfg.hand_joint_velocity_limit <= 0.0:
+            raise ValueError("arm_joint_velocity_limit and hand_joint_velocity_limit must be positive.")
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
         self.arm_joint_targets = torch.zeros((self.num_envs, len(self.arm_joint_ids)), device=self.device)
         self.wuji_joint_targets = torch.zeros((self.num_envs, len(self.wuji_joint_ids)), device=self.device)
+        # Targets at the start of the current policy step, which _apply_action interpolates from.
+        self._arm_joint_targets_start = torch.zeros_like(self.arm_joint_targets)
+        self._wuji_joint_targets_start = torch.zeros_like(self.wuji_joint_targets)
+        self._action_substep = 0
         self.arm_action_scale = torch.full((len(self.arm_joint_ids),), 0.5, device=self.device)
         self.waist_joint_targets = torch.zeros((self.num_envs, len(self.waist_joint_ids)), device=self.device)
         self.goal_position = torch.tensor(self.cfg.goal_position, device=self.device).repeat(self.num_envs, 1)
@@ -117,6 +123,11 @@ class G1WujiTableEnv(DirectRLEnv):
             self._update_keypoint_markers()
 
     def _setup_scene(self) -> None:
+        # The speed caps are enforced on every backend by rate-limiting the targets in _pre_physics_step.
+        # They are also the solver clamp: PhysX enforces it (its stiff drives otherwise burst to the clamp
+        # between target updates) while MJWarp ignores it.  soft_joint_vel_limits follows this value.
+        self.cfg.robot_cfg.actuators["arms"].joint_velocity_limit = self.cfg.arm_joint_velocity_limit
+        self.cfg.robot_cfg.actuators["wuji_fingers"].joint_velocity_limit = self.cfg.hand_joint_velocity_limit
         self.robot = Articulation(self.cfg.robot_cfg)
         self.table = RigidObject(self.cfg.table_cfg)
         self.apple = RigidObject(self.cfg.apple_cfg)
@@ -146,8 +157,11 @@ class G1WujiTableEnv(DirectRLEnv):
         light_cfg.func("/World/Light", light_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
-        """Map arm deltas and Wuji latent actions onto physical joint targets."""
+        """Map arm deltas and Wuji latent actions onto speed-capped physical joint targets."""
         self.actions[:] = torch.clamp(actions, -1.0, 1.0)
+        self._arm_joint_targets_start.copy_(self.arm_joint_targets)
+        self._wuji_joint_targets_start.copy_(self.wuji_joint_targets)
+        self._action_substep = 0
         arm_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.arm_joint_ids]
         arm_lower, arm_upper = arm_limits[..., 0], arm_limits[..., 1]
         arm_actions = self.actions[:, : len(self.arm_joint_ids)]
@@ -156,22 +170,43 @@ class G1WujiTableEnv(DirectRLEnv):
             + self.arm_action_scale.unsqueeze(0) * arm_actions
         )
         arm_targets = torch.clamp(arm_targets, min=arm_lower, max=arm_upper)
-        self.arm_joint_targets.lerp_(arm_targets, self.cfg.arm_action_ema_alpha)
+        self._advance_joint_targets(
+            self.arm_joint_targets, arm_targets, self.cfg.arm_action_ema_alpha, self.cfg.arm_joint_velocity_limit
+        )
 
         wuji_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.wuji_joint_ids]
         wuji_targets = self.wuji_action_pipeline.latent_action_to_joint_target(
             self.actions[:, len(self.arm_joint_ids) :], wuji_limits[..., 0], wuji_limits[..., 1]
         )
-        self.wuji_joint_targets.lerp_(wuji_targets, self.cfg.wuji_action_ema_alpha)
+        self._advance_joint_targets(
+            self.wuji_joint_targets, wuji_targets, self.cfg.wuji_action_ema_alpha, self.cfg.hand_joint_velocity_limit
+        )
+
+    def _advance_joint_targets(
+        self, targets: torch.Tensor, commanded: torch.Tensor, ema_alpha: float, velocity_limit: float
+    ) -> None:
+        """Take one policy-rate EMA step toward ``commanded``, capped at ``velocity_limit`` [rad/s].
+
+        Uncapped this is exactly ``targets.lerp_(commanded, ema_alpha)``.  Capping the per-step change at
+        ``velocity_limit * step_dt`` is what bounds joint speed on every backend, since solver velocity
+        limits are not portable.
+        """
+        max_step = velocity_limit * self.step_dt
+        targets.add_(torch.clamp(ema_alpha * (commanded - targets), -max_step, max_step))
 
     def _apply_action(self) -> None:
         """Apply arm and Wuji targets while holding all waist joints at zero."""
+        # Spread each policy step's capped target change evenly over its physics substeps, so the drives
+        # track a ramp rather than a staircase, whose jumps overshoot the cap between policy steps.  If the
+        # backend folds decimation into one call, this applies a partial step, which still respects the cap.
+        self._action_substep += 1
+        fraction = min(self._action_substep / self.cfg.decimation, 1.0)
         self.robot.actuators.target_command.set_position_index(
-            value=self.arm_joint_targets,
+            value=torch.lerp(self._arm_joint_targets_start, self.arm_joint_targets, fraction),
             joint_ids=self.arm_joint_ids,
         )
         self.robot.actuators.target_command.set_position_index(
-            value=self.wuji_joint_targets,
+            value=torch.lerp(self._wuji_joint_targets_start, self.wuji_joint_targets, fraction),
             joint_ids=self.wuji_joint_ids,
         )
         self.robot.actuators.target_command.set_position_index(
