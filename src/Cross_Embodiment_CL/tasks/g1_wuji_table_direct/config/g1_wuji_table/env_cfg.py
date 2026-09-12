@@ -81,7 +81,10 @@ def _mjwarp_physics_cfg(load_visual_shapes: bool) -> NewtonCfg:
         # Friction of every shape without an authored physics material, which includes the whole hand and G1.
         # MJWarp gives each contact the larger of its two shapes' friction; the PhysX default material in
         # ``SimulationCfg.physics_material`` combines by max to match.
-        default_shape_cfg=NewtonShapeCfg(mu=_FRICTION),
+        # ke/kd set the MJWarp contact solref to (2 / kd, kd / 2 * sqrt(1 / ke)) = (0.01 s, 1.0).  The default
+        # (0.02 s) let fingers closing at the hand speed cap sink ~3 mm into each other and the palm; 0.01 s
+        # measured ~1 mm and stays above twice the 1/240 s substep.  UNTESTED on PhysX, which ignores these.
+        default_shape_cfg=NewtonShapeCfg(mu=_FRICTION, ke=1.0e4, kd=200.0),
         # Solver debug mode performs a device-to-host readback after every
         # simulation step. Keep it disabled for training; enable it only for
         # a focused Newton solver investigation.
