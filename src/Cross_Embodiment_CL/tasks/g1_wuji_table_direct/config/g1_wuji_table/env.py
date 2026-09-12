@@ -530,6 +530,12 @@ class G1WujiTableEnv(DirectRLEnv):
         self._termination_torso_apple = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_below_table = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_workspace_exit = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self._termination_nonfinite = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        # Last known-finite apple linear speed [m/s] and height [m] per environment, used only to
+        # describe a non-finite episode in the diagnostic print below; updated at the end of _get_dones.
+        self._prev_apple_speed = torch.zeros(self.num_envs, device=self.device)
+        self._prev_apple_height = torch.zeros(self.num_envs, device=self.device)
+        self._nonfinite_diag_count = 0
 
     def _update_episode_metrics(
         self,
@@ -633,6 +639,7 @@ class G1WujiTableEnv(DirectRLEnv):
                     "Terminations/torso_apple": self._termination_torso_apple[reset_ids].float().mean(),
                     "Terminations/below_table": self._termination_below_table[reset_ids].float().mean(),
                     "Terminations/workspace_exit": self._termination_workspace_exit[reset_ids].float().mean(),
+                    "Terminations/nonfinite": self._termination_nonfinite[reset_ids].float().mean(),
                     "Terminations/timeout": self.reset_time_outs[reset_ids].float().mean(),
                 }
             )
@@ -667,7 +674,13 @@ class G1WujiTableEnv(DirectRLEnv):
         self.object_keypoint_marker.visualize(translations=current_keypoints.reshape(-1, 3))
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Terminate on torso-to-apple contact or when the apple leaves the tabletop workspace."""
+        """Terminate on torso-to-apple contact, workspace exit, or a non-finite simulation state.
+
+        A single bad environment (observed as MJWarp state going NaN with no prior overflow warning)
+        would otherwise poison the shared policy observation tensor and kill a multi-hour run through
+        RSL-RL's ``check_nan``.  Resetting the offending environments here is what actually cleans the
+        state; nothing upstream is allowed to paper over it with ``nan_to_num``.
+        """
         torso_contact = (
             torch.linalg.vector_norm(self.torso_contact_sensor.data.normal_force_matrix_w.torch[:, 0, 0], dim=-1)
             > 0.0
@@ -680,11 +693,54 @@ class G1WujiTableEnv(DirectRLEnv):
             torch.linalg.vector_norm(object_position[:, :2] - object_start_position[:, :2], dim=-1)
             > self.cfg.object_max_horizontal_displacement
         )
+
+        joint_pos = self.robot.data.joint_pos.torch
+        joint_vel = self.robot.data.joint_vel.torch
+        object_rotation = self.apple.data.root_quat_w.torch
+        object_lin_vel = self.apple.data.root_lin_vel_w.torch
+        object_ang_vel = self.apple.data.root_ang_vel_w.torch
+        arm_or_hand_joints_nonfinite = ~torch.isfinite(joint_pos).all(dim=-1) | ~torch.isfinite(joint_vel).all(dim=-1)
+        apple_pose_nonfinite = ~torch.isfinite(object_position).all(dim=-1) | ~torch.isfinite(object_rotation).all(
+            dim=-1
+        )
+        apple_vel_nonfinite = ~torch.isfinite(object_lin_vel).all(dim=-1) | ~torch.isfinite(object_ang_vel).all(
+            dim=-1
+        )
+        nonfinite = arm_or_hand_joints_nonfinite | apple_pose_nonfinite | apple_vel_nonfinite
+
         self._termination_torso_apple = torso_contact
         self._termination_below_table = object_below_table
         self._termination_workspace_exit = object_too_far
-        terminated = torso_contact | object_below_table | object_too_far
+        self._termination_nonfinite = nonfinite
+        terminated = torso_contact | object_below_table | object_too_far | nonfinite
         time_out = self.episode_length_buf >= self.max_episode_length - 1
+
+        if nonfinite.any() and self._nonfinite_diag_count < 50:
+            self._nonfinite_diag_count += 1
+            bad_envs = nonfinite.nonzero(as_tuple=False).squeeze(-1)
+            bad_groups = [
+                name
+                for name, group_nonfinite in (
+                    ("arm_or_hand_joints", arm_or_hand_joints_nonfinite),
+                    ("apple_pose", apple_pose_nonfinite),
+                    ("apple_vel", apple_vel_nonfinite),
+                )
+                if group_nonfinite.any()
+            ]
+            print(
+                f"[nonfinite-guard] step={self.common_step_counter} bad_envs={bad_envs.numel()} "
+                f"groups={bad_groups} prev_apple_speed_max={self._prev_apple_speed[bad_envs].max().item():.4f} "
+                f"prev_apple_height_max={self._prev_apple_height[bad_envs].max().item():.4f}"
+            )
+
+        # Cache the last known-finite apple speed and height for the diagnostic above; a non-finite
+        # environment keeps whatever it last had until its reset overwrites the underlying sim state.
+        apple_speed = torch.linalg.vector_norm(object_lin_vel, dim=-1)
+        finite_speed = torch.isfinite(apple_speed)
+        self._prev_apple_speed = torch.where(finite_speed, apple_speed, self._prev_apple_speed)
+        finite_height = torch.isfinite(object_position[:, 2])
+        self._prev_apple_height = torch.where(finite_height, object_position[:, 2], self._prev_apple_height)
+
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int]) -> None:
