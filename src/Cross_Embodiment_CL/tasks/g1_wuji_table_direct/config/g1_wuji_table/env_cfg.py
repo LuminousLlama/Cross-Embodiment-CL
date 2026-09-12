@@ -33,7 +33,7 @@ from isaaclab_tasks.utils import PresetCfg, preset
 _G1_CONFIG_PATH = Path(__file__).resolve().parents[6] / "assets/g1/g1.py"
 # TODO make a objects CFG file
 _APPLE_USD_PATH = Path(__file__).resolve().parents[6] / "assets/objects/YcbApple/textured.usda"
-# Offline-decomposed variant (scripts/make_apple_decomposition.py): 8 convex hulls, <=32
+# Offline-decomposed variant (scripts/make_object_decomposition.py): 8 convex hulls, <=32
 # vertices each, computed once by CoACD rather than at every Newton launch. Select it with
 # a single override: env.apple_cfg.spawn.usd_path=<this path, i.e. str(_APPLE_USD_COACD8_PATH)>.
 # The default above is unchanged.
@@ -371,7 +371,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
             #
             # An offline-decomposed alternative to convexDecomposition's runtime 61 hulls is
             # env.apple_cfg.spawn.usd_path=<repo>/assets/objects/YcbApple/textured_coacd8.usda
-            # (see _APPLE_USD_COACD8_PATH above and scripts/make_apple_decomposition.py): 8
+            # (see _APPLE_USD_COACD8_PATH above and scripts/make_object_decomposition.py): 8
             # convex hulls, <=32 vertices each, computed once offline by CoACD.  The default
             # mesh_approximation_name="convexHull" below stays safe with that variant: Isaac
             # Lab's modify_collision_properties dispatches mesh_collision_property once per

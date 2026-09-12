@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Cross-Embodiment CL Contributors.
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Offline CoACD convex decomposition of the YCB apple's collision mesh.
+"""Offline CoACD convex decomposition of a task object's collision mesh (YCB apple, hammer, ...).
 
 Newton's runtime ``convexDecomposition`` importer calls CoACD with ``merge=False``, so its own
 hull-count cap never applies and the apple ends up as ~60 hulls -- too many contacts/constraints
@@ -13,13 +13,23 @@ vertex cap is a no-op). The result is authored as a new USD asset next to the or
 Mesh prims, each already a convex hull, so any backend just imports them -- no importer-side
 decomposition, no importer-side cap that does not do what it says.
 
+Decimation shrinks each hull inside the true surface, which leaves visible valleys between hulls
+at low hull and vertex counts. ``--extrude-margin`` enables CoACD's extrusion of neighbouring hulls
+across their shared faces to close them, and the script prints how far the source surface lies
+outside the hull union so the fit can be judged without a viewer.
+
+``--sdf-max-resolution R`` authors each hull as a triangle mesh (``physics:approximation = none``)
+with ``NewtonSDFCollisionAPI``, so Newton builds an SDF per hull. That only takes effect with
+Newton's collision pipeline (``env.sim.physics.solver_cfg.use_mujoco_contacts=false``); MuJoCo's own
+contacts and PhysX convexify the hull meshes instead, which is harmless because each is convex.
+
 The new asset keeps the original's visual mesh, material, and rigid-body mass setup (via its
 ``configuration/appearance.usda`` sublayer, plus a byte-for-byte ``Sdf.CopySpec`` of the physics
 material and the source's explicit ``physics:mass``); only the collision geometry is replaced.
 
 Usage:
-    uv run python scripts/make_apple_decomposition.py [--usd-path PATH] [--hulls N] \
-        [--max-verts V] [--threshold T] [--output PATH]
+    uv run python scripts/make_object_decomposition.py --usd-path assets/objects/YcbHammer/textured.usda \
+        [--hulls N] [--max-verts V] [--threshold T] [--extrude-margin M] [--sdf-max-resolution R] [--output PATH]
 """
 
 from __future__ import annotations
@@ -29,11 +39,11 @@ from pathlib import Path
 
 import coacd
 import numpy as np
+import trimesh
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
+from scipy.spatial import ConvexHull
 
-_DEFAULT_USD_PATH = (
-    Path(__file__).resolve().parents[1] / "assets/objects/YcbApple/textured.usda"
-)
+_DEFAULT_USD_PATH = Path(__file__).resolve().parents[1] / "assets/objects/YcbApple/textured.usda"
 _COLLISION_MESH_PATH = "/Object/geometry"
 _OBJECT_PATH = "/Object"
 _MATERIAL_PATH = "/Object/physicsMaterial"
@@ -77,10 +87,38 @@ def _load_collision_mesh(stage: Usd.Stage) -> tuple[np.ndarray, np.ndarray]:
     return points, faces
 
 
+def _report_fit(points: np.ndarray, faces: np.ndarray, hulls: list[tuple[np.ndarray, np.ndarray]]) -> None:
+    """Print how far the source surface lies outside the hull union, and how much the hulls bloat it.
+
+    A surface sample's distance outside a convex hull is bounded below by its largest facet-plane
+    distance; the minimum over hulls is its distance outside the union. Large values are the
+    valleys a fingertip can sink into.
+    """
+    source = trimesh.Trimesh(points, faces, process=False)
+    samples, _ = trimesh.sample.sample_surface(source, 20000, seed=0)
+    outside = np.full(len(samples), np.inf)
+    hull_volume = 0.0
+    for verts, _ in hulls:
+        hull = ConvexHull(verts)
+        hull_volume += hull.volume
+        plane_distance = samples @ hull.equations[:, :3].T + hull.equations[:, 3]
+        outside = np.minimum(outside, plane_distance.max(axis=1))
+    gap_mm = np.clip(outside, 0.0, None) * 1000.0
+    extent_mm = (points.max(axis=0) - points.min(axis=0)) * 1000.0
+    print(f"Source extent [mm]: {np.array2string(extent_mm, precision=1)}")
+    print(
+        f"Surface outside hull union [mm]: mean {gap_mm.mean():.2f}, p95 {np.percentile(gap_mm, 95):.2f}, "
+        f"max {gap_mm.max():.2f}; within 1 mm: {100.0 * (gap_mm <= 1.0).mean():.1f}%"
+    )
+    if source.is_volume:
+        print(f"Hull volume sum / source volume: {hull_volume / source.volume:.3f} (overlaps count twice)")
+
+
 def _write_decomposed_asset(
     src_usd_path: Path,
     output_path: Path,
     hulls: list[tuple[np.ndarray, np.ndarray]],
+    sdf_max_resolution: int,
 ) -> None:
     """Author a new USD next to the original: same visuals/material/mass, N convex hull colliders."""
     src_stage = Usd.Stage.Open(str(src_usd_path))
@@ -135,8 +173,14 @@ def _write_decomposed_asset(
         mesh.CreateVisibilityAttr(UsdGeom.Tokens.invisible)
         prim = mesh.GetPrim()
         UsdPhysics.CollisionAPI.Apply(prim)
-        UsdPhysics.MeshCollisionAPI.Apply(prim).CreateApproximationAttr("convexHull")
         UsdShade.MaterialBindingAPI.Apply(prim).Bind(material, materialPurpose="physics")
+        if sdf_max_resolution > 0:
+            # Newton's importer ignores physics:approximation on an SDF prim but warns unless it is "none".
+            UsdPhysics.MeshCollisionAPI.Apply(prim).CreateApproximationAttr("none")
+            prim.AddAppliedSchema("NewtonSDFCollisionAPI")
+            prim.CreateAttribute("newton:sdfMaxResolution", Sdf.ValueTypeNames.Int).Set(sdf_max_resolution)
+        else:
+            UsdPhysics.MeshCollisionAPI.Apply(prim).CreateApproximationAttr("convexHull")
         print(f"  {name}: {len(verts)} vertices, {len(faces)} faces")
 
     stage.GetRootLayer().Save()
@@ -145,20 +189,27 @@ def _write_decomposed_asset(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--usd-path", type=Path, default=_DEFAULT_USD_PATH)
     parser.add_argument("--hulls", type=int, default=8, help="Cap on the number of convex hulls.")
     parser.add_argument("--max-verts", type=int, default=32, help="Cap on vertices per convex hull.")
     parser.add_argument("--threshold", type=float, default=0.05, help="CoACD concavity threshold.")
     parser.add_argument(
-        "--output", type=Path, default=None, help="Defaults to <name>_coacd<N>.usda next to the source."
+        "--extrude-margin", type=float, default=0.0, help="Extrude hulls across shared faces by this much [m]; 0 is off."
+    )
+    parser.add_argument(
+        "--sdf-max-resolution", type=int, default=0, help="Author Newton SDF hull meshes at this resolution; 0 is off."
+    )
+    parser.add_argument(
+        "--output", type=Path, default=None, help="Defaults to <name>_coacd<N>[_sdf<R>].usda next to the source."
     )
     args = parser.parse_args()
 
     usd_path = args.usd_path.resolve()
-    output_path = args.output
+    output_path = args.output.resolve() if args.output is not None else None
     if output_path is None:
-        output_path = usd_path.with_name(f"{usd_path.stem}_coacd{args.hulls}{usd_path.suffix}")
+        suffix = f"_coacd{args.hulls}" + (f"_sdf{args.sdf_max_resolution}" if args.sdf_max_resolution > 0 else "")
+        output_path = usd_path.with_name(f"{usd_path.stem}{suffix}{usd_path.suffix}")
 
     stage = Usd.Stage.Open(str(usd_path))
     points, faces = _load_collision_mesh(stage)
@@ -172,8 +223,11 @@ def main() -> None:
         merge=True,
         decimate=True,
         max_ch_vertex=args.max_verts,
+        extrude=args.extrude_margin > 0.0,
+        extrude_margin=args.extrude_margin,
     )
-    _write_decomposed_asset(usd_path, output_path, result)
+    _report_fit(points, faces, result)
+    _write_decomposed_asset(usd_path, output_path, result, args.sdf_max_resolution)
 
 
 if __name__ == "__main__":
