@@ -41,7 +41,24 @@ class G1WujiTableEnv(DirectRLEnv):
     )
     _WUJI_JOINT_NAMES = tuple(f"right_finger{finger}_joint{joint}" for finger in range(1, 6) for joint in range(1, 5))
     _HAND_POINT_BODY_NAMES = ("right_palm_link",) + tuple(f"right_finger{finger}_tip_link" for finger in range(1, 6))
-    _THUMB_CONTACT_BODY_NAME = "right_finger1_tip_link"
+    # Apple contact is sensed per group, over every hand body that owns a collision shape.  The
+    # *_tip_link frames above own none, so a sensor on one reads 0 N forever; fingertip contact
+    # lands on link4.  Fingers 2-5 have no link1 collider either.
+    _CONTACT_BODY_GROUPS = {
+        "palm": ("right_palm_link",),
+        "finger1": (
+            "right_finger1_link1",
+            "right_finger1_link2",
+            "right_finger1_link2_softbody",
+            "right_finger1_link3",
+            "right_finger1_link4",
+        ),
+        **{
+            f"finger{finger}": tuple(f"right_finger{finger}_link{link}" for link in (2, 3, 4))
+            for finger in range(2, 6)
+        },
+    }
+    _THUMB_CONTACT_GROUP = "finger1"
     _OBSERVATION_DIM = 117
 
     def __init__(self, cfg: G1WujiTableEnvCfg, render_mode: str | None = None, **kwargs) -> None:
@@ -57,6 +74,12 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError(
                 f"Expected hand point bodies {self._HAND_POINT_BODY_NAMES}, found {tuple(hand_point_names)}."
             )
+        for group_name, sensor in self.contact_sensors.items():
+            if sensor.num_sensors != len(self._CONTACT_BODY_GROUPS[group_name]):
+                raise ValueError(
+                    f"Contact group '{group_name}' expects bodies {self._CONTACT_BODY_GROUPS[group_name]}, "
+                    f"but its sensor resolved {sensor.num_sensors}."
+                )
         if self.cfg.action_space != len(self.arm_joint_ids) + WujiLatentActionPipeline.latent_dim:
             raise ValueError(
                 f"{type(self.cfg).__name__} declares action_space={self.cfg.action_space}, but the configured "
@@ -97,13 +120,13 @@ class G1WujiTableEnv(DirectRLEnv):
         self.robot = Articulation(self.cfg.robot_cfg)
         self.table = RigidObject(self.cfg.table_cfg)
         self.apple = RigidObject(self.cfg.apple_cfg)
+        # One multi-body sensor per group; its force matrix is (envs, bodies, 1 apple, 3).
         self.contact_sensors: dict[str, ContactSensor] = {}
-        for body_name in self._HAND_POINT_BODY_NAMES:
+        for group_name, body_names in self._CONTACT_BODY_GROUPS.items():
             sensor_cfg = self.cfg.contact_sensor_cfg.replace(
-                prim_path=f"/World/envs/env_[^/]+/G1Wuji/wujihand/{body_name}"
+                prim_path=f"/World/envs/env_[^/]+/G1Wuji/wujihand/({'|'.join(body_names)})"
             )
-            sensor = ContactSensor(sensor_cfg)
-            self.contact_sensors[body_name] = sensor
+            self.contact_sensors[group_name] = ContactSensor(sensor_cfg)
         self.torso_contact_sensor = ContactSensor(self.cfg.torso_contact_sensor_cfg)
 
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -1.0))
@@ -117,7 +140,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self.scene.articulations["robot"] = self.robot
         self.scene.rigid_objects["table"] = self.table
         self.scene.rigid_objects["apple"] = self.apple
-        self.scene.sensors.update(self.contact_sensors)
+        self.scene.sensors.update({f"{name}_contact": sensor for name, sensor in self.contact_sensors.items()})
         self.scene.sensors["torso_contact"] = self.torso_contact_sensor
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
@@ -198,14 +221,9 @@ class G1WujiTableEnv(DirectRLEnv):
             self.num_envs, -1
         )
 
-        contact_force = torch.stack(
-            [
-                torch.linalg.vector_norm(sensor.data.normal_force_matrix_w.torch[:, 0, 0], dim=-1)
-                for sensor in self.contact_sensors.values()
-            ],
-            dim=-1,
+        contact_force = torch.log1p(
+            torch.clamp(self._contact_group_forces(), max=self.cfg.contact_force_observation_max)
         )
-        contact_force = torch.log1p(torch.clamp(contact_force, max=self.cfg.contact_force_observation_max))
 
         observation = torch.cat(
             (
@@ -238,13 +256,9 @@ class G1WujiTableEnv(DirectRLEnv):
         nearest_hand_dist = hand_point_dist.min(dim=1).values
         reach_reward = torch.exp(-self.cfg.reach_reward_scale * hand_dist)
 
-        contact_forces = {
-            name: torch.linalg.vector_norm(sensor.data.normal_force_matrix_w.torch[:, 0, 0], dim=-1)
-            for name, sensor in self.contact_sensors.items()
-        }
-        contact_force_stack = torch.stack(list(contact_forces.values()), dim=1)
-        contact_body_count = (contact_force_stack > self.cfg.contact_force_threshold).sum(dim=1)
-        contact_gate = contact_body_count >= self.cfg.contact_min_bodies
+        contact_force_stack = self._contact_group_forces()
+        contact_group_count = (contact_force_stack > self.cfg.contact_force_threshold).sum(dim=1)
+        contact_gate = contact_group_count >= self.cfg.contact_min_bodies
 
         current_keypoints = self._transform_keypoints(object_position, self.apple.data.root_quat_w.torch)
         goal_keypoints = self._transform_keypoints(
@@ -301,7 +315,51 @@ class G1WujiTableEnv(DirectRLEnv):
             nearest_hand_dist,
         )
         self._update_keypoint_markers(current_keypoints=current_keypoints, goal_keypoints=goal_keypoints)
+        if self.cfg.debug_link_contacts and self.common_step_counter % self.cfg.debug_link_contacts_interval == 0:
+            self._print_link_contacts(contact_force_stack)
         return reach_reward + goal_reward + contact_reward + lift_reward
+
+    def _contact_group_forces(self) -> torch.Tensor:
+        """Return each contact group's apple normal force [N], summed over the group's bodies.
+
+        Summing makes a finger that holds with several phalanges read as its total load.
+
+        Returns:
+            Force magnitudes with shape ``(num_envs, num_groups)`` in ``_CONTACT_BODY_GROUPS`` order.
+        """
+        return torch.stack(
+            [
+                torch.linalg.vector_norm(sensor.data.normal_force_matrix_w.torch[:, :, 0], dim=-1).sum(dim=1)
+                for sensor in self.contact_sensors.values()
+            ],
+            dim=-1,
+        )
+
+    def _print_link_contacts(self, group_forces: torch.Tensor) -> None:
+        """Print each contact group's force beside the per-body forces it sums.
+
+        Force is the mean over environments [N]; touch is the share of environments reading
+        any force at all.
+        """
+        lines = [
+            f"[link contacts] step {self.common_step_counter}, {self.num_envs} envs",
+            f"  {'group':<9}{'force':>7}{'touch':>7}   bodies (force / touch)",
+        ]
+        for (group_name, sensor), group_force in zip(
+            self.contact_sensors.items(), group_forces.unbind(dim=1), strict=True
+        ):
+            body_forces = torch.linalg.vector_norm(sensor.data.normal_force_matrix_w.torch[:, :, 0], dim=-1)
+            # Newton renamed ContactSensor.body_names to sensor_names; PhysX only has body_names.
+            body_names = getattr(sensor, "sensor_names", None) or sensor.body_names
+            bodies = []
+            for name, force in zip(body_names, body_forces.unbind(dim=1), strict=True):
+                short_name = name.rsplit("/", 1)[-1].removeprefix("right_")
+                bodies.append(f"{short_name} {force.mean():.2f}/{(force > 0.0).float().mean():.0%}")
+            lines.append(
+                f"  {group_name:<9}{group_force.mean():>7.2f}{(group_force > 0.0).float().mean():>7.0%}   "
+                + "  ".join(bodies)
+            )
+        print("\n".join(lines), flush=True)
 
     def _init_episode_metrics(self) -> None:
         """Allocate per-environment buffers for completed-episode diagnostics."""
@@ -360,7 +418,7 @@ class G1WujiTableEnv(DirectRLEnv):
             "Control/step_action_saturation_fraction": (self.actions.abs() >= 0.999).float().mean(),
             "Contact/step_max_force": contact_force_stack.max(dim=1).values.mean(),
             "Contact/step_thumb_force": contact_force_stack[
-                :, list(self.contact_sensors).index(self._THUMB_CONTACT_BODY_NAME)
+                :, list(self.contact_sensors).index(self._THUMB_CONTACT_GROUP)
             ].mean(),
             "Contact/step_any_touch_fraction": (contact_force_stack > 0.0).any(dim=1).float().mean(),
             "Contact/step_bodies_over_threshold": (
@@ -368,6 +426,12 @@ class G1WujiTableEnv(DirectRLEnv):
             ).float().sum(dim=1).mean(),
             "Metrics/step_nearest_hand_distance": nearest_hand_distance.mean(),
         }
+        log.update(
+            {
+                f"Contact/step_touch_fraction_{name}": (contact_force_stack[:, index] > 0.0).float().mean()
+                for index, name in enumerate(self.contact_sensors)
+            }
+        )
 
         reset_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_ids) > 0:

@@ -143,7 +143,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         filter_prim_paths_expr=["/World/envs/env_[^/]+/Apple"],
         max_contact_data_count_per_prim=64,
     )
-    """Template for one body-to-apple force sensor; the environment creates six instances."""
+    """Template for a hand-to-apple force sensor; the environment creates one per contact group.
+
+    The groups are the palm and the five fingers, each covering every body that owns a collision shape.
+    """
     torso_contact_sensor_cfg = ContactSensorCfg(
         prim_path="/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link",
         update_period=0.0,
@@ -151,6 +154,13 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         filter_prim_paths_expr=["/World/envs/env_[^/]+/Apple"],
     )
     """Filtered torso-to-apple sensor for the collision termination."""
+    debug_link_contacts = False
+    """Whether to print each contact group's apple force beside the per-body forces it sums.
+
+    Diagnostic only, for checking which hand links touch; enable with ``env.debug_link_contacts=True``.
+    """
+    debug_link_contacts_interval = 30
+    """Policy steps between diagnostic contact printouts."""
     keypoint_extent = 0.15
     """Half-side length [m] of the virtual object-frame cube used for pose reward."""
     reach_reward_scale = 10.0
@@ -166,21 +176,21 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     press_tolerance = 0.005
     """Depth [m] below rest height past which the apple counts as pressed, not held."""
     contact_force_threshold = 0.1
-    """Per-body normal force [N] counted as contact.
+    """Per-group normal force [N] counted as contact.
 
     The apple weighs 0.667 N and its friction is 2.0, so a correct grasp only needs about
     0.17 N per finger.  The previous 1.0 N could not be reached by any gentle grasp.
     """
     contact_min_bodies = 1
-    """Hand bodies that must be in contact for the grasp gate.
+    """Contact groups (the palm or a finger) that must be in contact for the grasp gate.
 
-    Deliberately not thumb-specific: ``right_finger1_tip_link`` measured 0.0 N throughout,
-    so requiring it made the gate unsatisfiable.
+    Deliberately not thumb-specific.  The thumb once read 0.0 N throughout, but only because its
+    sensor sat on the collider-less ``right_finger1_tip_link`` frame.
     """
     contact_reward_scale = 0.5
     """Per-step scale of the dense grasp reward, the stepping stone between reach and lift."""
     contact_force_reference = 0.2
-    """Force [N] at which one body's dense contact term reaches tanh(1) ~ 0.76.
+    """Force [N] at which one group's dense contact term reaches tanh(1) ~ 0.76.
 
     The dense term must be graded in force rather than gated: a binary gate pays nothing
     until it is already satisfied, so it supplies no gradient toward making contact.
