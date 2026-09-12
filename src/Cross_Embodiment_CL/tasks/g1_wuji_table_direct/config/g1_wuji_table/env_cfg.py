@@ -237,16 +237,19 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     table: measured, that pinned the apple 1.5 cm *below* its rest height at ~50 N while
     ``tanh`` saturated.  Height cannot be farmed that way and is the behaviour actually wanted.
     """
-    apple_weight_curriculum_start: float = 1.0
+    apple_weight_curriculum_start: float = 0.5
     """Fraction of the apple's true weight it feels at the start of training.
 
     An upward force makes up the rest of its weight.  1.0 disables the curriculum: no wrench
-    is ever applied, so default behaviour is unchanged.
+    is ever applied.  0.5 is the confirmed default (run R007, 100% no-noise eval success):
+    a light apple early lets lift discovery happen at all, with :attr:`entropy_coef` at 0.005.
+    ``eval_policy.py`` forces this back to 1.0, so evaluation always runs at full weight.
     """
-    apple_weight_curriculum_steps: int = 25_600
+    apple_weight_curriculum_steps: int = 19_200
     """Env steps over which the felt weight ramps linearly from ``apple_weight_curriculum_start`` to full.
 
-    PPO runs 32 steps per iteration, so 25 600 steps is iteration 800.
+    PPO runs 32 steps per iteration, so 19 200 steps is iteration 600: full weight well inside
+    the 2000-iteration training budget (run R007).
     """
     press_tolerance = 0.005
     """Depth [m] below rest height past which the apple counts as pressed, not held."""
