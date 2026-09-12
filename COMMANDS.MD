@@ -105,6 +105,6 @@ binned table, which is what comparing experiments needs.
 
 ```
 scripts/analyze_run.py tags   logs/rsl_rl/g1_wuji_table_direct/<run>
-scripts/analyze_run.py curve  logs/rsl_rl/g1_wuji_table_direct/<run> --tag Metrics/success --bins 10
+scripts/analyze_run.py curve  logs/rsl_rl/g1_wuji_table_direct/<run> --tag Task/success --bins 10
 scripts/run_summary.py logs/rsl_rl/g1_wuji_table_direct/<run_a> logs/rsl_rl/g1_wuji_table_direct/<run_b>
 ```

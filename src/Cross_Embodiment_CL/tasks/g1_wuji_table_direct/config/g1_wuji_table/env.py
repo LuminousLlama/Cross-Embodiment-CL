@@ -409,7 +409,7 @@ class G1WujiTableEnv(DirectRLEnv):
         """Allocate per-environment buffers for completed-episode diagnostics."""
         self._episode_reward_sums = {
             name: torch.zeros(self.num_envs, device=self.device)
-            for name in ("reach_return", "goal_return", "contact_return", "lift_return")
+            for name in ("reach", "goal", "contact", "lift")
         }
         self._episode_contact_gate_steps = torch.zeros(self.num_envs, device=self.device)
         self._episode_arm_tracking_error_sum = torch.zeros(self.num_envs, device=self.device)
@@ -427,52 +427,59 @@ class G1WujiTableEnv(DirectRLEnv):
         goal_reward: torch.Tensor,
         contact_reward: torch.Tensor,
         lift_reward: torch.Tensor,
-        hand_distance: torch.Tensor,
+        hand_distance_farthest: torch.Tensor,
         keypoint_error: torch.Tensor,
         object_height: torch.Tensor,
         contact_gate: torch.Tensor,
         arm_tracking_error: torch.Tensor,
         wuji_tracking_error: torch.Tensor,
         contact_force_stack: torch.Tensor,
-        nearest_hand_distance: torch.Tensor,
+        hand_distance_nearest: torch.Tensor,
     ) -> None:
-        """Accumulate task diagnostics and publish scalar metrics through RSL-RL extras."""
-        self._episode_reward_sums["reach_return"] += reach_reward
-        self._episode_reward_sums["goal_return"] += goal_reward
-        self._episode_reward_sums["contact_return"] += contact_reward
-        self._episode_reward_sums["lift_return"] += lift_reward
+        """Accumulate task diagnostics and publish scalar metrics through RSL-RL extras.
+
+        Tags read ``Group/<quantity>_<qualifier>_<timescale>``, so TensorBoard's alphabetical
+        order keeps a quantity's variants together.  The timescale comes last: ``step`` is the
+        current step averaged over environments; ``ep`` (mean), ``ep_min``, ``ep_max``,
+        ``ep_final``, and ``ep_return`` (sum) summarise the episodes that reset this step.
+        """
+        self._episode_reward_sums["reach"] += reach_reward
+        self._episode_reward_sums["goal"] += goal_reward
+        self._episode_reward_sums["contact"] += contact_reward
+        self._episode_reward_sums["lift"] += lift_reward
         self._episode_contact_gate_steps += contact_gate
         self._episode_arm_tracking_error_sum += arm_tracking_error
         self._episode_wuji_tracking_error_sum += wuji_tracking_error
-        self._episode_min_hand_distance = torch.minimum(self._episode_min_hand_distance, hand_distance)
+        self._episode_min_hand_distance = torch.minimum(self._episode_min_hand_distance, hand_distance_farthest)
         self._episode_min_keypoint_error = torch.minimum(self._episode_min_keypoint_error, keypoint_error)
         self._episode_max_object_height = torch.maximum(self._episode_max_object_height, object_height)
 
         log = {
-            "Metrics/step_reach_reward": reach_reward.mean(),
-            "Metrics/step_goal_reward": goal_reward.mean(),
-            "Metrics/step_contact_reward": contact_reward.mean(),
-            "Metrics/step_lift_reward": lift_reward.mean(),
-            "Metrics/step_hand_distance": hand_distance.mean(),
-            "Metrics/step_keypoint_error": keypoint_error.mean(),
-            "Metrics/step_object_height": object_height.mean(),
-            "Metrics/step_contact_gate_fraction": contact_gate.float().mean(),
-            "Control/step_arm_tracking_error": arm_tracking_error.mean(),
-            "Control/step_wuji_tracking_error": wuji_tracking_error.mean(),
-            "Control/step_action_saturation_fraction": (self.actions.abs() >= 0.999).float().mean(),
-            "Contact/step_max_force": contact_force_stack.max(dim=1).values.mean(),
-            "Contact/step_thumb_force": contact_force_stack[
+            "Task/keypoint_error_step": keypoint_error.mean(),
+            "Task/object_height_step": object_height.mean(),
+            # Distances from the apple centre to the six hand points (palm and fingertips).
+            "Reach/hand_distance_farthest_step": hand_distance_farthest.mean(),
+            "Reach/hand_distance_nearest_step": hand_distance_nearest.mean(),
+            "Contact/force_max_step": contact_force_stack.max(dim=1).values.mean(),
+            "Contact/force_thumb_step": contact_force_stack[
                 :, list(self.contact_sensors).index(self._THUMB_CONTACT_GROUP)
             ].mean(),
-            "Contact/step_any_touch_fraction": (contact_force_stack > 0.0).any(dim=1).float().mean(),
-            "Contact/step_bodies_over_threshold": (
+            "Contact/gate_frac_step": contact_gate.float().mean(),
+            "Contact/groups_over_threshold_step": (
                 contact_force_stack > self.cfg.contact_force_threshold
             ).float().sum(dim=1).mean(),
-            "Metrics/step_nearest_hand_distance": nearest_hand_distance.mean(),
+            "Contact/touch_frac_any_step": (contact_force_stack > 0.0).any(dim=1).float().mean(),
+            "Reward/reach_step": reach_reward.mean(),
+            "Reward/goal_step": goal_reward.mean(),
+            "Reward/contact_step": contact_reward.mean(),
+            "Reward/lift_step": lift_reward.mean(),
+            "Control/action_saturation_frac_step": (self.actions.abs() >= 0.999).float().mean(),
+            "Control/arm_tracking_error_step": arm_tracking_error.mean(),
+            "Control/wuji_tracking_error_step": wuji_tracking_error.mean(),
         }
         log.update(
             {
-                f"Contact/step_touch_fraction_{name}": (contact_force_stack[:, index] > 0.0).float().mean()
+                f"Contact/touch_frac_{name}_step": (contact_force_stack[:, index] > 0.0).float().mean()
                 for index, name in enumerate(self.contact_sensors)
             }
         )
@@ -482,26 +489,24 @@ class G1WujiTableEnv(DirectRLEnv):
             episode_steps = self.episode_length_buf[reset_ids].clamp_min(1).float()
             log.update(
                 {
-                    f"Metrics/{name}": values[reset_ids].mean()
+                    f"Reward/{name}_ep_return": values[reset_ids].mean()
                     for name, values in self._episode_reward_sums.items()
                 }
             )
             log.update(
                 {
-                    "Metrics/min_hand_distance": self._episode_min_hand_distance[reset_ids].mean(),
-                    "Metrics/final_keypoint_error": keypoint_error[reset_ids].mean(),
-                    "Metrics/min_keypoint_error": self._episode_min_keypoint_error[reset_ids].mean(),
-                    "Metrics/max_object_height": self._episode_max_object_height[reset_ids].mean(),
-                    "Metrics/contact_gate_fraction": (
-                        self._episode_contact_gate_steps[reset_ids] / episode_steps
-                    ).mean(),
-                    "Metrics/success": (
+                    "Task/success": (
                         keypoint_error[reset_ids] < self.cfg.success_keypoint_error_threshold
                     ).float().mean(),
-                    "Control/arm_tracking_error": (
+                    "Task/keypoint_error_ep_final": keypoint_error[reset_ids].mean(),
+                    "Task/keypoint_error_ep_min": self._episode_min_keypoint_error[reset_ids].mean(),
+                    "Task/object_height_ep_max": self._episode_max_object_height[reset_ids].mean(),
+                    "Reach/hand_distance_farthest_ep_min": self._episode_min_hand_distance[reset_ids].mean(),
+                    "Contact/gate_frac_ep": (self._episode_contact_gate_steps[reset_ids] / episode_steps).mean(),
+                    "Control/arm_tracking_error_ep": (
                         self._episode_arm_tracking_error_sum[reset_ids] / episode_steps
                     ).mean(),
-                    "Control/wuji_tracking_error": (
+                    "Control/wuji_tracking_error_ep": (
                         self._episode_wuji_tracking_error_sum[reset_ids] / episode_steps
                     ).mean(),
                     "Terminations/torso_apple": self._termination_torso_apple[reset_ids].float().mean(),

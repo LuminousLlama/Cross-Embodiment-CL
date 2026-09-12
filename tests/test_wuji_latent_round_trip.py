@@ -57,24 +57,24 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         unwrapped.episode_length_buf.fill_(unwrapped.max_episode_length - 1)
         _, _, _, _, extras = env.step(torch.zeros((1, unwrapped.cfg.action_space), device=unwrapped.device))
         expected_log_keys = {
-            "Metrics/step_reach_reward",
-            "Metrics/step_goal_reward",
-            "Metrics/step_contact_reward",
-            "Metrics/reach_return",
-            "Metrics/goal_return",
-            "Metrics/contact_return",
-            "Metrics/min_hand_distance",
-            "Metrics/final_keypoint_error",
-            "Metrics/min_keypoint_error",
-            "Metrics/max_object_height",
-            "Metrics/contact_gate_fraction",
-            "Metrics/success",
-            "Control/arm_tracking_error",
-            "Control/wuji_tracking_error",
+            "Reward/reach_step",
+            "Reward/goal_step",
+            "Reward/contact_step",
+            "Reward/reach_ep_return",
+            "Reward/goal_ep_return",
+            "Reward/contact_ep_return",
+            "Reach/hand_distance_farthest_ep_min",
+            "Task/keypoint_error_ep_final",
+            "Task/keypoint_error_ep_min",
+            "Task/object_height_ep_max",
+            "Contact/gate_frac_ep",
+            "Task/success",
+            "Control/arm_tracking_error_ep",
+            "Control/wuji_tracking_error_ep",
             "Terminations/timeout",
         }
         assert expected_log_keys <= extras["log"].keys()
-        assert extras["log"]["Metrics/success"].item() == 0.0
+        assert extras["log"]["Task/success"].item() == 0.0
         assert extras["log"]["Terminations/timeout"].item() == 1.0
         arm_actions = torch.zeros((1, unwrapped.cfg.action_space), device=unwrapped.device)
         arm_actions[:, 0] = 1.0
