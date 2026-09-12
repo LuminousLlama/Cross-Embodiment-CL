@@ -16,10 +16,10 @@ def Xform "Object" (
         prepend apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
     )
     {
-        float physics:dynamicFriction = 2
+        float physics:dynamicFriction = 0.5
         float physics:restitution = 0
-        float physics:staticFriction = 2
-        token physxMaterial:frictionCombineMode = "average"
+        float physics:staticFriction = 0.5
+        token physxMaterial:frictionCombineMode = "max"
         token physxMaterial:restitutionCombineMode = "average"
     }
 

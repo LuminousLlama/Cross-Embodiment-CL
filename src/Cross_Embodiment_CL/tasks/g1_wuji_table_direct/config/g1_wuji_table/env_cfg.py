@@ -23,8 +23,10 @@ from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
 from isaaclab.visualizers import VisualizerCfg
 from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
+from isaaclab_newton.physics.newton_manager_cfg import NewtonShapeCfg
 from isaaclab_ov.physics import OvPhysxCfg
 from isaaclab_physx.physics import PhysxCfg
+from isaaclab_physx.sim.spawners.materials.physics_materials_cfg import PhysxRigidBodyMaterialCfg
 
 from isaaclab_tasks.utils import PresetCfg, preset
 
@@ -38,6 +40,13 @@ if _g1_config_spec is None or _g1_config_spec.loader is None:
 _g1_config = importlib.util.module_from_spec(_g1_config_spec)
 _g1_config_spec.loader.exec_module(_g1_config)
 G1_WUJI_CFG = _g1_config.G1_WUJI_CFG
+
+_FRICTION = 0.5
+"""Static and dynamic friction of the hand, table, and apple (whose USD material authors the same value).
+
+MJWarp resolves a contact's friction as the max of its two shapes and reads only dynamic friction, so friction
+is authored with static equal to dynamic and PhysX materials combine by max.
+"""
 
 
 def _mjwarp_physics_cfg(load_visual_shapes: bool) -> NewtonCfg:
@@ -69,6 +78,10 @@ def _mjwarp_physics_cfg(load_visual_shapes: bool) -> NewtonCfg:
             impratio=10.0,
         ),
         num_substeps=2,
+        # Friction of every shape without an authored physics material, which includes the whole hand and G1.
+        # MJWarp gives each contact the larger of its two shapes' friction; the PhysX default material in
+        # ``SimulationCfg.physics_material`` combines by max to match.
+        default_shape_cfg=NewtonShapeCfg(mu=_FRICTION),
         # Solver debug mode performs a device-to-host readback after every
         # simulation step. Keep it disabled for training; enable it only for
         # a focused Newton solver investigation.
@@ -226,8 +239,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     contact_force_threshold = 0.1
     """Per-group normal force [N] counted as contact.
 
-    The apple weighs 0.667 N and its friction is 2.0, so a correct grasp only needs about
-    0.17 N per finger.  The previous 1.0 N could not be reached by any gentle grasp.
+    The apple weighs 0.667 N and its contacts have friction 0.5, so a two-sided pinch needs about
+    0.67 N per side.  The previous 1.0 N gate on two bodies was unreachable when friction was 2.0.
     """
     contact_min_bodies = 1
     """Contact groups (the palm or a finger) that must be in contact for the grasp gate.
@@ -252,6 +265,11 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         dt=1 / 120,
         render_interval=decimation,
         physics=G1WujiTablePhysicsCfg(),
+        # PhysX's default material for shapes without one (Newton uses ``default_shape_cfg`` instead).
+        # UNTESTED on PhysX: the max combine mode and resulting contact friction are only verified on Newton.
+        physics_material=PhysxRigidBodyMaterialCfg(
+            static_friction=_FRICTION, dynamic_friction=_FRICTION, friction_combine_mode="max"
+        ),
         # The Newton viewer, except for the headless ``train`` and ``eval`` presets.  An explicit ``--viz``
         # still takes precedence.
         visualizer_cfgs=preset(default=[NewtonGLVisualizerCfg()], train=[], eval=[]),
@@ -265,6 +283,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
             size=(0.7, 1.0, 0.04),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             collision_props=sim_utils.CollisionPropertiesCfg(),
+            # UNTESTED on PhysX: the max combine mode is only verified on Newton, which ignores it.
+            physics_material=PhysxRigidBodyMaterialCfg(
+                static_friction=_FRICTION, dynamic_friction=_FRICTION, friction_combine_mode="max"
+            ),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.32, 0.18, 0.08)),
         ),
         # The G1 asset's fixed pelvis is at z=0; the table top is therefore at pelvis height.
