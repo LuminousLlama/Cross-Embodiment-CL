@@ -28,6 +28,8 @@ import subprocess
 import sys
 
 import torch
+from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
+from PIL import Image, ImageDraw
 from rsl_rl.runners import DistillationRunner, OnPolicyRunner
 
 from isaaclab.app import add_launcher_args, launch_simulation
@@ -52,6 +54,48 @@ from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper, handle_de
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path, setup_preset_cli
 from isaaclab_tasks.utils.hydra import hydra_task_config
+
+
+def _parse_xyz(value: str) -> tuple[float, float, float]:
+    """Parse a comma-separated ``"x,y,z"`` CLI argument into a float tuple."""
+    parts = value.split(",")
+    if len(parts) != 3:
+        raise argparse.ArgumentTypeError(f"expected 'x,y,z', got {value!r}")
+    return (float(parts[0]), float(parts[1]), float(parts[2]))
+
+
+def _log_scalar(log: dict, tag: str) -> float | None:
+    """Extract a scalar float from an ``extras["log"]`` entry, or ``None`` if the tag is absent."""
+    if tag not in log:
+        return None
+    value = log[tag]
+    return value.item() if torch.is_tensor(value) else float(value)
+
+
+def _write_contact_sheet(frames: list[tuple[int, object, float | None, float | None]], out_path: str) -> None:
+    """Tile captured rollout frames into one labeled contact sheet, 4 columns wide.
+
+    Each tile is downscaled to 480x270 and labeled with its policy step, apple height, and
+    (when available) the max per-group contact force, so a reviewer can judge grasp quality
+    from a single image.
+    """
+    tile_width, tile_height, columns = 480, 270, 4
+    rows = -(-len(frames) // columns)
+    sheet = Image.new("RGB", (tile_width * columns, tile_height * rows), color=(0, 0, 0))
+    draw = ImageDraw.Draw(sheet)
+    for index, (step, frame, height_cm, force_max) in enumerate(frames):
+        column, row = index % columns, index // columns
+        x, y = column * tile_width, row * tile_height
+        sheet.paste(Image.fromarray(frame).resize((tile_width, tile_height)), (x, y))
+        label = f"step {step}"
+        if height_cm is not None:
+            label += f"  h={height_cm:.1f}cm"
+        if force_max is not None:
+            label += f"  f={force_max:.2f}N"
+        draw.rectangle((x, y, x + tile_width, y + 14), fill=(0, 0, 0))
+        draw.text((x + 2, y + 1), label, fill=(255, 255, 0))
+    sheet.save(out_path)
+
 
 # Import task packages registered by downstream projects (e.g. Cross_Embodiment_CL), which the
 # `isaaclab play`/`isaaclab train` CLI dispatcher normally loads before running an entrypoint
@@ -80,6 +124,27 @@ parser.add_argument("--external_callback", default=None, help="Fully qualified p
 parser.add_argument("--episodes", type=int, default=64, help="Number of completed episodes to collect.")
 parser.add_argument(
     "--out", type=str, default=None, help="Output JSON path. Defaults to <checkpoint dir>/eval_<checkpoint stem>.json."
+)
+parser.add_argument(
+    "--frames_dir",
+    type=str,
+    default=None,
+    help="Directory to save headless PNG frames of the deterministic rollout plus a tiled contact sheet. "
+    "Disabled by default; when set, forces 1 environment, Newton visual shapes, and keypoint markers.",
+)
+parser.add_argument("--frame_every", type=int, default=15, help="Save a frame every N policy steps.")
+parser.add_argument("--max_frames", type=int, default=16, help="Maximum number of frames to save.")
+parser.add_argument(
+    "--cam_eye",
+    type=_parse_xyz,
+    default=_parse_xyz("0.85,-0.55,0.50"),
+    help="Headless capture camera eye position, as 'x,y,z' in the env frame.",
+)
+parser.add_argument(
+    "--cam_lookat",
+    type=_parse_xyz,
+    default=_parse_xyz("0.35,-0.05,0.12"),
+    help="Headless capture camera look-at target, as 'x,y,z' in the env frame.",
 )
 cli_args.add_rsl_rl_args(parser)
 add_launcher_args(parser)
@@ -113,6 +178,22 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
             agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
             env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+            if args_cli.frames_dir:
+                # Frame capture needs a single, visible env: the apple's render mesh (Newton
+                # visual shapes) and the goal/current keypoint markers, drawn by a headless
+                # Newton GL visualizer at the requested camera pose.
+                env_cfg.scene.num_envs = 1
+                env_cfg.sim.physics.load_visual_shapes = True
+                env_cfg.debug.keypoint_markers = True
+                env_cfg.sim.visualizer_cfgs = [
+                    NewtonGLVisualizerCfg(
+                        headless=True,
+                        window_width=960,
+                        window_height=540,
+                        eye=args_cli.cam_eye,
+                        lookat=args_cli.cam_lookat,
+                    )
+                ]
             # Warp reads its determinism mode at module build time, so request it before the env exists.
             request_determinism(args_cli, env_cfg)
 
@@ -180,21 +261,41 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             metric_sums: dict[str, float] = {}
             metric_weights: dict[str, float] = {}
             completed_episodes = 0
+            policy_step = 0
+            frames: list[tuple[int, object, float | None, float | None]] = []
+            if args_cli.frames_dir:
+                os.makedirs(args_cli.frames_dir, exist_ok=True)
             print(f"[INFO] Collecting {args_cli.episodes} episodes...")
             while completed_episodes < args_cli.episodes:
                 with torch.inference_mode():
                     actions = policy(obs)
                     obs, _, dones, extras = env.step(actions)
                     policy.reset(dones)
+                policy_step += 1
+                log = extras.get("log", {})
                 num_done = int(dones.sum().item())
                 if num_done > 0:
-                    for tag, value in extras.get("log", {}).items():
+                    for tag, value in log.items():
                         scalar = value.item() if torch.is_tensor(value) else float(value)
                         metric_sums[tag] = metric_sums.get(tag, 0.0) + scalar * num_done
                         metric_weights[tag] = metric_weights.get(tag, 0.0) + num_done
                     completed_episodes += num_done
+                capture_frame = (
+                    args_cli.frames_dir
+                    and len(frames) < args_cli.max_frames
+                    and policy_step % args_cli.frame_every == 0
+                )
+                if capture_frame:
+                    frame = env.unwrapped.sim.visualizers[0].render_rgb_array()
+                    height_cm = _log_scalar(log, "Task/object_height_step")
+                    force_max = _log_scalar(log, "Contact/force_max_step")
+                    Image.fromarray(frame).save(os.path.join(args_cli.frames_dir, f"frame_{policy_step}.png"))
+                    frames.append((policy_step, frame, None if height_cm is None else height_cm * 100.0, force_max))
 
             env.close()
+
+            if args_cli.frames_dir and frames:
+                _write_contact_sheet(frames, os.path.join(args_cli.frames_dir, "contact_sheet.png"))
 
     metrics = {tag: metric_sums[tag] / metric_weights[tag] for tag in metric_sums}
 
