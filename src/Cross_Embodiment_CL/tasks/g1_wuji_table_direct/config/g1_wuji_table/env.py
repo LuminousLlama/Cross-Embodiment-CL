@@ -216,7 +216,17 @@ class G1WujiTableEnv(DirectRLEnv):
         if start == 1.0:
             return
         gravity_z = abs(self.cfg.sim.gravity[2])
-        assist_force = (1.0 - self._apple_weight_frac) * self._apple_mass * gravity_z
+        # MJWarp injects a RigidObject's external wrench once per outer (decimated) physics step,
+        # while gravity is a native term its integrator re-applies at every one of its internal
+        # ``num_substeps`` sub-steps.  A constant assist force therefore lands at only
+        # 1 / num_substeps of the magnitude set below; scale it back up so the apple actually
+        # feels (1 - frac) * weight.  Measured directly: with frac=-1 (assist = 2x weight), the
+        # apple's net acceleration was +g at num_substeps=1, ~0 at num_substeps=2, and -g/2 at
+        # num_substeps=4 -- exactly matching an effective force of (set force) / num_substeps.
+        # Backends without substepping (e.g. PhysX) have no such attribute and default to 1, a
+        # no-op.
+        num_substeps = getattr(self.cfg.sim.physics, "num_substeps", 1)
+        assist_force = (1.0 - self._apple_weight_frac) * self._apple_mass * gravity_z * num_substeps
         forces = torch.zeros((self.num_envs, 1, 3), device=self.device)
         forces[:, 0, 2] = assist_force.squeeze(-1)
         torques = torch.zeros_like(forces)
