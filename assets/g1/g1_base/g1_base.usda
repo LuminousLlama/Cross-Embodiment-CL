@@ -65,7 +65,7 @@ over "g1_29dof_with_hand_rev_1_0" (
     # The articulation root belongs on this parent Xform for a fixed-base
     # articulation.  The FixedJoint welds the pelvis (body1) to the world
     # frame (an omitted body0).
-    bool physxArticulation:enabledSelfCollisions = 0
+    bool physxArticulation:enabledSelfCollisions = 1
     int physxArticulation:solverPositionIterationCount = 32
     int physxArticulation:solverVelocityIterationCount = 1
 
