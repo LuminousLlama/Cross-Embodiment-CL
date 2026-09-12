@@ -41,6 +41,8 @@ class G1WujiTableEnv(DirectRLEnv):
         "right_wrist_yaw_joint",
     )
     _WUJI_JOINT_NAMES = tuple(f"right_finger{finger}_joint{joint}" for finger in range(1, 6) for joint in range(1, 5))
+    # Side-swing joints of the four fingers, whose range is symmetric about 0 rad.
+    _WUJI_SIDE_SWING_JOINT_NAMES = tuple(f"right_finger{finger}_joint2" for finger in range(2, 6))
     _HAND_POINT_BODY_NAMES = ("right_palm_link",) + tuple(f"right_finger{finger}_tip_link" for finger in range(1, 6))
     # Apple contact is sensed per group, over every hand body that owns a collision shape.  The
     # *_tip_link frames above own none, so a sensor on one reads 0 N forever; fingertip contact
@@ -67,6 +69,13 @@ class G1WujiTableEnv(DirectRLEnv):
 
         self.arm_joint_ids, _ = self.robot.find_joints(self._ARM_JOINT_NAMES, preserve_order=True)
         self.wuji_joint_ids, _ = self.robot.find_joints(self._WUJI_JOINT_NAMES, preserve_order=True)
+        # Commanded hand targets never bend a joint backwards past 0 rad; the thumb base's own limit already sits
+        # just above it, and the four fingers' side-swing joints keep their symmetric range.  Only the command is
+        # restricted: the simulated joints keep their full limits, since the real hand can be pushed backwards.
+        self._wuji_command_lower_floor = torch.tensor(
+            [-torch.inf if name in self._WUJI_SIDE_SWING_JOINT_NAMES else 0.0 for name in self._WUJI_JOINT_NAMES],
+            device=self.device,
+        )
         self.waist_joint_ids, _ = self.robot.find_joints("waist_.*_joint")
         self.hand_point_body_ids, hand_point_names = self.robot.find_bodies(
             self._HAND_POINT_BODY_NAMES, preserve_order=True
@@ -176,8 +185,9 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
         wuji_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.wuji_joint_ids]
+        wuji_command_lower = torch.maximum(wuji_limits[..., 0], self._wuji_command_lower_floor)
         wuji_targets = self.wuji_action_pipeline.latent_action_to_joint_target(
-            self.actions[:, len(self.arm_joint_ids) :], wuji_limits[..., 0], wuji_limits[..., 1]
+            self.actions[:, len(self.arm_joint_ids) :], wuji_command_lower, wuji_limits[..., 1]
         )
         self._advance_joint_targets(
             self.wuji_joint_targets,
@@ -186,6 +196,8 @@ class G1WujiTableEnv(DirectRLEnv):
             self.cfg.wuji_action_ema_alpha,
             self.cfg.hand_joint_velocity_limit,
         )
+        # The anti-windup clamp follows the measured position, which contact can push backwards; never command that.
+        self.wuji_joint_targets.clamp_(min=wuji_command_lower)
 
     def _advance_joint_targets(
         self,

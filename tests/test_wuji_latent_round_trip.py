@@ -93,7 +93,9 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         wuji_default = robot.data.default_joint_pos.torch[:, joint_ids].clone()
         wuji_limits = robot.data.soft_joint_pos_limits.torch[:, joint_ids]
         wuji_desired = unwrapped.wuji_action_pipeline.latent_action_to_joint_target(
-            arm_actions[:, len(unwrapped.arm_joint_ids) :], wuji_limits[..., 0], wuji_limits[..., 1]
+            arm_actions[:, len(unwrapped.arm_joint_ids) :],
+            torch.maximum(wuji_limits[..., 0], unwrapped._wuji_command_lower_floor),
+            wuji_limits[..., 1],
         )
         assert torch.allclose(unwrapped.wuji_joint_targets, 0.1 * wuji_desired + 0.9 * wuji_default)
         env.reset(seed=42)
