@@ -70,18 +70,52 @@ G1_BASE_CFG = ArticulationCfg(
                 ".*_wrist_.*_joint": 0.001,
             },
         ),
-        # Wuji's 20 actual revolute finger joints. These deliberately simple
-        # provisional PD values are responsive and bounded for policy training;
-        # system-identified values will replace them in a later pass. The fixed
-        # legacy weld is not an actuator because it contributes no degree of
-        # freedom.
+        # Wuji's 20 actual revolute finger joints. The fixed legacy weld is not an
+        # actuator because it contributes no degree of freedom. Effort limits,
+        # stiffness, and damping copy the drives authored in the hand USD (which
+        # authors gains per degree); its maxForce equals the official
+        # wuji-hand-description MJCF actuatorfrcrange. Armature is that MJCF's
+        # value: the USD authors none, so leaving it unset would load 0.
         "wuji_fingers": ImplicitActuatorCfg(
             joint_names_expr=["right_finger[1-5]_joint[1-4]"],
-            joint_effort_limit=5.0,
+            joint_effort_limit={
+                "right_finger1_joint1": 0.4452,
+                "right_finger1_joint2": 0.4259,
+                "right_finger1_joint3": 0.1888,
+                "right_finger1_joint4": 0.1468,
+                "right_finger2_joint1": 0.6188,
+                "right_finger2_joint2": 0.1822,
+                "right_finger2_joint3": 0.2251,
+                "right_finger2_joint4": 0.2170,
+                "right_finger3_joint1": 0.6494,
+                "right_finger3_joint2": 0.1827,
+                "right_finger3_joint3": 0.2078,
+                "right_finger3_joint4": 0.2018,
+                "right_finger4_joint1": 0.6389,
+                "right_finger4_joint2": 0.1832,
+                "right_finger4_joint3": 0.2249,
+                "right_finger4_joint4": 0.2044,
+                "right_finger5_joint1": 0.6441,
+                "right_finger5_joint2": 0.1798,
+                "right_finger5_joint3": 0.2384,
+                "right_finger5_joint4": 0.1866,
+            },
             joint_velocity_limit=0.7,
-            stiffness=20.0,
-            damping=1.0,
-            armature=0.001,
+            stiffness={
+                "right_finger[1-5]_joint[12]": 2.0,
+                "right_finger[1-5]_joint3": 1.0,
+                "right_finger[1-5]_joint4": 0.8,
+            },
+            damping={
+                "right_finger[1-5]_joint[12]": 0.05,
+                "right_finger[1-5]_joint[34]": 0.03,
+            },
+            armature={
+                "right_finger[1-5]_joint1": 0.0005,
+                "right_finger1_joint2": 0.0005,
+                "right_finger[2-5]_joint2": 0.0002,
+                "right_finger[1-5]_joint[34]": 0.0002,
+            },
         ),
     },
 )
