@@ -31,9 +31,14 @@ from isaaclab_physx.sim.spawners.materials.physics_materials_cfg import PhysxRig
 from isaaclab_tasks.utils import PresetCfg, preset
 
 _G1_CONFIG_PATH = Path(__file__).resolve().parents[6] / "assets/g1/g1.py"
-# TODO make a objects CFG file 
+# TODO make a objects CFG file
 _APPLE_USD_PATH = Path(__file__).resolve().parents[6] / "assets/objects/YcbApple/textured.usda"
-# TODO can we not just do from cross embodiment import assets 
+# Offline-decomposed variant (scripts/make_apple_decomposition.py): 8 convex hulls, <=32
+# vertices each, computed once by CoACD rather than at every Newton launch. Select it with
+# a single override: env.apple_cfg.spawn.usd_path=<this path, i.e. str(_APPLE_USD_COACD8_PATH)>.
+# The default above is unchanged.
+_APPLE_USD_COACD8_PATH = Path(__file__).resolve().parents[6] / "assets/objects/YcbApple/textured_coacd8.usda"
+# TODO can we not just do from cross embodiment import assets
 _g1_config_spec = importlib.util.spec_from_file_location("cross_embodiment_cl_g1_config", _G1_CONFIG_PATH)
 if _g1_config_spec is None or _g1_config_spec.loader is None:
     raise ImportError(f"Unable to load G1 configuration from {_G1_CONFIG_PATH}.")
@@ -355,6 +360,19 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
             # convexHull is unchanged from before this cfg swap: Newton's importer falls back to
             # Mesh.MAX_HULL_VERTICES (64) either way.  PhysX ignores the unmodified newton
             # namespace and still reads the standard physics:approximation token.
+            #
+            # An offline-decomposed alternative to convexDecomposition's runtime 61 hulls is
+            # env.apple_cfg.spawn.usd_path=<repo>/assets/objects/YcbApple/textured_coacd8.usda
+            # (see _APPLE_USD_COACD8_PATH above and scripts/make_apple_decomposition.py): 8
+            # convex hulls, <=32 vertices each, computed once offline by CoACD.  The default
+            # mesh_approximation_name="convexHull" below stays safe with that variant: Isaac
+            # Lab's modify_collision_properties dispatches mesh_collision_property once per
+            # prim with UsdPhysics.CollisionAPI applied (apply_nested gates recursion on that,
+            # not on prim type), and each of the 8 hull Mesh prims carries its own
+            # CollisionAPI, so each is visited -- and re-approximated -- independently.
+            # Newton's importer likewise approximates per imported Newton shape (one per Mesh
+            # prim), never merging multiple prims' points into one hull. So the 8 hulls stay
+            # separate; this override does not need to change mesh_approximation_name at all.
             collision_props=sim_utils.CollisionPropertiesCfg(
                 mesh_collision_property=sim_utils.NewtonMeshCollisionPropertiesCfg(
                     mesh_approximation_name="convexHull", max_hull_vertices=None
