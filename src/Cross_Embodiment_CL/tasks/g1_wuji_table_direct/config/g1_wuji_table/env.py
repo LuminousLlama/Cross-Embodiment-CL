@@ -411,16 +411,10 @@ class G1WujiTableEnv(DirectRLEnv):
             # zero until two fingers already touch, so it supplies no gradient toward touching
             # at all; this term rises with any contact and bridges reach -> grasp.  tanh bounds
             # it so pressing the apple into the table cannot out-earn lifting it.
-            # Rest height is the authored spawn height; the apple settles a touch below it, so
-            # the clamp below makes "sitting untouched" score exactly zero.
-            rest_height = self.object_start_position[:, 2] + self.scene.env_origins[:, 2]
-            goal_height = self.goal_position[:, 2] + self.scene.env_origins[:, 2]
-            lift_fraction = torch.clamp(
-                (object_position[:, 2] - rest_height) / (goal_height - rest_height), 0.0, 1.0
-            )
-            lift_reward = self.cfg.lift_reward_scale * lift_fraction
+            lift_reward = self.cfg.lift_reward_scale * self._lift_fraction(object_position)
             # Contact only counts while the apple is not being crushed downward, which is what
             # closes off the press exploit without removing the gradient toward touching.
+            rest_height = self.object_start_position[:, 2] + self.scene.env_origins[:, 2]
             held = object_position[:, 2] > rest_height - self.cfg.press_tolerance
             contact_reward = (
                 self.cfg.contact_reward_scale
@@ -452,8 +446,11 @@ class G1WujiTableEnv(DirectRLEnv):
             ) * alpha_ramp
             goal_reward = self.cfg.goal_reward_scale * torch.exp(-goal_alpha_step * keypoint_error) * contact_gate
             contact_reward = self.cfg.adept_contact_reward_scale * contact_gate.float()
-            lift_reward = torch.zeros_like(reach_reward)
-            reward = reach_reward + goal_reward + contact_reward
+            # Optional dense assist, off by default (adept_lift_reward_scale=0.0): reuses the
+            # shaped mode's lift_fraction so a policy far from the goal -- where the alpha-sharpened,
+            # gate-only goal term gives no gradient -- still has a signal toward lifting.
+            lift_reward = self.cfg.adept_lift_reward_scale * self._lift_fraction(object_position)
+            reward = reach_reward + goal_reward + contact_reward + lift_reward
         else:
             raise ValueError(f"Unknown reward_mode '{self.cfg.reward_mode}'; expected 'shaped' or 'adept'.")
 
@@ -482,6 +479,17 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         self._update_keypoint_markers(current_keypoints=current_keypoints, goal_keypoints=goal_keypoints)
         return reward
+
+    def _lift_fraction(self, object_position: torch.Tensor) -> torch.Tensor:
+        """Return the apple's height progress from rest to goal, clamped to ``[0, 1]``.
+
+        Rest height is the authored spawn height; the apple settles a touch below it, so the
+        clamp makes "sitting untouched" score exactly zero. Shared by the shaped mode's dense
+        lift term and the optional ``adept_lift_reward_scale`` term.
+        """
+        rest_height = self.object_start_position[:, 2] + self.scene.env_origins[:, 2]
+        goal_height = self.goal_position[:, 2] + self.scene.env_origins[:, 2]
+        return torch.clamp((object_position[:, 2] - rest_height) / (goal_height - rest_height), 0.0, 1.0)
 
     def _contact_group_forces(self) -> torch.Tensor:
         """Return each contact group's apple normal force [N], summed over the group's bodies.

@@ -259,6 +259,14 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
 
     PPO runs 32 steps per iteration, so 32 000 steps is iteration 1000.
     """
+    adept_lift_reward_scale: float = 0.0
+    """``reward_mode="adept"`` optional dense per-step reward for height progress toward the goal.
+
+    Reuses the shaped mode's ``lift_fraction`` (see :meth:`G1WujiTableEnv._lift_fraction`). 0.0
+    (default) adds nothing, so pure ADEPT behaviour is byte-identical; the gated, alpha-sharpened
+    goal term alone gives no gradient toward lifting while far from the goal, which this term
+    supplies when set nonzero.
+    """
     reach_reward_scale = 10.0
     goal_reward_scale = 5.0
     goal_reward_alpha = 15.0
