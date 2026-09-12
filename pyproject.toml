@@ -30,8 +30,12 @@ ovrtx = ["isaaclab-dev[ovrtx]"]
 
 [dependency-groups]
 dev = ["codespell>=2.4", "pre-commit>=4.2", "pytest>=8.3", "ruff>=0.11"]
+# Mirrors the isaacsim extra: uv has no default extras, so a default group keeps
+# a plain `uv sync` from uninstalling Isaac Sim. Opt out with `--no-group isaacsim`.
+isaacsim = ["isaaclab-dev[isaacsim]"]
 
 [tool.uv]
+default-groups = ["dev", "isaacsim"]
 index-strategy = "unsafe-best-match"
 prerelease = "allow"
 environments = [

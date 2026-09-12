@@ -694,6 +694,9 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+isaacsim = [
+    { name = "isaaclab-dev", extra = ["isaacsim"] },
+]
 
 [package.metadata]
 requires-dist = [
@@ -712,6 +715,7 @@ dev = [
     { name = "pytest", specifier = ">=8.3" },
     { name = "ruff", specifier = ">=0.11" },
 ]
+isaacsim = [{ name = "isaaclab-dev", extras = ["isaacsim"], editable = "../IsaacLab" }]
 
 [[package]]
 name = "cryptography"
