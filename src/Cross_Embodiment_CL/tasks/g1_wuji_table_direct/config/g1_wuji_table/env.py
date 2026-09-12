@@ -538,6 +538,10 @@ class G1WujiTableEnv(DirectRLEnv):
                 "Penetration probe could not find the hand, apple, table, and robot geoms in the MJWarp model."
             )
         self._mjw_data = solver.mjw_data
+        # One-time record of the apple's built collision-shape count, so runs log the real hull
+        # count produced by whatever mesh_approximation_name/max_hull_vertices Hydra selected.
+        approximation = self.cfg.apple_cfg.spawn.collision_props.mesh_collision_property.mesh_approximation_name
+        print(f"[apple-collision] approximation={approximation} shapes={int(self._apple_geoms.sum())}")
 
     def _contact_penetration(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Return each environment's deepest hand-apple, apple-table, and hand self-contact penetration [m].

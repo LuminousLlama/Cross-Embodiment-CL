@@ -346,9 +346,18 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
             # enough to stay stable costs more memory than it is worth, and an njmax small
             # enough to be cheap diverges into NaN.  An apple is convex apart from its stem
             # dimple, so a single convex hull keeps grasp contacts faithful far more cheaply.
+            # NewtonMeshCollisionPropertiesCfg (rather than the generic MeshCollisionPropertiesCfg)
+            # makes the approximation and its hull cap Hydra-overridable from the CLI, e.g.
+            # env.apple_cfg.spawn.collision_props.mesh_collision_property.mesh_approximation_name=convexDecomposition
+            # env.apple_cfg.spawn.collision_props.mesh_collision_property.max_hull_vertices=8
+            # (for convexDecomposition, N caps CoACD's hull *count*, not per-hull vertices).
+            # max_hull_vertices=None authors no newton:maxHullVertices attribute, so the built
+            # convexHull is unchanged from before this cfg swap: Newton's importer falls back to
+            # Mesh.MAX_HULL_VERTICES (64) either way.  PhysX ignores the unmodified newton
+            # namespace and still reads the standard physics:approximation token.
             collision_props=sim_utils.CollisionPropertiesCfg(
-                mesh_collision_property=sim_utils.MeshCollisionPropertiesCfg(
-                    mesh_approximation_name="convexHull"
+                mesh_collision_property=sim_utils.NewtonMeshCollisionPropertiesCfg(
+                    mesh_approximation_name="convexHull", max_hull_vertices=None
                 )
             ),
         ),
