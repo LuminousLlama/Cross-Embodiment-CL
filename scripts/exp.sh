@@ -51,10 +51,11 @@ git fetch -q origin || echo "WARN: git fetch failed, using local refs"
 git checkout -q --detach "$commit" || { echo "REFUSED: checkout of $commit failed"; exit 1; }
 mkdir -p logs/exp
 args=$(printf '%q ' "$@")
-# The eval reuses the run's env overrides, minus solver capacity, which the eval preset sizes itself.
+# The eval reuses the run's env overrides, minus solver capacity, which the eval preset sizes itself,
+# and minus curricula, which restart from their easy end in a fresh process.
 evalargs=""
 for a in "$@"; do
-  case $a in env.sim.physics.solver_cfg.*) ;; env.*) evalargs+="$(printf '%q ' "$a")" ;; esac
+  case $a in env.sim.physics.solver_cfg.*|env.*curriculum*) ;; env.*) evalargs+="$(printf '%q ' "$a")" ;; esac
 done
 cat > "logs/exp/$name.sh" <<RUNNER
 cd "$dir"
