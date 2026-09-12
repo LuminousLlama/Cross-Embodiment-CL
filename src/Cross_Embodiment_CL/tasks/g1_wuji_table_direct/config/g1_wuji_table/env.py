@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import torch
+import warp as wp
 
 import isaaclab.sim as sim_utils
 from isaaclab import cloner
@@ -115,6 +116,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self.table_top_height = self.cfg.table_cfg.init_state.pos[2] + 0.5 * self.cfg.table_cfg.spawn.size[2]
         self.local_cube_keypoints = self._make_cube_keypoints(self.cfg.keypoint_extent)
         self._init_episode_metrics()
+        self._init_penetration_probe()
         self.goal_keypoint_marker: VisualizationMarkers | None = None
         self.object_keypoint_marker: VisualizationMarkers | None = None
         if self.cfg.debug.keypoint_markers:
@@ -405,6 +407,58 @@ class G1WujiTableEnv(DirectRLEnv):
             dim=-1,
         )
 
+    def _init_penetration_probe(self) -> None:
+        """Index the MJWarp geoms of the hand, apple, and table for the contact-penetration diagnostic.
+
+        Isaac Lab contact sensors report forces but not penetration depth, so depth is read from the MJWarp
+        contact buffer.  UNTESTED on PhysX: there no MJWarp solver exists, the probe stays off, and the
+        penetration tags are simply not logged.
+        """
+        self._mjw_data = None
+        try:
+            import mujoco
+
+            from isaaclab_newton.physics import NewtonManager
+        except ImportError:
+            return
+        solver = getattr(NewtonManager, "_solver", None)
+        mj_model = getattr(solver, "mj_model", None)
+        if mj_model is None:
+            return
+        labels = [
+            f"{mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_BODY, int(mj_model.geom_bodyid[geom])) or ''}/"
+            f"{mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_GEOM, geom) or ''}"
+            for geom in range(mj_model.ngeom)
+        ]
+        self._hand_geoms, self._apple_geoms, self._table_geoms = (
+            torch.tensor([key in label for label in labels], device=self.device)
+            for key in ("wujihand", "Apple", "Table")
+        )
+        if not (self._hand_geoms.any() and self._apple_geoms.any() and self._table_geoms.any()):
+            raise ValueError("Penetration probe could not find the hand, apple, and table geoms in the MJWarp model.")
+        self._mjw_data = solver.mjw_data
+
+    def _contact_penetration(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return each environment's deepest hand-apple and apple-table penetration [m], zero without contact."""
+        contact = self._mjw_data.contact
+        dist = wp.to_torch(contact.dist)
+        geoms = wp.to_torch(contact.geom).long().clamp_min(0)
+        worlds = wp.to_torch(contact.worldid).long().clamp(0, self.num_envs - 1)
+        # Entries past the detected-contact count are stale; comparing on device avoids a host sync each step.
+        detected = torch.arange(dist.shape[0], device=self.device) < wp.to_torch(self._mjw_data.nacon)
+        depth = torch.where(detected, (-dist).clamp_min(0.0), 0.0)
+        first, second = geoms[:, 0], geoms[:, 1]
+        apple_first, apple_second = self._apple_geoms[first], self._apple_geoms[second]
+        penetrations = []
+        for other in (self._hand_geoms, self._table_geoms):
+            pair = (apple_first & other[second]) | (apple_second & other[first])
+            penetrations.append(
+                torch.zeros(self.num_envs, device=self.device).scatter_reduce_(
+                    0, worlds, torch.where(pair, depth, 0.0), reduce="amax"
+                )
+            )
+        return penetrations[0], penetrations[1]
+
     def _init_episode_metrics(self) -> None:
         """Allocate per-environment buffers for completed-episode diagnostics."""
         self._episode_reward_sums = {
@@ -417,6 +471,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._episode_min_hand_distance = torch.full((self.num_envs,), torch.inf, device=self.device)
         self._episode_min_keypoint_error = torch.full((self.num_envs,), torch.inf, device=self.device)
         self._episode_max_object_height = torch.full((self.num_envs,), -torch.inf, device=self.device)
+        self._episode_max_hand_penetration = torch.zeros(self.num_envs, device=self.device)
         self._termination_torso_apple = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_below_table = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_workspace_exit = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
@@ -483,6 +538,12 @@ class G1WujiTableEnv(DirectRLEnv):
                 for index, name in enumerate(self.contact_sensors)
             }
         )
+        if self._mjw_data is not None:
+            # Deepest contact per environment [m], averaged over environments.
+            hand_penetration, table_penetration = self._contact_penetration()
+            self._episode_max_hand_penetration = torch.maximum(self._episode_max_hand_penetration, hand_penetration)
+            log["Contact/penetration_hand_step"] = hand_penetration.mean()
+            log["Contact/penetration_table_step"] = table_penetration.mean()
 
         reset_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_ids) > 0:
@@ -515,6 +576,8 @@ class G1WujiTableEnv(DirectRLEnv):
                     "Terminations/timeout": self.reset_time_outs[reset_ids].float().mean(),
                 }
             )
+            if self._mjw_data is not None:
+                log["Contact/penetration_hand_ep_max"] = self._episode_max_hand_penetration[reset_ids].mean()
         self.extras["log"] = log
 
     def _make_cube_keypoints(self, extent: float) -> torch.Tensor:
@@ -598,6 +661,7 @@ class G1WujiTableEnv(DirectRLEnv):
             self._episode_min_hand_distance[env_ids] = torch.inf
             self._episode_min_keypoint_error[env_ids] = torch.inf
             self._episode_max_object_height[env_ids] = -torch.inf
+            self._episode_max_hand_penetration[env_ids] = 0.0
         self.robot.actuators.target_command.set_position_index(
             value=torch.zeros((len(env_ids), len(self.waist_joint_ids)), device=self.device),
             joint_ids=self.waist_joint_ids,
