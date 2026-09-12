@@ -54,6 +54,26 @@ uv run isaaclab play --rl_library rsl_rl \
   physics=newton_mjwarp
 ```
 
+# Play checkpoint
+```
+uv run isaaclab play --rl_library rsl_rl \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --num_envs 16 --device cuda --viz newton --real-time \
+  --checkpoint /path/to/checkpoint \
+  physics=newton_mjwarp
+```
+
+
+
+## Tensorboard 
+```
+uv run tensorboard --logdir <path>
+
+# on remote server 
+uv run tensorboard --logdir <path> 
+```
+
+
 ## Reading TensorBoard logs without launching TensorBoard
 
 `scripts/analyze_run.py` caches a run's scalars to `<run>/analysis/scalars.csv` and
