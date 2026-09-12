@@ -51,6 +51,11 @@ git fetch -q origin || echo "WARN: git fetch failed, using local refs"
 git checkout -q --detach "$commit" || { echo "REFUSED: checkout of $commit failed"; exit 1; }
 mkdir -p logs/exp
 args=$(printf '%q ' "$@")
+# The eval reuses the run's env overrides, minus solver capacity, which the eval preset sizes itself.
+evalargs=""
+for a in "$@"; do
+  case $a in env.sim.physics.solver_cfg.*) ;; env.*) evalargs+="$(printf '%q ' "$a")" ;; esac
+done
 cat > "logs/exp/$name.sh" <<RUNNER
 cd "$dir"
 export VIRTUAL_ENV="$venv" PATH="$venv/bin:\$HOME/.local/bin:\$PATH" PYTHONPATH="$dir/src"
@@ -58,7 +63,14 @@ export VIRTUAL_ENV="$venv" PATH="$venv/bin:\$HOME/.local/bin:\$PATH" PYTHONPATH=
   echo "EXP name=$name commit=\$(git rev-parse --short HEAD) host=\$(hostname) start=\$(date -Is) args=$args"
   python -c 'import Cross_Embodiment_CL as m; print("EXP package", m.__file__)'
   isaaclab train --rl_library rsl_rl --task CrossEmbodimentCl-G1-Wuji-Table-Direct --run_name $name presets=train $args
-  echo "EXP_EXIT=\$?"
+  code=\$?
+  echo "EXP_EXIT=\$code"
+  ck=\$(ls -t \$(ls -td logs/rsl_rl/*/*_$name | head -n 1)/model_*.pt 2>/dev/null | head -n 1)
+  if [ "\$code" = 0 ] && [ -f scripts/eval_policy.py ] && [ -n "\$ck" ]; then
+    timeout 1200 python scripts/eval_policy.py --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+      --checkpoint "\$ck" presets=eval --episodes 64 $evalargs > "logs/exp/${name}_eval.log" 2>&1
+    echo "EXP_EVAL_EXIT=\$? \$ck"
+  fi
 } 2>&1 | tee -a "logs/exp/$name.log"
 RUNNER
 tmux new-session -d -s "exp-$name" -c "$dir" "bash $dir/logs/exp/$name.sh"
@@ -86,7 +98,12 @@ gpu=$(nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader 2
 run=$(ls -td "$dir"/logs/rsl_rl/*/*_"$name" 2>/dev/null | head -n 1)
 echo "$name $state it=${it:-0} reward=${rew:--} log_age=${age}s tracebacks=$(grep -ac Traceback "$log") gpu=[$gpu] run=${run:--}"
 case $state in
-  RUNNING|FINISHED) ;;
+  RUNNING) ;;
+  FINISHED)
+    grep -a 'EXP_EVAL_EXIT' "$log" | tail -n 1
+    grep -aE '^(episodes|Task/(success|object_height_ep_max|keypoint_error_ep_final)|Contact/(gate_frac_ep|force_thumb_step|penetration_hand_ep_max)) ' \
+      "$dir/logs/exp/${name}_eval.log" 2>/dev/null | sort -u | sed 's/^/  eval /'
+    ;;
   *) echo "--- log tail"; tail -n 60 "$log" | sed 's/\x1b\[[0-9;]*m//g' | grep -v '^\s*$' | tail -n 25 ;;
 esac
 EOF
