@@ -463,7 +463,7 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
     def _init_penetration_probe(self) -> None:
-        """Index the MJWarp geoms of the hand, apple, and table for the contact-penetration diagnostic.
+        """Index the MJWarp geoms of the hand, apple, table, and other robot bodies for the contact diagnostic.
 
         Isaac Lab contact sensors report forces but not penetration depth, so depth is read from the MJWarp
         contact buffer.  UNTESTED on PhysX: there no MJWarp solver exists, the probe stays off, and the
@@ -485,16 +485,30 @@ class G1WujiTableEnv(DirectRLEnv):
             f"{mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_GEOM, geom) or ''}"
             for geom in range(mj_model.ngeom)
         ]
-        self._hand_geoms, self._apple_geoms, self._table_geoms = (
+        # "g1_simplified" is the USD sub-asset name for the arm/torso, mirroring "wujihand" for the hand
+        # (see the robot prim paths in env_cfg.py); it covers the non-hand robot geoms used for self-contact.
+        self._hand_geoms, self._apple_geoms, self._table_geoms, self._other_robot_geoms = (
             torch.tensor([key in label for label in labels], device=self.device)
-            for key in ("wujihand", "Apple", "Table")
+            for key in ("wujihand", "Apple", "Table", "g1_simplified")
         )
-        if not (self._hand_geoms.any() and self._apple_geoms.any() and self._table_geoms.any()):
-            raise ValueError("Penetration probe could not find the hand, apple, and table geoms in the MJWarp model.")
+        if not (
+            self._hand_geoms.any()
+            and self._apple_geoms.any()
+            and self._table_geoms.any()
+            and self._other_robot_geoms.any()
+        ):
+            raise ValueError(
+                "Penetration probe could not find the hand, apple, table, and robot geoms in the MJWarp model."
+            )
         self._mjw_data = solver.mjw_data
 
-    def _contact_penetration(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return each environment's deepest hand-apple and apple-table penetration [m], zero without contact."""
+    def _contact_penetration(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return each environment's deepest hand-apple, apple-table, and hand self-contact penetration [m].
+
+        Self-contact covers hand-hand and hand-to-other-robot-geom (arm/torso) pairs; a pair the solver
+        filters out of collision (e.g. palm <-> proximal) never appears in the buffer, so it never
+        contributes here.  All three are zero without contact.
+        """
         contact = self._mjw_data.contact
         dist = wp.to_torch(contact.dist)
         geoms = wp.to_torch(contact.geom).long().clamp_min(0)
@@ -512,7 +526,15 @@ class G1WujiTableEnv(DirectRLEnv):
                     0, worlds, torch.where(pair, depth, 0.0), reduce="amax"
                 )
             )
-        return penetrations[0], penetrations[1]
+        hand_first, hand_second = self._hand_geoms[first], self._hand_geoms[second]
+        other_first, other_second = self._other_robot_geoms[first], self._other_robot_geoms[second]
+        self_pair = (hand_first & hand_second) | (hand_first & other_second) | (hand_second & other_first)
+        penetrations.append(
+            torch.zeros(self.num_envs, device=self.device).scatter_reduce_(
+                0, worlds, torch.where(self_pair, depth, 0.0), reduce="amax"
+            )
+        )
+        return penetrations[0], penetrations[1], penetrations[2]
 
     def _init_episode_metrics(self) -> None:
         """Allocate per-environment buffers for completed-episode diagnostics."""
@@ -527,6 +549,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._episode_min_keypoint_error = torch.full((self.num_envs,), torch.inf, device=self.device)
         self._episode_max_object_height = torch.full((self.num_envs,), -torch.inf, device=self.device)
         self._episode_max_hand_penetration = torch.zeros(self.num_envs, device=self.device)
+        self._episode_max_self_penetration = torch.zeros(self.num_envs, device=self.device)
         self._termination_torso_apple = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_below_table = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_workspace_exit = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
@@ -604,10 +627,13 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         if self._mjw_data is not None:
             # Deepest contact per environment [m], averaged over environments.
-            hand_penetration, table_penetration = self._contact_penetration()
+            hand_penetration, table_penetration, self_penetration = self._contact_penetration()
             self._episode_max_hand_penetration = torch.maximum(self._episode_max_hand_penetration, hand_penetration)
+            self._episode_max_self_penetration = torch.maximum(self._episode_max_self_penetration, self_penetration)
             log["Contact/penetration_hand_step"] = hand_penetration.mean()
             log["Contact/penetration_table_step"] = table_penetration.mean()
+            log["Contact/penetration_self_step"] = self_penetration.mean()
+            log["Contact/self_penetrating_frac_step"] = (self_penetration > 0.0005).float().mean()
 
         reset_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_ids) > 0:
@@ -645,6 +671,7 @@ class G1WujiTableEnv(DirectRLEnv):
             )
             if self._mjw_data is not None:
                 log["Contact/penetration_hand_ep_max"] = self._episode_max_hand_penetration[reset_ids].mean()
+                log["Contact/penetration_self_ep_max"] = self._episode_max_self_penetration[reset_ids].mean()
         self.extras["log"] = log
 
     def _make_cube_keypoints(self, extent: float) -> torch.Tensor:
@@ -778,6 +805,7 @@ class G1WujiTableEnv(DirectRLEnv):
             self._episode_min_keypoint_error[env_ids] = torch.inf
             self._episode_max_object_height[env_ids] = -torch.inf
             self._episode_max_hand_penetration[env_ids] = 0.0
+            self._episode_max_self_penetration[env_ids] = 0.0
         self.robot.actuators.target_command.set_position_index(
             value=torch.zeros((len(env_ids), len(self.waist_joint_ids)), device=self.device),
             joint_ids=self.waist_joint_ids,
