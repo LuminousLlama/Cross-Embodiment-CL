@@ -472,6 +472,12 @@ def Xform "wujihand_right" (
             }
             over "right_finger4_link1"
             {
+                # The physics layer filters ring-little base collisions, but these links are
+                # 3-4.5 mm apart at rest, so the filters only let the fingers pass through each other.
+                delete rel physics:filteredPairs = [
+                    </wujihand_right/right_finger5_link1>,
+                    </wujihand_right/right_finger5_link2>,
+                ]
                 over "collisions" (
                     active = true
                 )
@@ -485,6 +491,10 @@ def Xform "wujihand_right" (
             }
             over "right_finger4_link2"
             {
+                # False ring-little filter: 3.2 mm apart at rest (see right_finger4_link1).
+                delete rel physics:filteredPairs = [
+                    </wujihand_right/right_finger5_link2>,
+                ]
                 over "collisions" (
                     active = false
                 )
