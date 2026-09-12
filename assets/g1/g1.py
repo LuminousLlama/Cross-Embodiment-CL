@@ -56,10 +56,14 @@ G1_BASE_CFG = ArticulationCfg(
                 ".*_elbow_joint",
                 ".*_wrist_.*_joint",
             ],
+            # Canonical Unitree G1 motor limits: unitree_mujoco g1_29dof.xml ctrlrange, which the G1 USD's
+            # authored maxForce matches.
             joint_effort_limit={
-                ".*_shoulder_.*": 60.0,
-                ".*_elbow_.*": 30.0,
-                ".*_wrist_.*_joint": 5.0,
+                ".*_shoulder_.*": 25.0,
+                ".*_elbow_joint": 25.0,
+                ".*_wrist_roll_joint": 25.0,
+                ".*_wrist_pitch_joint": 5.0,
+                ".*_wrist_yaw_joint": 5.0,
             },
             joint_velocity_limit=1.5,
             stiffness=300.0,
