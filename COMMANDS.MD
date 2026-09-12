@@ -14,53 +14,63 @@ uv run isaaclab zero_agent --task CrossEmbodimentCl-G1-Wuji-Table-Direct --viz k
 ```
 
 
-## Train the G1 + Wuji tabletop task
+## Run presets
 
-Newton (MJWarp) backend, 2048 environments, 5000 iterations:
+The G1 + Wuji task bundles its launch settings into run presets, selected with
+`presets=NAME` (defined in `g1_wuji_table/env_cfg.py`):
+
+| preset  | physics          | envs | visualizer  | keypoint markers | link-contact prints | Newton visual shapes |
+|---------|------------------|------|-------------|------------------|---------------------|----------------------|
+| (none)  | `isaacsim_physx` | 1    | none        | off              | off                 | on                   |
+| `train` | `newton_mjwarp`  | 2048 | none        | off              | off                 | off                  |
+| `debug` | `newton_mjwarp`  | 4    | `newton_gl` | on               | on                  | on                   |
+| `eval`  | `newton_mjwarp`  | 16   | `newton_gl` | on               | off                 | on                   |
+
+Anything given explicitly still wins over the preset: `--num_envs 64`, `--viz none`
+(headless eval), `--viz kit`, `env.debug.link_contacts=False`,
+`env.sim.physics.load_visual_shapes=True`.  To change the backend inside a preset, use the path
+selector, e.g. `env.sim.physics=isaacsim_physx`.  Don't combine a preset with `physics=`: that
+errors with "Conflicting global presets" whenever the two pick different physics configs.
+
+## Train the G1 + Wuji tabletop task
 
 ```
 uv run isaaclab train --rl_library rsl_rl \
   --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
-  --num_envs 2048 --device cuda --max_iterations 5000 \
-  --run_name g1_wuji_table_2048 \
-  physics=newton_mjwarp
+  --max_iterations 5000 --run_name g1_wuji_table_2048 \
+  presets=train
 ```
 
-Swap `physics=newton_mjwarp` for `physics=ovphysx` to train the same task on PhysX
-without Kit, or `physics=physx` to let the backend resolve automatically (it prefers
-Isaac Sim PhysX where that is installed and falls back to OvPhysX where it is not).
-OvPhysX needs its extra: `uv sync --extra ovphysx`.
+Add `env.sim.physics=ovphysx` to train the same task on PhysX without Kit
+(needs `uv sync --extra ovphysx`), or `env.sim.physics=physx` to let the backend resolve
+automatically (Isaac Sim PhysX where installed, otherwise OvPhysX).
 
-Useful overrides:
+Useful override:
 
 ```
-# Headless training never draws the scene, and Newton clones render meshes per
-# environment, so dropping them is a large memory saving at no cost.
-env.sim.physics.load_visual_shapes=False
-
 # Newton solver capacity. Memory grows quickly with njmax; lower it when environment
 # count matters more than constraint headroom, raise it if the sim diverges into NaN.
 env.sim.physics.solver_cfg.njmax=256 env.sim.physics.solver_cfg.nconmax=128
 ```
 
-Play a trained checkpoint (`--viz newton` renders without Isaac Sim; use `--viz kit`
-only where Isaac Sim is installed):
+## Debug the scene
+
+Zero actions, 4 environments, Newton viewer, keypoint markers and per-link contact prints:
+
+```
+uv run isaaclab zero_agent --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets=debug
+```
+
+## Play / evaluate a checkpoint
+
+The `newton_gl` viewer renders without Isaac Sim; pass `--viz kit` only where Isaac Sim
+is installed, or `--viz none` for a headless run.
 
 ```
 uv run isaaclab play --rl_library rsl_rl \
-  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
-  --num_envs 16 --device cuda --viz newton --real-time \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct --real-time \
   --checkpoint logs/rsl_rl/g1_wuji_table_direct/<run>/model_<n>.pt \
-  physics=newton_mjwarp
-```
-
-# Play checkpoint
-```
-uv run isaaclab play --rl_library rsl_rl \
-  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
-  --num_envs 16 --device cuda --viz newton --real-time \
-  --checkpoint /path/to/checkpoint \
-  physics=newton_mjwarp
+  presets=eval
 ```
 
 

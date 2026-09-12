@@ -117,7 +117,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._init_episode_metrics()
         self.goal_keypoint_marker: VisualizationMarkers | None = None
         self.object_keypoint_marker: VisualizationMarkers | None = None
-        if self.cfg.debug_vis:
+        if self.cfg.debug.keypoint_markers:
             self.goal_keypoint_marker = VisualizationMarkers(self.cfg.goal_keypoint_marker_cfg)
             self.object_keypoint_marker = VisualizationMarkers(self.cfg.object_keypoint_marker_cfg)
             self._update_keypoint_markers()
@@ -387,7 +387,7 @@ class G1WujiTableEnv(DirectRLEnv):
             nearest_hand_dist,
         )
         self._update_keypoint_markers(current_keypoints=current_keypoints, goal_keypoints=goal_keypoints)
-        if self.cfg.debug_link_contacts and self.common_step_counter % self.cfg.debug_link_contacts_interval == 0:
+        if self.cfg.debug.link_contacts and self.common_step_counter % self.cfg.debug.link_contacts_interval == 0:
             self._print_link_contacts(contact_force_stack)
         return reach_reward + goal_reward + contact_reward + lift_reward
 

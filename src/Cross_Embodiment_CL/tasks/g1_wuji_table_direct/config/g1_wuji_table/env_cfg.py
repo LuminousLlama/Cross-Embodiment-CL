@@ -10,6 +10,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
+
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
 from isaaclab.envs import DirectRLEnvCfg
@@ -24,7 +26,7 @@ from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
 from isaaclab_ov.physics import OvPhysxCfg
 from isaaclab_physx.physics import PhysxCfg
 
-from isaaclab_tasks.utils import PresetCfg
+from isaaclab_tasks.utils import PresetCfg, preset
 
 _G1_CONFIG_PATH = Path(__file__).resolve().parents[6] / "assets/g1/g1.py"
 # TODO make a objects CFG file 
@@ -38,26 +40,13 @@ _g1_config_spec.loader.exec_module(_g1_config)
 G1_WUJI_CFG = _g1_config.G1_WUJI_CFG
 
 
-@configclass
-class G1WujiTablePhysicsCfg(PresetCfg):
-    """PhysX and Newton backend presets for the G1-Wuji visual scene."""
+def _mjwarp_physics_cfg(load_visual_shapes: bool) -> NewtonCfg:
+    """Build the MJWarp physics config; the run presets differ only in visual-shape loading.
 
-    isaacsim_physx: PhysxCfg = PhysxCfg()
-    # OvPhysX runs the same PhysX solver without Kit, which is the only way to
-    # reach PhysX on a machine that has no Isaac Sim installation.
-    #
-    # The stock GPU buffer capacities are sized for far heavier scenes than one fixed-base
-    # arm, one apple and one table.  Measured at 2048 environments, the values below cut
-    # PhysX's GPU footprint by ~1.7 GB with byte-identical rollout metrics and no capacity
-    # warnings.  Raise them again if this scene ever gains objects.
-    ovphysx: OvPhysxCfg = OvPhysxCfg(
-        gpu_max_rigid_contact_count=2**20,
-        gpu_found_lost_aggregate_pairs_capacity=2**22,
-        gpu_collision_stack_size=2**24,
-        gpu_total_aggregate_pairs_capacity=2**19,
-    )
-    physx: PhysxAutoCfg = PhysxAutoCfg(isaacsim_physx=isaacsim_physx, ovphysx=ovphysx)
-    newton_mjwarp: NewtonCfg = NewtonCfg(
+    Variants are built rather than derived with ``replace``, which forwards the auto-derived
+    ``class_type`` that ``NewtonCfg`` rejects.
+    """
+    return NewtonCfg(
         # MJWarp defaults to explicit Euler and one substep.  This articulated
         # hand scene needs the documented dexterous-manipulation baseline;
         # keep it backend-local so the verified PhysX dynamics are unchanged.
@@ -85,12 +74,76 @@ class G1WujiTablePhysicsCfg(PresetCfg):
         # a focused Newton solver investigation.
         debug_mode=False,
         use_cuda_graph=True,
-        # The YCB asset intentionally separates an invisible collision mesh
-        # from its render-only textured mesh.  Always import the latter so
-        # either Newton visualizer can display the same apple as Kit/PhysX.
-        load_visual_shapes=True,
+        load_visual_shapes=load_visual_shapes,
     )
+
+
+@configclass
+class G1WujiTablePhysicsCfg(PresetCfg):
+    """PhysX and Newton backend presets for the G1-Wuji visual scene."""
+
+    isaacsim_physx: PhysxCfg = PhysxCfg()
+    # OvPhysX runs the same PhysX solver without Kit, which is the only way to
+    # reach PhysX on a machine that has no Isaac Sim installation.
+    #
+    # The stock GPU buffer capacities are sized for far heavier scenes than one fixed-base
+    # arm, one apple and one table.  Measured at 2048 environments, the values below cut
+    # PhysX's GPU footprint by ~1.7 GB with byte-identical rollout metrics and no capacity
+    # warnings.  Raise them again if this scene ever gains objects.
+    ovphysx: OvPhysxCfg = OvPhysxCfg(
+        gpu_max_rigid_contact_count=2**20,
+        gpu_found_lost_aggregate_pairs_capacity=2**22,
+        gpu_collision_stack_size=2**24,
+        gpu_total_aggregate_pairs_capacity=2**19,
+    )
+    physx: PhysxAutoCfg = PhysxAutoCfg(isaacsim_physx=isaacsim_physx, ovphysx=ovphysx)
+    # The YCB asset intentionally separates an invisible collision mesh
+    # from its render-only textured mesh.  Always import the latter so
+    # either Newton visualizer can display the same apple as Kit/PhysX.
+    newton_mjwarp: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=True)
+    # Run presets (``presets=train|debug|eval``) all select MJWarp.  Headless training never draws the
+    # scene, and Newton clones render meshes per environment, so ``train`` drops them.  Visual shapes do
+    # not collide, so its dynamics match the viewer presets.
+    train: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=False)
+    debug: NewtonCfg = newton_mjwarp
+    eval: NewtonCfg = newton_mjwarp
     default: PhysxCfg = isaacsim_physx
+
+
+# Run presets live on whole sections, never on a scalar field: Isaac Lab reads ``env.a.b=value`` on a
+# preset node as a preset name, so a scalar preset would reject ``env.a.b=True`` as an unknown preset.
+@configclass
+class G1WujiTableSceneCfg(PresetCfg):
+    """Environment-count presets; every other scene setting is shared."""
+
+    default: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=1, env_spacing=3.0, replicate_physics=True)
+    train: InteractiveSceneCfg = default.replace(num_envs=2048)
+    debug: InteractiveSceneCfg = default.replace(num_envs=4)
+    eval: InteractiveSceneCfg = default.replace(num_envs=16)
+
+
+@configclass
+class G1WujiTableDebugCfg:
+    """Diagnostic drawing and printouts, all off for training."""
+
+    keypoint_markers: bool = False
+    """Whether to draw the goal (green) and current (red) object-pose keypoint markers."""
+    link_contacts: bool = False
+    """Whether to print each contact group's apple force beside the per-body forces it sums.
+
+    Diagnostic only, for checking which hand links touch.
+    """
+    link_contacts_interval: int = 30
+    """Policy steps between diagnostic contact printouts."""
+
+
+@configclass
+class G1WujiTableDebugPresetCfg(PresetCfg):
+    """Diagnostics per run preset: markers when a viewer is open, contact printouts only for ``debug``."""
+
+    default: G1WujiTableDebugCfg = G1WujiTableDebugCfg()
+    debug: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True, link_contacts=True)
+    eval: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True)
 
 
 @configclass
@@ -125,8 +178,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Maximum Wuji finger joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
     goal_position = (0.35, -0.05, 0.24)
     """Fixed apple goal position [m] in the environment frame."""
-    debug_vis = False
-    """Whether to draw debug-only object-pose keypoint markers."""
+    debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
+    """Diagnostics, e.g. ``env.debug.link_contacts=True``; the ``debug`` and ``eval`` presets turn them on."""
     goal_keypoint_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/CrossEmbodiment/goal_keypoints",
         markers={
@@ -165,13 +218,6 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         filter_prim_paths_expr=["/World/envs/env_[^/]+/Apple"],
     )
     """Filtered torso-to-apple sensor for the collision termination."""
-    debug_link_contacts = False
-    """Whether to print each contact group's apple force beside the per-body forces it sums.
-
-    Diagnostic only, for checking which hand links touch; enable with ``env.debug_link_contacts=True``.
-    """
-    debug_link_contacts_interval = 30
-    """Policy steps between diagnostic contact printouts."""
     keypoint_extent = 0.15
     """Half-side length [m] of the virtual object-frame cube used for pose reward."""
     reach_reward_scale = 10.0
@@ -215,8 +261,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         dt=1 / 120,
         render_interval=decimation,
         physics=G1WujiTablePhysicsCfg(),
+        # Headless unless a run preset opens a viewer.  An explicit ``--viz`` still takes precedence.
+        visualizer_cfgs=preset(default=[], debug=[NewtonGLVisualizerCfg()], eval=[NewtonGLVisualizerCfg()]),
     )
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=1, env_spacing=3.0, replicate_physics=True)
+    scene: InteractiveSceneCfg = G1WujiTableSceneCfg()
 
     robot_cfg = G1_WUJI_CFG.replace(prim_path="{ENV_REGEX_NS}/G1Wuji")
     table_cfg: RigidObjectCfg = RigidObjectCfg(
