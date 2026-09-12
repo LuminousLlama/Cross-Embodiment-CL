@@ -229,6 +229,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             log_dir = os.path.dirname(resume_path)
             env_cfg.log_dir = log_dir
 
+            # A fresh process restarts the curriculum from its easy end: force full apple weight
+            # for evaluation regardless of the training-default curriculum start.
+            if hasattr(env_cfg, "apple_weight_curriculum_start"):
+                env_cfg.apple_weight_curriculum_start = 1.0
+                print("[INFO] Forcing apple_weight_curriculum_start=1.0 for evaluation.")
+
             screen.stage("Creating environment")
             env = create_isaaclab_env(
                 args_cli.task,
