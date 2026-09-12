@@ -368,7 +368,11 @@ class G1WujiTableEnv(DirectRLEnv):
         return {"policy": observation, "critic": observation}
 
     def _get_rewards(self) -> torch.Tensor:
-        """Reward reaching, thumb-opposed contact, and the upright object pose."""
+        """Reward reaching, thumb-opposed contact, and the upright object pose.
+
+        ``reward_mode`` (see :attr:`G1WujiTableEnvCfg.reward_mode`) switches between today's
+        shaped reward and the ADEPT-style minimal reward; the shaped branch below is unchanged.
+        """
         self.extras.pop("log", None)
         hand_points = self.robot.data.body_pos_w.torch[:, self.hand_point_body_ids]
         object_position = self.apple.data.root_pos_w.torch
@@ -378,8 +382,6 @@ class G1WujiTableEnv(DirectRLEnv):
         reach_reward = torch.exp(-self.cfg.reach_reward_scale * hand_dist)
 
         contact_force_stack = self._contact_group_forces()
-        contact_group_count = (contact_force_stack > self.cfg.contact_force_threshold).sum(dim=1)
-        contact_gate = contact_group_count >= self.cfg.contact_min_bodies
 
         current_keypoints = self._transform_keypoints(object_position, self.apple.data.root_quat_w.torch)
         goal_keypoints = self._transform_keypoints(
@@ -392,35 +394,69 @@ class G1WujiTableEnv(DirectRLEnv):
         # Angle between the object and goal quaternions, using |dot| for double cover.
         rotation_dot = (self.apple.data.root_quat_w.torch * self.goal_rotation).sum(dim=-1).abs().clamp(max=1.0)
         rotation_error = torch.rad2deg(2.0 * torch.acos(rotation_dot))
-        # Gating the pose reward on contact is the original design and it is kept, because an
-        # ungated version is a trap: keypoint_error can only rise when the apple is disturbed,
-        # so touching it is net negative.  Measured ungated, the policy hovered with its
-        # nearest hand point 1.8 cm clear of the apple and touched in ~1% of steps.  Gated,
-        # experimenting with contact costs nothing and the lift only competes once the apple
-        # is held.  The gate itself had to be repaired first -- see contact_force_threshold.
-        goal_reward = (
-            self.cfg.goal_reward_scale * torch.exp(-self.cfg.goal_reward_alpha * keypoint_error) * contact_gate
-        )
-        # Graded in force rather than gated.  Paying contact_reward_scale * contact_gate is
-        # zero until two fingers already touch, so it supplies no gradient toward touching
-        # at all; this term rises with any contact and bridges reach -> grasp.  tanh bounds
-        # it so pressing the apple into the table cannot out-earn lifting it.
-        # Rest height is the authored spawn height; the apple settles a touch below it, so
-        # the clamp below makes "sitting untouched" score exactly zero.
-        rest_height = self.object_start_position[:, 2] + self.scene.env_origins[:, 2]
-        goal_height = self.goal_position[:, 2] + self.scene.env_origins[:, 2]
-        lift_fraction = torch.clamp(
-            (object_position[:, 2] - rest_height) / (goal_height - rest_height), 0.0, 1.0
-        )
-        lift_reward = self.cfg.lift_reward_scale * lift_fraction
-        # Contact only counts while the apple is not being crushed downward, which is what
-        # closes off the press exploit without removing the gradient toward touching.
-        held = object_position[:, 2] > rest_height - self.cfg.press_tolerance
-        contact_reward = (
-            self.cfg.contact_reward_scale
-            * torch.tanh(contact_force_stack / self.cfg.contact_force_reference).mean(dim=1)
-            * held
-        )
+
+        if self.cfg.reward_mode == "shaped":
+            contact_group_count = (contact_force_stack > self.cfg.contact_force_threshold).sum(dim=1)
+            contact_gate = contact_group_count >= self.cfg.contact_min_bodies
+            # Gating the pose reward on contact is the original design and it is kept, because an
+            # ungated version is a trap: keypoint_error can only rise when the apple is disturbed,
+            # so touching it is net negative.  Measured ungated, the policy hovered with its
+            # nearest hand point 1.8 cm clear of the apple and touched in ~1% of steps.  Gated,
+            # experimenting with contact costs nothing and the lift only competes once the apple
+            # is held.  The gate itself had to be repaired first -- see contact_force_threshold.
+            goal_reward = (
+                self.cfg.goal_reward_scale * torch.exp(-self.cfg.goal_reward_alpha * keypoint_error) * contact_gate
+            )
+            # Graded in force rather than gated.  Paying contact_reward_scale * contact_gate is
+            # zero until two fingers already touch, so it supplies no gradient toward touching
+            # at all; this term rises with any contact and bridges reach -> grasp.  tanh bounds
+            # it so pressing the apple into the table cannot out-earn lifting it.
+            # Rest height is the authored spawn height; the apple settles a touch below it, so
+            # the clamp below makes "sitting untouched" score exactly zero.
+            rest_height = self.object_start_position[:, 2] + self.scene.env_origins[:, 2]
+            goal_height = self.goal_position[:, 2] + self.scene.env_origins[:, 2]
+            lift_fraction = torch.clamp(
+                (object_position[:, 2] - rest_height) / (goal_height - rest_height), 0.0, 1.0
+            )
+            lift_reward = self.cfg.lift_reward_scale * lift_fraction
+            # Contact only counts while the apple is not being crushed downward, which is what
+            # closes off the press exploit without removing the gradient toward touching.
+            held = object_position[:, 2] > rest_height - self.cfg.press_tolerance
+            contact_reward = (
+                self.cfg.contact_reward_scale
+                * torch.tanh(contact_force_stack / self.cfg.contact_force_reference).mean(dim=1)
+                * held
+            )
+            goal_alpha_step = 0.0
+            reward = reach_reward + goal_reward + contact_reward + lift_reward
+        elif self.cfg.reward_mode == "adept":
+            # Grasp gate: the thumb and at least one other finger (never the palm) each past
+            # adept_gate_force, per the ADEPT paper's minimal reward. No dense contact term, no
+            # lift term, and no press guard -- the gate alone stands in for all three.
+            thumb_index = list(self.contact_sensors).index(self._THUMB_CONTACT_GROUP)
+            other_finger_indices = [
+                index
+                for index, name in enumerate(self.contact_sensors)
+                if name != "palm" and name != self._THUMB_CONTACT_GROUP
+            ]
+            thumb_force = contact_force_stack[:, thumb_index]
+            other_finger_force = contact_force_stack[:, other_finger_indices]
+            contact_gate = (thumb_force > self.cfg.adept_gate_force) & (
+                other_finger_force > self.cfg.adept_gate_force
+            ).any(dim=1)
+            # Keypoint-error sharpness ramps so the goal term starts forgiving (easy to earn once
+            # gated) and sharpens into a tighter pose requirement as training progresses.
+            alpha_ramp = min(1.0, self.common_step_counter / self.cfg.adept_goal_alpha_steps)
+            goal_alpha_step = self.cfg.adept_goal_alpha_start + (
+                self.cfg.adept_goal_alpha_end - self.cfg.adept_goal_alpha_start
+            ) * alpha_ramp
+            goal_reward = self.cfg.goal_reward_scale * torch.exp(-goal_alpha_step * keypoint_error) * contact_gate
+            contact_reward = self.cfg.adept_contact_reward_scale * contact_gate.float()
+            lift_reward = torch.zeros_like(reach_reward)
+            reward = reach_reward + goal_reward + contact_reward
+        else:
+            raise ValueError(f"Unknown reward_mode '{self.cfg.reward_mode}'; expected 'shaped' or 'adept'.")
+
         arm_tracking_error = torch.abs(
             self.robot.data.joint_pos.torch[:, self.arm_joint_ids] - self.arm_joint_targets
         ).mean(dim=-1)
@@ -442,9 +478,10 @@ class G1WujiTableEnv(DirectRLEnv):
             wuji_tracking_error,
             contact_force_stack,
             nearest_hand_dist,
+            goal_alpha_step,
         )
         self._update_keypoint_markers(current_keypoints=current_keypoints, goal_keypoints=goal_keypoints)
-        return reach_reward + goal_reward + contact_reward + lift_reward
+        return reward
 
     def _contact_group_forces(self) -> torch.Tensor:
         """Return each contact group's apple normal force [N], summed over the group's bodies.
@@ -576,6 +613,7 @@ class G1WujiTableEnv(DirectRLEnv):
         wuji_tracking_error: torch.Tensor,
         contact_force_stack: torch.Tensor,
         hand_distance_nearest: torch.Tensor,
+        goal_alpha_step: float,
     ) -> None:
         """Accumulate task diagnostics and publish scalar metrics through RSL-RL extras.
 
@@ -583,6 +621,11 @@ class G1WujiTableEnv(DirectRLEnv):
         order keeps a quantity's variants together.  The timescale comes last: ``step`` is the
         current step averaged over environments; ``ep`` (mean), ``ep_min``, ``ep_max``,
         ``ep_final``, and ``ep_return`` (sum) summarise the episodes that reset this step.
+
+        ``contact_gate`` and ``goal_alpha_step`` are the mode-appropriate grasp gate and goal
+        sharpness from :meth:`G1WujiTableEnv._get_rewards`: the ``Contact/gate_frac_*`` tags
+        below read whichever gate the active ``reward_mode`` used, and ``goal_alpha_step`` is 0.0
+        under ``reward_mode="shaped"``, which has no ramp.
         """
         self._episode_reward_sums["reach"] += reach_reward
         self._episode_reward_sums["goal"] += goal_reward
@@ -618,6 +661,7 @@ class G1WujiTableEnv(DirectRLEnv):
             "Control/arm_tracking_error_step": arm_tracking_error.mean(),
             "Control/wuji_tracking_error_step": wuji_tracking_error.mean(),
             "Curriculum/apple_weight_frac_step": self._apple_weight_frac,
+            "Curriculum/goal_alpha_step": goal_alpha_step,
         }
         log.update(
             {

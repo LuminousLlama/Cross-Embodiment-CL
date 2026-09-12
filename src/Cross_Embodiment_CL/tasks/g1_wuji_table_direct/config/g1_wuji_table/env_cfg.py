@@ -227,6 +227,33 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Filtered torso-to-apple sensor for the collision termination."""
     keypoint_extent = 0.15
     """Half-side length [m] of the virtual object-frame cube used for pose reward."""
+    reward_mode: str = "shaped"
+    """Reward formulation used by :meth:`G1WujiTableEnv._get_rewards`.
+
+    ``"shaped"`` (default) is today's reach + contact-gated goal + lift + dense-graded contact
+    reward, with the press guard on the contact term. ``"adept"`` is the ADEPT-style minimal
+    reward: reach, plus a goal term gated on a two-body force threshold (thumb and any other
+    finger, not the palm) whose keypoint-error sharpness ramps over training, plus a flat
+    contact bonus under the same gate. It has no lift term and no press guard. Any other value
+    raises ``ValueError``. ``"shaped"`` stays the default until ``"adept"`` is shown to train.
+    """
+    adept_gate_force: float = 1.0
+    """``reward_mode="adept"`` per-body contact-force threshold [N] for the grasp gate.
+
+    The gate requires the thumb (:attr:`G1WujiTableEnv._THUMB_CONTACT_GROUP`) and at least one
+    other finger, excluding the palm, to each exceed this force.
+    """
+    adept_contact_reward_scale: float = 0.01
+    """``reward_mode="adept"`` flat per-step reward while the grasp gate holds."""
+    adept_goal_alpha_start: float = 15.0
+    """``reward_mode="adept"`` goal-reward keypoint-error sharpness at ``common_step_counter=0``."""
+    adept_goal_alpha_end: float = 30.0
+    """``reward_mode="adept"`` goal-reward keypoint-error sharpness once the ramp completes."""
+    adept_goal_alpha_steps: int = 32_000
+    """Env steps over which the ``adept`` goal-reward sharpness ramps from start to end.
+
+    PPO runs 32 steps per iteration, so 32 000 steps is iteration 1000.
+    """
     reach_reward_scale = 10.0
     goal_reward_scale = 5.0
     goal_reward_alpha = 15.0
