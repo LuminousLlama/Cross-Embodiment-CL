@@ -119,6 +119,17 @@ def test_contact_debug_is_opt_in_and_configurable():
 
 
 @pytest.mark.unit
+def test_gravity_curriculum_replaces_the_apple_weight_curriculum():
+    """The gravity experiment starts at zero g without an apple-only assist force."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
+
+    assert env_cfg.gravity_curriculum_start == 0.0
+    assert env_cfg.gravity_curriculum_steps == 19_200
+    assert env_cfg.apple_weight_curriculum_start == 1.0
+    assert env_cfg.reward_mode == "adept"
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("physics_override", ["physics=isaacsim_physx", "env.sim.physics=isaacsim_physx"])
 def test_physics_selectors_compose_with_debug_preset(physics_override):
     """``debug`` leaves physics at its default, so either selector swaps only the backend."""

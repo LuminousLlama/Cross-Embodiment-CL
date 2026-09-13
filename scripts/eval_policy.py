@@ -239,6 +239,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             if hasattr(env_cfg, "apple_weight_curriculum_start"):
                 env_cfg.apple_weight_curriculum_start = 1.0
                 print("[INFO] Forcing apple_weight_curriculum_start=1.0 for evaluation.")
+            if hasattr(env_cfg, "gravity_curriculum_start"):
+                env_cfg.gravity_curriculum_start = 1.0
+                print("[INFO] Forcing gravity_curriculum_start=1.0 for evaluation.")
 
             screen.stage("Creating environment")
             env = create_isaaclab_env(
