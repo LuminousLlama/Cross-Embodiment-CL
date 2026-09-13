@@ -266,6 +266,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
             metric_sums: dict[str, float] = {}
             metric_weights: dict[str, float] = {}
+            debug_peaks: dict[str, float] = {}
             completed_episodes = 0
             policy_step = 0
             frames: list[tuple[int, object, float | None, float | None]] = []
@@ -279,6 +280,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     policy.reset(dones)
                 policy_step += 1
                 log = extras.get("log", {})
+                for tag, _value in log.items():
+                    if tag.startswith("Debug/"):
+                        debug_peaks[tag] = max(debug_peaks.get(tag, float("-inf")), _log_scalar(log, tag))
                 num_done = int(dones.sum().item())
                 if num_done > 0:
                     for tag, value in log.items():
@@ -316,6 +320,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         "episodes": completed_episodes,
         "seed": env_cfg.seed,
         "metrics": metrics,
+        "debug_peaks": debug_peaks,
     }
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as stream:
