@@ -5,7 +5,8 @@
 
 The source object directory must contain ``textured.usda`` and a
 ``collision_spec.json``. The spec selects either one convex hull for a
-near-convex object or a CoACD decomposition for a concave one. The generated
+near-convex object or a CoACD decomposition for a concave one, with an
+optional ``max_hulls`` cap on the CoACD hull count. The generated
 ``textured_collision.usda`` keeps the source visual mesh, physics material,
 and explicit mass, while replacing its collision geometry with invisible,
 explicit convex hulls.
@@ -81,6 +82,9 @@ def _load_spec(object_dir: Path) -> dict[str, object]:
         raise RuntimeError(f"{spec_path} must set mode to 'hull' or 'coacd'")
     if "threshold" in spec and (not isinstance(spec["threshold"], (int, float)) or isinstance(spec["threshold"], bool)):
         raise RuntimeError(f"{spec_path} threshold must be a number")
+    max_hulls = spec.get("max_hulls")
+    if max_hulls is not None and (not isinstance(max_hulls, int) or isinstance(max_hulls, bool) or max_hulls < 1):
+        raise RuntimeError(f"{spec_path} max_hulls must be a positive integer")
     return spec
 
 
@@ -140,10 +144,11 @@ def main() -> None:
     spec = _load_spec(object_dir)
     points, faces = _load_collision_mesh(Usd.Stage.Open(str(src_usd_path)))
     mode = spec["mode"]
+    max_convex_hull = 1 if mode == "hull" else spec.get("max_hulls", -1)
     hulls = coacd.run_coacd(
         coacd.Mesh(points, faces),
         threshold=spec.get("threshold", 0.05),
-        max_convex_hull=1 if mode == "hull" else -1,
+        max_convex_hull=max_convex_hull,
         merge=True,
         decimate=True,
         max_ch_vertex=64,
