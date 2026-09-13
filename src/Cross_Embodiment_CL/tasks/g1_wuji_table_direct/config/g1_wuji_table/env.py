@@ -63,6 +63,9 @@ class G1WujiTableEnv(DirectRLEnv):
     }
     _THUMB_CONTACT_GROUP = "finger1"
     _OBSERVATION_DIM = 117
+    # The deployable proprioceptive prefix of the privileged observation: joint positions and
+    # velocities plus the commanded arm and hand targets.
+    _STUDENT_OBSERVATION_DIM = 87
 
     def __init__(self, cfg: G1WujiTableEnvCfg, render_mode: str | None = None, **kwargs) -> None:
         super().__init__(cfg, render_mode, **kwargs)
@@ -299,10 +302,11 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
     def _get_observations(self) -> dict[str, torch.Tensor]:
-        """Return the identical 117-D privileged state for policy and critic.
+        """Return the identical 117-D privileged state for policy and critic, plus the student's proprioception.
 
         The observation contains normalized full-robot state and commanded arm/hand targets,
         followed by apple and goal state in the fixed robot-base frame and filtered contact forces.
+        The ``student`` group is the 87-D robot-state prefix alone, which a real robot can measure.
         """
         joint_limits = self.robot.data.soft_joint_pos_limits.torch
         joint_position = torch.clamp(
@@ -348,12 +352,10 @@ class G1WujiTableEnv(DirectRLEnv):
             torch.clamp(self._contact_group_forces(), max=self.cfg.contact_force_observation_max)
         )
 
+        proprioception = torch.cat((joint_position, joint_velocity, arm_target, wuji_target), dim=-1)
         observation = torch.cat(
             (
-                joint_position,
-                joint_velocity,
-                arm_target,
-                wuji_target,
+                proprioception,
                 object_position_relative_to_base,
                 object_rotation_6d,
                 object_velocity,
@@ -367,7 +369,11 @@ class G1WujiTableEnv(DirectRLEnv):
             raise RuntimeError(
                 f"Expected {self._OBSERVATION_DIM}-D observation, received {observation.shape[-1]}."
             )
-        return {"policy": observation, "critic": observation}
+        if proprioception.shape[-1] != self._STUDENT_OBSERVATION_DIM:
+            raise RuntimeError(
+                f"Expected {self._STUDENT_OBSERVATION_DIM}-D student observation, received {proprioception.shape[-1]}."
+            )
+        return {"policy": observation, "critic": observation, "student": proprioception}
 
     def _get_rewards(self) -> torch.Tensor:
         """Reward reaching, thumb-opposed contact, and the upright object pose.
