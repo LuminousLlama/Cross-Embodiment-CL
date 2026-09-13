@@ -13,6 +13,8 @@ import gymnasium as gym  # noqa: E402
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
+from isaaclab.utils.math import unscale_transform  # noqa: E402
+
 from isaaclab_tasks.utils.hydra import resolve_presets  # noqa: E402
 from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry  # noqa: E402
 
@@ -152,18 +154,26 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         assert extras["log"]["Terminations/timeout"].item() == 1.0
         arm_actions = torch.zeros((1, unwrapped.cfg.action_space), device=unwrapped.device)
         arm_actions[:, 0] = 1.0
+        arm_actions[:, 1] = -1.0
         arm_default = robot.data.default_joint_pos.torch[:, unwrapped.arm_joint_ids].clone()
         arm_limits = robot.data.soft_joint_pos_limits.torch[:, unwrapped.arm_joint_ids]
-        arm_desired = torch.clamp(
-            arm_default + unwrapped.arm_action_scale.unsqueeze(0) * arm_actions[:, : len(unwrapped.arm_joint_ids)],
-            arm_limits[..., 0],
-            arm_limits[..., 1],
+        arm_desired = unscale_transform(
+            arm_actions[:, : len(unwrapped.arm_joint_ids)], arm_limits[..., 0], arm_limits[..., 1]
         )
+        assert torch.equal(arm_desired[:, 0], arm_limits[:, 0, 1])
+        assert torch.equal(arm_desired[:, 1], arm_limits[:, 1, 0])
+        max_step = unwrapped.cfg.arm_joint_velocity_limit * unwrapped.step_dt
+        expected_arm_target = arm_default + torch.clamp(
+            unwrapped.cfg.arm_action_ema_alpha * (arm_desired - arm_default), -max_step, max_step
+        )
+        max_lead = (
+            robot.data.joint_effort_limits.torch[:, unwrapped.arm_joint_ids]
+            + robot.data.joint_damping.torch[:, unwrapped.arm_joint_ids] * unwrapped.cfg.arm_joint_velocity_limit
+        ) / robot.data.joint_stiffness.torch[:, unwrapped.arm_joint_ids].clamp_min(1.0e-6)
+        arm_position = robot.data.joint_pos.torch[:, unwrapped.arm_joint_ids]
+        expected_arm_target.clamp_(min=arm_position - max_lead, max=arm_position + max_lead)
         unwrapped._pre_physics_step(arm_actions)
-        assert torch.allclose(
-            unwrapped.arm_joint_targets,
-            0.25 * arm_desired + 0.75 * arm_default,
-        )
+        assert torch.allclose(unwrapped.arm_joint_targets, expected_arm_target)
         wuji_default = robot.data.default_joint_pos.torch[:, joint_ids].clone()
         wuji_limits = robot.data.soft_joint_pos_limits.torch[:, joint_ids]
         wuji_desired = unwrapped.wuji_action_pipeline.latent_action_to_joint_target(
@@ -171,7 +181,20 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
             torch.maximum(wuji_limits[..., 0], unwrapped._wuji_command_lower_floor),
             wuji_limits[..., 1],
         )
-        assert torch.allclose(unwrapped.wuji_joint_targets, 0.1 * wuji_desired + 0.9 * wuji_default)
+        wuji_max_step = unwrapped.cfg.hand_joint_velocity_limit * unwrapped.step_dt
+        expected_wuji_target = wuji_default + torch.clamp(
+            unwrapped.cfg.wuji_action_ema_alpha * (wuji_desired - wuji_default),
+            -wuji_max_step,
+            wuji_max_step,
+        )
+        wuji_max_lead = (
+            robot.data.joint_effort_limits.torch[:, joint_ids]
+            + robot.data.joint_damping.torch[:, joint_ids] * unwrapped.cfg.hand_joint_velocity_limit
+        ) / robot.data.joint_stiffness.torch[:, joint_ids].clamp_min(1.0e-6)
+        wuji_position = robot.data.joint_pos.torch[:, joint_ids]
+        expected_wuji_target.clamp_(min=wuji_position - wuji_max_lead, max=wuji_position + wuji_max_lead)
+        expected_wuji_target.clamp_(min=torch.maximum(wuji_limits[..., 0], unwrapped._wuji_command_lower_floor))
+        assert torch.allclose(unwrapped.wuji_joint_targets, expected_wuji_target)
         env.reset(seed=42)
         limits = robot.data.soft_joint_pos_limits.torch[:, joint_ids]
         lower_limits, upper_limits = limits[..., 0], limits[..., 1]

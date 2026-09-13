@@ -19,7 +19,7 @@ from isaaclab.envs import DirectRLEnv
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.sensors import Camera, ContactSensor
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
-from isaaclab.utils.math import matrix_from_quat, quat_apply, quat_inv, quat_mul, scale_transform
+from isaaclab.utils.math import matrix_from_quat, quat_apply, quat_inv, quat_mul, scale_transform, unscale_transform
 
 from Cross_Embodiment_CL.models import WujiLatentActionPipeline
 
@@ -125,7 +125,6 @@ class G1WujiTableEnv(DirectRLEnv):
         self._arm_joint_targets_start = torch.zeros_like(self.arm_joint_targets)
         self._wuji_joint_targets_start = torch.zeros_like(self.wuji_joint_targets)
         self._action_substep = 0
-        self.arm_action_scale = torch.full((len(self.arm_joint_ids),), 0.5, device=self.device)
         self.waist_joint_targets = torch.zeros((self.num_envs, len(self.waist_joint_ids)), device=self.device)
         self.goal_position = torch.tensor(self.cfg.goal_position, device=self.device).repeat(self.num_envs, 1)
         self.goal_rotation = torch.tensor((0.0, 0.0, 0.0, 1.0), device=self.device).repeat(self.num_envs, 1)
@@ -180,7 +179,7 @@ class G1WujiTableEnv(DirectRLEnv):
         light_cfg.func("/World/Light", light_cfg)
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
-        """Map arm deltas and Wuji latent actions onto speed-capped physical joint targets."""
+        """Map normalized arm positions and Wuji latent actions onto speed-capped physical joint targets."""
         self.actions[:] = torch.clamp(actions, -1.0, 1.0)
         self._arm_joint_targets_start.copy_(self.arm_joint_targets)
         self._wuji_joint_targets_start.copy_(self.wuji_joint_targets)
@@ -188,11 +187,7 @@ class G1WujiTableEnv(DirectRLEnv):
         arm_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.arm_joint_ids]
         arm_lower, arm_upper = arm_limits[..., 0], arm_limits[..., 1]
         arm_actions = self.actions[:, : len(self.arm_joint_ids)]
-        arm_targets = (
-            self.robot.data.default_joint_pos.torch[:, self.arm_joint_ids]
-            + self.arm_action_scale.unsqueeze(0) * arm_actions
-        )
-        arm_targets = torch.clamp(arm_targets, min=arm_lower, max=arm_upper)
+        arm_targets = unscale_transform(arm_actions, arm_lower, arm_upper)
         self._advance_joint_targets(
             self.arm_joint_targets,
             arm_targets,

@@ -208,7 +208,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     decimation = 2
     episode_length_s = 8.0
 
-    # Normalized joint-position deltas for the 7 right-arm joints, followed by
+    # Normalized full-range joint-position targets for the 7 right-arm joints, followed by
     # the frozen 18-D Wuji latent action. The waist remains internally held.
     action_space = 25
     # The policy and critic deliberately receive the identical privileged state.
