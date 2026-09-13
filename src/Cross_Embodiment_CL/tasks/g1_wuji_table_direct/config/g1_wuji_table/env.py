@@ -108,6 +108,8 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError("wuji_action_ema_alpha must be in (0, 1].")
         if self.cfg.arm_joint_velocity_limit <= 0.0 or self.cfg.hand_joint_velocity_limit <= 0.0:
             raise ValueError("arm_joint_velocity_limit and hand_joint_velocity_limit must be positive.")
+        if self.cfg.contact_debug_interval <= 0:
+            raise ValueError("contact_debug_interval must be positive.")
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
         self.arm_joint_targets = torch.zeros((self.num_envs, len(self.arm_joint_ids)), device=self.device)
         self.wuji_joint_targets = torch.zeros((self.num_envs, len(self.wuji_joint_ids)), device=self.device)
@@ -585,6 +587,39 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         return penetrations[0], penetrations[1], penetrations[2]
 
+    def _contact_demand_metrics(self) -> dict[str, torch.Tensor]:
+        """Return sampled MJWarp contact demand for sizing solver capacities.
+
+        The probe reads MJWarp only when explicitly enabled. ``nacon`` and
+        ``ncollision`` are global counts, while ``nefc`` and the contact
+        ``worldid`` buffer identify the busiest cloned environment.
+        """
+        if (
+            not self.cfg.contact_debug
+            or self._mjw_data is None
+            or self.common_step_counter % self.cfg.contact_debug_interval != 0
+        ):
+            return {}
+
+        contact = self._mjw_data.contact
+        worlds = wp.to_torch(contact.worldid).long().clamp(0, self.num_envs - 1)
+        detected = torch.arange(worlds.shape[0], device=self.device) < wp.to_torch(self._mjw_data.nacon)
+        contacts_per_world = torch.zeros(self.num_envs, device=self.device).scatter_add_(
+            0, worlds, detected.to(dtype=torch.float32)
+        )
+        constraint_rows = wp.to_torch(self._mjw_data.nefc).float()
+        overflow = wp.to_torch(self._mjw_data.overflow)
+        return {
+            "Debug/contact_count_total_step": wp.to_torch(self._mjw_data.nacon).float().squeeze(),
+            "Debug/contact_count_busiest_step": contacts_per_world.max(),
+            "Debug/contact_count_p99_step": torch.quantile(contacts_per_world, 0.99),
+            "Debug/constraint_rows_busiest_step": constraint_rows.max(),
+            "Debug/constraint_rows_p99_step": torch.quantile(constraint_rows, 0.99),
+            "Debug/broadphase_candidate_count_total_step": wp.to_torch(self._mjw_data.ncollision).float().squeeze(),
+            "Debug/overflow_frac_step": overflow.ne(0).float().mean(),
+            "Debug/overflow_mask_step": overflow.max().float(),
+        }
+
     def _init_episode_metrics(self) -> None:
         """Allocate per-environment buffers for completed-episode diagnostics."""
         self._episode_reward_sums = {
@@ -690,6 +725,7 @@ class G1WujiTableEnv(DirectRLEnv):
             log["Contact/penetration_table_step"] = table_penetration.mean()
             log["Contact/penetration_self_step"] = self_penetration.mean()
             log["Contact/self_penetrating_frac_step"] = (self_penetration > 0.0005).float().mean()
+        log.update(self._contact_demand_metrics())
 
         reset_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_ids) > 0:

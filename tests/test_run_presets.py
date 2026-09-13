@@ -65,6 +65,20 @@ def test_scalar_overrides_win_inside_run_presets():
 
 
 @pytest.mark.unit
+def test_contact_debug_is_opt_in_and_configurable():
+    """Capacity sampling is disabled by default and accepts scalar probe overrides."""
+    default_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
+    configured_cfg, _ = resolve_task_config(
+        TASK, AGENT, overrides=["env.contact_debug=True", "env.contact_debug_interval=16"]
+    )
+
+    assert default_cfg.contact_debug is False
+    assert default_cfg.contact_debug_interval == 1
+    assert configured_cfg.contact_debug is True
+    assert configured_cfg.contact_debug_interval == 16
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize("physics_override", ["physics=isaacsim_physx", "env.sim.physics=isaacsim_physx"])
 def test_physics_selectors_compose_with_debug_preset(physics_override):
     """``debug`` leaves physics at its default, so either selector swaps only the backend."""

@@ -187,6 +187,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Fixed apple goal position [m] in the environment frame."""
     debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
     """Diagnostics, e.g. ``env.debug.keypoint_markers=False``; headless ``train`` and ``eval`` turn them off."""
+    contact_debug: bool = False
+    """Whether to sample MJWarp contact and constraint demand for capacity sizing; off during normal runs."""
+    contact_debug_interval: int = 1
+    """Number of policy steps between contact-demand samples when :attr:`contact_debug` is enabled."""
     goal_keypoint_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/CrossEmbodiment/goal_keypoints",
         markers={
