@@ -42,6 +42,7 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
     assert env_cfg.scene.env_spacing == 3.0
     assert _visualizer_types(env_cfg) == visualizers
     assert env_cfg.debug.keypoint_markers is keypoint_markers
+    assert env_cfg.apple_cfg.spawn.usd_path.endswith("assets/objects/YcbApple/textured_collision.usda")
 
 
 @pytest.mark.unit

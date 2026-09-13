@@ -32,12 +32,7 @@ from isaaclab_tasks.utils import PresetCfg, preset
 
 _G1_CONFIG_PATH = Path(__file__).resolve().parents[6] / "assets/g1/g1.py"
 # TODO make a objects CFG file
-_APPLE_USD_PATH = Path(__file__).resolve().parents[6] / "assets/objects/YcbApple/textured.usda"
-# Offline-decomposed variant (scripts/make_object_decomposition.py): 8 convex hulls, <=32
-# vertices each, computed once by CoACD rather than at every Newton launch. Select it with
-# a single override: env.apple_cfg.spawn.usd_path=<this path, i.e. str(_APPLE_USD_COACD8_PATH)>.
-# The default above is unchanged.
-_APPLE_USD_COACD8_PATH = Path(__file__).resolve().parents[6] / "assets/objects/YcbApple/textured_coacd8.usda"
+_APPLE_USD_PATH = Path(__file__).resolve().parents[6] / "assets/objects/YcbApple/textured_collision.usda"
 # TODO can we not just do from cross embodiment import assets
 _g1_config_spec = importlib.util.spec_from_file_location("cross_embodiment_cl_g1_config", _G1_CONFIG_PATH)
 if _g1_config_spec is None or _g1_config_spec.loader is None:
@@ -353,34 +348,12 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         prim_path="{ENV_REGEX_NS}/Apple",
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_APPLE_USD_PATH),
-            # The authored asset uses convexDecomposition, which CoACD expands into 61
-            # hulls.  Against a 20-joint hand that inflates the contact and constraint
-            # counts enough to make large environment counts impractical: an njmax high
-            # enough to stay stable costs more memory than it is worth, and an njmax small
-            # enough to be cheap diverges into NaN.  An apple is convex apart from its stem
-            # dimple, so a single convex hull keeps grasp contacts faithful far more cheaply.
+            # This reviewed offline asset has one explicit 64-vertex convex hull. It avoids
+            # Newton's runtime convexDecomposition, which expands the source apple into ~61
+            # hulls and inflates hand contact and constraint demand at scale.
             # NewtonMeshCollisionPropertiesCfg (rather than the generic MeshCollisionPropertiesCfg)
-            # makes the approximation and its hull cap Hydra-overridable from the CLI, e.g.
-            # env.apple_cfg.spawn.collision_props.mesh_collision_property.mesh_approximation_name=convexDecomposition
-            # env.apple_cfg.spawn.collision_props.mesh_collision_property.max_hull_vertices=8
-            # (for convexDecomposition, N caps CoACD's hull *count*, not per-hull vertices).
-            # max_hull_vertices=None authors no newton:maxHullVertices attribute, so the built
-            # convexHull is unchanged from before this cfg swap: Newton's importer falls back to
-            # Mesh.MAX_HULL_VERTICES (64) either way.  PhysX ignores the unmodified newton
-            # namespace and still reads the standard physics:approximation token.
-            #
-            # An offline-decomposed alternative to convexDecomposition's runtime 61 hulls is
-            # env.apple_cfg.spawn.usd_path=<repo>/assets/objects/YcbApple/textured_coacd8.usda
-            # (see _APPLE_USD_COACD8_PATH above and scripts/make_object_decomposition.py): 8
-            # convex hulls, <=32 vertices each, computed once offline by CoACD.  The default
-            # mesh_approximation_name="convexHull" below stays safe with that variant: Isaac
-            # Lab's modify_collision_properties dispatches mesh_collision_property once per
-            # prim with UsdPhysics.CollisionAPI applied (apply_nested gates recursion on that,
-            # not on prim type), and each of the 8 hull Mesh prims carries its own
-            # CollisionAPI, so each is visited -- and re-approximated -- independently.
-            # Newton's importer likewise approximates per imported Newton shape (one per Mesh
-            # prim), never merging multiple prims' points into one hull. So the 8 hulls stay
-            # separate; this override does not need to change mesh_approximation_name at all.
+            # The default mesh_approximation_name="convexHull" remains safe: Isaac Lab and
+            # Newton process each collision-enabled Mesh prim independently.
             collision_props=sim_utils.CollisionPropertiesCfg(
                 mesh_collision_property=sim_utils.NewtonMeshCollisionPropertiesCfg(
                     mesh_approximation_name="convexHull", max_hull_vertices=None
