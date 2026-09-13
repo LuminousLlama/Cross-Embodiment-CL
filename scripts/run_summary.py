@@ -25,9 +25,11 @@ DEFAULT_TAGS = [
     "Reward/reach_ep_return", "Reward/goal_ep_return", "Reward/contact_ep_return",
     "Contact/gate_frac_ep",
     "Contact/touch_frac_any_step", "Contact/force_max_step", "Contact/force_thumb_step",
-    "Contact/groups_over_threshold_step",
+    "Contact/groups_over_threshold_step", "Contact/penetration_elbow_torso_ep_max",
     "Policy/mean_std", "Loss/entropy", "Loss/value", "Loss/learning_rate",
-    "Control/action_saturation_frac_step",
+    "Control/action_saturation_frac_step", "Control/arm_target_rate_step",
+    "Control/arm_joint_velocity_step", "Control/arm_computed_effort_step", "Control/arm_applied_effort_step",
+    "Control/arm_effort_saturation_frac_step", "Control/arm_anti_windup_frac_step",
     "Terminations/timeout", "Terminations/workspace_exit", "Terminations/below_table",
     "Perf/total_fps",
 ]

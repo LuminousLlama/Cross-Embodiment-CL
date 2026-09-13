@@ -147,8 +147,29 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
             "Task/success",
             "Control/arm_tracking_error_ep",
             "Control/wuji_tracking_error_ep",
+            "Control/arm_target_rate_step",
+            "Control/arm_joint_velocity_step",
+            "Control/arm_computed_effort_step",
+            "Control/arm_applied_effort_step",
+            "Control/arm_effort_saturation_frac_step",
+            "Control/arm_anti_windup_frac_step",
+            "Contact/penetration_elbow_torso_step",
+            "Contact/elbow_torso_penetrating_frac_step",
+            "Contact/penetration_elbow_torso_ep_max",
             "Terminations/timeout",
         }
+        for joint_name in unwrapped._ARM_JOINT_NAMES:
+            expected_log_keys.update(
+                {
+                    f"Control/arm_target_rate_{joint_name}_step",
+                    f"Control/arm_tracking_error_{joint_name}_step",
+                    f"Control/arm_joint_velocity_{joint_name}_step",
+                    f"Control/arm_computed_effort_{joint_name}_step",
+                    f"Control/arm_applied_effort_{joint_name}_step",
+                    f"Control/arm_effort_saturation_{joint_name}_frac_step",
+                    f"Control/arm_anti_windup_{joint_name}_frac_step",
+                }
+            )
         assert expected_log_keys <= extras["log"].keys()
         assert extras["log"]["Task/success"].item() == 0.0
         assert extras["log"]["Terminations/timeout"].item() == 1.0

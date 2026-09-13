@@ -124,6 +124,7 @@ class G1WujiTableEnv(DirectRLEnv):
         # Targets at the start of the current policy step, which _apply_action interpolates from.
         self._arm_joint_targets_start = torch.zeros_like(self.arm_joint_targets)
         self._wuji_joint_targets_start = torch.zeros_like(self.wuji_joint_targets)
+        self._arm_anti_windup_active = torch.zeros_like(self.arm_joint_targets, dtype=torch.bool)
         self._action_substep = 0
         self.waist_joint_targets = torch.zeros((self.num_envs, len(self.waist_joint_ids)), device=self.device)
         self.goal_position = torch.tensor(self.cfg.goal_position, device=self.device).repeat(self.num_envs, 1)
@@ -188,12 +189,14 @@ class G1WujiTableEnv(DirectRLEnv):
         arm_lower, arm_upper = arm_limits[..., 0], arm_limits[..., 1]
         arm_actions = self.actions[:, : len(self.arm_joint_ids)]
         arm_targets = unscale_transform(arm_actions, arm_lower, arm_upper)
-        self._advance_joint_targets(
-            self.arm_joint_targets,
-            arm_targets,
-            self.arm_joint_ids,
-            self.cfg.arm_action_ema_alpha,
-            self.cfg.arm_joint_velocity_limit,
+        self._arm_anti_windup_active.copy_(
+            self._advance_joint_targets(
+                self.arm_joint_targets,
+                arm_targets,
+                self.arm_joint_ids,
+                self.cfg.arm_action_ema_alpha,
+                self.cfg.arm_joint_velocity_limit,
+            )
         )
 
         wuji_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.wuji_joint_ids]
@@ -259,8 +262,8 @@ class G1WujiTableEnv(DirectRLEnv):
         joint_ids: Sequence[int],
         ema_alpha: float,
         velocity_limit: float,
-    ) -> None:
-        """Take one policy-rate EMA step toward ``commanded``, capped at ``velocity_limit`` [rad/s].
+    ) -> torch.Tensor:
+        """Advance targets and return where the measured-position anti-windup clamp activated.
 
         Uncapped this is exactly ``targets.lerp_(commanded, ema_alpha)``.  Capping the per-step change at
         ``velocity_limit * step_dt`` is what bounds joint speed on every backend, since solver velocity
@@ -280,7 +283,48 @@ class G1WujiTableEnv(DirectRLEnv):
             data.joint_effort_limits.torch[:, joint_ids] + data.joint_damping.torch[:, joint_ids] * velocity_limit
         ) / torch.clamp_min(data.joint_stiffness.torch[:, joint_ids], 1.0e-6)
         joint_pos = data.joint_pos.torch[:, joint_ids]
-        targets.clamp_(min=joint_pos - max_lead, max=joint_pos + max_lead)
+        lower, upper = joint_pos - max_lead, joint_pos + max_lead
+        anti_windup_active = (targets < lower) | (targets > upper)
+        targets.clamp_(min=lower, max=upper)
+        return anti_windup_active
+
+    def _arm_control_metrics(self) -> dict[str, torch.Tensor]:
+        """Return aggregate and per-joint arm command/drive diagnostics averaged over environments."""
+        joint_ids = self.arm_joint_ids
+        data = self.robot.data
+        target_rate = torch.abs(self.arm_joint_targets - self._arm_joint_targets_start) / self.step_dt
+        tracking_error = torch.abs(self.arm_joint_targets - data.joint_pos.torch[:, joint_ids])
+        joint_velocity = torch.abs(data.joint_vel.torch[:, joint_ids])
+        computed_effort = torch.abs(self.robot.actuators.computed_effort.torch[:, joint_ids])
+        applied_effort = torch.abs(self.robot.actuators.applied_effort.torch[:, joint_ids])
+        effort_limits = data.joint_effort_limits.torch[:, joint_ids]
+        effort_saturation = computed_effort >= effort_limits - 1.0e-6
+
+        log = {
+            "Control/arm_target_rate_step": target_rate.mean(),
+            "Control/arm_joint_velocity_step": joint_velocity.mean(),
+            "Control/arm_computed_effort_step": computed_effort.mean(),
+            "Control/arm_applied_effort_step": applied_effort.mean(),
+            "Control/arm_effort_saturation_frac_step": effort_saturation.float().mean(),
+            "Control/arm_anti_windup_frac_step": self._arm_anti_windup_active.float().mean(),
+        }
+        for index, joint_name in enumerate(self._ARM_JOINT_NAMES):
+            log.update(
+                {
+                    f"Control/arm_target_rate_{joint_name}_step": target_rate[:, index].mean(),
+                    f"Control/arm_tracking_error_{joint_name}_step": tracking_error[:, index].mean(),
+                    f"Control/arm_joint_velocity_{joint_name}_step": joint_velocity[:, index].mean(),
+                    f"Control/arm_computed_effort_{joint_name}_step": computed_effort[:, index].mean(),
+                    f"Control/arm_applied_effort_{joint_name}_step": applied_effort[:, index].mean(),
+                    f"Control/arm_effort_saturation_{joint_name}_frac_step": (
+                        effort_saturation[:, index].float().mean()
+                    ),
+                    f"Control/arm_anti_windup_{joint_name}_frac_step": (
+                        self._arm_anti_windup_active[:, index].float().mean()
+                    ),
+                }
+            )
+        return log
 
     def _apply_action(self) -> None:
         """Apply arm and Wuji targets while holding all waist joints at zero."""
@@ -568,18 +612,27 @@ class G1WujiTableEnv(DirectRLEnv):
         ]
         # "g1_simplified" is the USD sub-asset name for the arm/torso, mirroring "wujihand" for the hand
         # (see the robot prim paths in env_cfg.py); it covers the non-hand robot geoms used for self-contact.
-        self._hand_geoms, self._apple_geoms, self._table_geoms, self._other_robot_geoms = (
+        (
+            self._hand_geoms,
+            self._apple_geoms,
+            self._table_geoms,
+            self._other_robot_geoms,
+            self._right_elbow_geoms,
+            self._torso_geoms,
+        ) = (
             torch.tensor([key in label for label in labels], device=self.device)
-            for key in ("wujihand", "Apple", "Table", "g1_simplified")
+            for key in ("wujihand", "Apple", "Table", "g1_simplified", "right_elbow_link", "torso_link")
         )
         if not (
             self._hand_geoms.any()
             and self._apple_geoms.any()
             and self._table_geoms.any()
             and self._other_robot_geoms.any()
+            and self._right_elbow_geoms.any()
+            and self._torso_geoms.any()
         ):
             raise ValueError(
-                "Penetration probe could not find the hand, apple, table, and robot geoms in the MJWarp model."
+                "Penetration probe could not find the hand, apple, table, arm, and torso geoms in the MJWarp model."
             )
         self._mjw_data = solver.mjw_data
         # One-time record of the apple's built collision-shape count, so runs log the real hull
@@ -587,12 +640,12 @@ class G1WujiTableEnv(DirectRLEnv):
         approximation = self.cfg.apple_cfg.spawn.collision_props.mesh_collision_property.mesh_approximation_name
         print(f"[apple-collision] approximation={approximation} shapes={int(self._apple_geoms.sum())}")
 
-    def _contact_penetration(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Return each environment's deepest hand-apple, apple-table, and hand self-contact penetration [m].
+    def _contact_penetration(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return per-environment hand, table, hand-self, and elbow-torso penetration depths [m].
 
         Self-contact covers hand-hand and hand-to-other-robot-geom (arm/torso) pairs; a pair the solver
         filters out of collision (e.g. palm <-> proximal) never appears in the buffer, so it never
-        contributes here.  All three are zero without contact.
+        contributes here.  Every reported depth is zero without contact.
         """
         contact = self._mjw_data.contact
         dist = wp.to_torch(contact.dist)
@@ -619,7 +672,15 @@ class G1WujiTableEnv(DirectRLEnv):
                 0, worlds, torch.where(self_pair, depth, 0.0), reduce="amax"
             )
         )
-        return penetrations[0], penetrations[1], penetrations[2]
+        elbow_first, elbow_second = self._right_elbow_geoms[first], self._right_elbow_geoms[second]
+        torso_first, torso_second = self._torso_geoms[first], self._torso_geoms[second]
+        elbow_torso_pair = (elbow_first & torso_second) | (elbow_second & torso_first)
+        penetrations.append(
+            torch.zeros(self.num_envs, device=self.device).scatter_reduce_(
+                0, worlds, torch.where(elbow_torso_pair, depth, 0.0), reduce="amax"
+            )
+        )
+        return penetrations[0], penetrations[1], penetrations[2], penetrations[3]
 
     def _contact_demand_metrics(self) -> dict[str, torch.Tensor]:
         """Return sampled MJWarp contact demand for sizing solver capacities.
@@ -668,6 +729,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._episode_max_object_height = torch.full((self.num_envs,), -torch.inf, device=self.device)
         self._episode_max_hand_penetration = torch.zeros(self.num_envs, device=self.device)
         self._episode_max_self_penetration = torch.zeros(self.num_envs, device=self.device)
+        self._episode_max_elbow_torso_penetration = torch.zeros(self.num_envs, device=self.device)
         self._termination_torso_apple = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_below_table = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_workspace_exit = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
@@ -750,15 +812,25 @@ class G1WujiTableEnv(DirectRLEnv):
                 for index, name in enumerate(self.contact_sensors)
             }
         )
+        log.update(self._arm_control_metrics())
         if self._mjw_data is not None:
             # Deepest contact per environment [m], averaged over environments.
-            hand_penetration, table_penetration, self_penetration = self._contact_penetration()
+            hand_penetration, table_penetration, self_penetration, elbow_torso_penetration = (
+                self._contact_penetration()
+            )
             self._episode_max_hand_penetration = torch.maximum(self._episode_max_hand_penetration, hand_penetration)
             self._episode_max_self_penetration = torch.maximum(self._episode_max_self_penetration, self_penetration)
+            self._episode_max_elbow_torso_penetration = torch.maximum(
+                self._episode_max_elbow_torso_penetration, elbow_torso_penetration
+            )
             log["Contact/penetration_hand_step"] = hand_penetration.mean()
             log["Contact/penetration_table_step"] = table_penetration.mean()
             log["Contact/penetration_self_step"] = self_penetration.mean()
             log["Contact/self_penetrating_frac_step"] = (self_penetration > 0.0005).float().mean()
+            log["Contact/penetration_elbow_torso_step"] = elbow_torso_penetration.mean()
+            log["Contact/elbow_torso_penetrating_frac_step"] = (
+                elbow_torso_penetration > 0.0005
+            ).float().mean()
         log.update(self._contact_demand_metrics())
 
         reset_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -798,6 +870,9 @@ class G1WujiTableEnv(DirectRLEnv):
             if self._mjw_data is not None:
                 log["Contact/penetration_hand_ep_max"] = self._episode_max_hand_penetration[reset_ids].mean()
                 log["Contact/penetration_self_ep_max"] = self._episode_max_self_penetration[reset_ids].mean()
+                log["Contact/penetration_elbow_torso_ep_max"] = self._episode_max_elbow_torso_penetration[
+                    reset_ids
+                ].mean()
         self.extras["log"] = log
 
     def _make_cube_keypoints(self, extent: float) -> torch.Tensor:
@@ -932,6 +1007,7 @@ class G1WujiTableEnv(DirectRLEnv):
             self._episode_max_object_height[env_ids] = -torch.inf
             self._episode_max_hand_penetration[env_ids] = 0.0
             self._episode_max_self_penetration[env_ids] = 0.0
+            self._episode_max_elbow_torso_penetration[env_ids] = 0.0
         self.robot.actuators.target_command.set_position_index(
             value=torch.zeros((len(env_ids), len(self.waist_joint_ids)), device=self.device),
             joint_ids=self.waist_joint_ids,
