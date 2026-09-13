@@ -20,6 +20,30 @@ import Cross_Embodiment_CL.tasks  # noqa: E402, F401
 
 
 @pytest.mark.integration
+def test_nonfinite_state_returns_zero_terminal_reward() -> None:
+    """A state rejected by the done guard must not leak a NaN reward to the trainer."""
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    resolve_presets(env_cfg)
+    env_cfg.sim.visualizer_cfgs = []
+    env_cfg.debug.keypoint_markers = False
+    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    try:
+        env.reset(seed=42)
+        unwrapped = env.unwrapped
+        unwrapped._apple_weight_frac = 1.0
+        unwrapped.apple.data.root_pos_w.torch[0, 0] = torch.nan
+
+        terminated, _ = unwrapped._get_dones()
+        reward = unwrapped._get_rewards()
+
+        assert terminated.item()
+        assert unwrapped._termination_nonfinite.item()
+        assert torch.equal(reward, torch.zeros_like(reward))
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
 def test_wuji_latent_round_trip_ping_pong() -> None:
     """Project two simulated poses and verify their latent commands move the hand."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
