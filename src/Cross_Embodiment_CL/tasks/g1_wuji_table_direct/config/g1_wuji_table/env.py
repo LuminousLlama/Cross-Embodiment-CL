@@ -104,6 +104,35 @@ class ActionDelayBuffer:
         self._buffer[:, env_ids] = 0.0
 
 
+class PendingPhysicsRandomization:
+    """Batches per-env Newton physics-model writes (friction, mass) across resets.
+
+    Writing friction/mass on every ``_reset_idx`` call registers a Newton model-change flag that
+    ``NewtonManager.step`` notifies on the next physics step; that notification recomputes MJWarp
+    model arrays across every world, not just the resetting envs. With 2048 envs and 480-step
+    episodes, resets land on almost every step, so batching all pending envs into one write every
+    ``update_every_steps`` env steps turns that near-per-step cost into a once-per-rollout cost.
+    """
+
+    def __init__(self, num_envs: int, update_every_steps: int, device: torch.device | str) -> None:
+        self.update_every_steps = update_every_steps
+        self._pending = torch.zeros(num_envs, dtype=torch.bool, device=device)
+
+    def mark(self, env_ids: torch.Tensor) -> None:
+        """Flag the given envs as due for their next batched physics-parameter write."""
+        self._pending[env_ids] = True
+
+    def due(self, step: int) -> bool:
+        """Whether ``step`` is a batch-write step."""
+        return step % self.update_every_steps == 0
+
+    def take(self) -> torch.Tensor:
+        """Return the pending env ids and clear them."""
+        env_ids = self._pending.nonzero(as_tuple=False).squeeze(-1)
+        self._pending[env_ids] = False
+        return env_ids
+
+
 class G1WujiTableEnv(DirectRLEnv):
     """G1-Wuji scene with normalized arm and latent-hand position actions."""
 
@@ -248,6 +277,9 @@ class G1WujiTableEnv(DirectRLEnv):
                     params={"asset_cfg": self._adr_mass_asset_cfg, "operation": "scale"},
                 ),
                 self,
+            )
+            self._adr_physics_pending = PendingPhysicsRandomization(
+                self.num_envs, self.cfg.adr_physics_update_every_steps, device=self.device
             )
         self.table_top_height = self.cfg.table_cfg.init_state.pos[2] + 0.5 * self.cfg.table_cfg.spawn.size[2]
         self.local_cube_keypoints = self._make_cube_keypoints(self.cfg.keypoint_extent)
@@ -789,6 +821,12 @@ class G1WujiTableEnv(DirectRLEnv):
             self.adr.update(self._adr_successful_episodes, self._adr_completed_episodes)
             self._adr_successful_episodes = 0
             self._adr_completed_episodes = 0
+        if self._adr_extra_active and self._adr_physics_pending.due(self.common_step_counter):
+            pending_ids = self._adr_physics_pending.take()
+            if len(pending_ids) > 0:
+                strength = self.adr.strength
+                self._apply_adr_friction(pending_ids, strength)
+                self._apply_adr_mass(pending_ids, strength)
         self._update_keypoint_markers(current_keypoints=current_keypoints, goal_keypoints=goal_keypoints)
         return reward
 
@@ -1297,6 +1335,7 @@ class G1WujiTableEnv(DirectRLEnv):
                 len(env_ids), self.cfg.adr_action_latency_max_steps, strength, device=self.device
             )
             self._adr_action_buffer.reset(env_ids)
-            self._apply_adr_friction(env_ids, strength)
-            self._apply_adr_mass(env_ids, strength)
+            # Friction/mass are physics-model writes; batch them (see PendingPhysicsRandomization)
+            # instead of writing per reset, to avoid a Newton model-change notification per step.
+            self._adr_physics_pending.mark(env_ids)
         self._update_keypoint_markers()

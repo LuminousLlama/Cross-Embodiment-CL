@@ -10,6 +10,7 @@ import torch
 
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (
     ActionDelayBuffer,
+    PendingPhysicsRandomization,
     sample_latency_steps,
     scaled_uniform,
 )
@@ -64,3 +65,32 @@ def test_action_delay_buffer_reset_zero_fills_the_given_envs():
     buffer.reset(torch.tensor([0]))
 
     assert torch.equal(buffer.get(torch.tensor([0, 0])), torch.tensor([[0.0], [5.0]]))
+
+
+@pytest.mark.unit
+def test_pending_physics_randomization_accumulates_marks_across_resets():
+    pending = PendingPhysicsRandomization(num_envs=4, update_every_steps=32, device="cpu")
+    pending.mark(torch.tensor([0, 1]))
+    pending.mark(torch.tensor([1, 2]))
+
+    env_ids = pending.take()
+
+    assert torch.equal(torch.sort(env_ids).values, torch.tensor([0, 1, 2]))
+
+
+@pytest.mark.unit
+def test_pending_physics_randomization_take_clears_pending_envs():
+    pending = PendingPhysicsRandomization(num_envs=4, update_every_steps=32, device="cpu")
+    pending.mark(torch.tensor([0]))
+
+    pending.take()
+
+    assert pending.take().numel() == 0
+
+
+@pytest.mark.unit
+def test_pending_physics_randomization_due_matches_update_cadence():
+    pending = PendingPhysicsRandomization(num_envs=4, update_every_steps=32, device="cpu")
+
+    assert pending.due(0) and pending.due(32)
+    assert not pending.due(1) and not pending.due(31)

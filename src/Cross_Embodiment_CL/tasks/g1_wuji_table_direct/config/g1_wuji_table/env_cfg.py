@@ -285,6 +285,12 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adr_object_mass_scale: float = 0.20
     """Full-strength half-width of the apple's per-env mass scale relative to its default mass,
     ``U(1-m*s, 1+m*s)``."""
+    adr_physics_update_every_steps: int = 32
+    """Env steps between batched physics-model writes.
+
+    Physics DR (friction, mass) for envs that reset is applied in one batch every N env steps
+    instead of on every reset; the new episode runs on its previous physics parameters for at most
+    N steps, negligible against 480-step episodes."""
     debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
     """Diagnostics, e.g. ``env.debug.keypoint_markers=False``; headless ``train`` and ``eval`` turn them off."""
     contact_debug: bool = False
