@@ -482,6 +482,10 @@ class G1WujiTableEnv(DirectRLEnv):
         else:
             raise ValueError(f"Unknown reward_mode '{self.cfg.reward_mode}'; expected 'shaped' or 'adept'.")
 
+        # DirectRLEnv computes dones before rewards, so the termination mask already identifies any
+        # environment whose non-finite simulator state would otherwise produce a non-finite reward.
+        reward = torch.where(self._termination_nonfinite, torch.zeros_like(reward), reward)
+
         arm_tracking_error = torch.abs(
             self.robot.data.joint_pos.torch[:, self.arm_joint_ids] - self.arm_joint_targets
         ).mean(dim=-1)
