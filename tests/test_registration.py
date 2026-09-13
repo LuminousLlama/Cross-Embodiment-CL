@@ -31,6 +31,10 @@ def test_task_registrations():
                 "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents."
                 "rsl_rl_ppo_cfg:G1WujiTablePPORunnerCfg"
             ),
+            "rsl_rl_distillation_cfg_entry_point": (
+                "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents."
+                "rsl_rl_distillation_cfg:G1WujiTableDepthDistillationRunnerCfg"
+            ),
             "rsl_rl_state_distillation_cfg_entry_point": (
                 "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents."
                 "rsl_rl_distillation_cfg:G1WujiTableStateDistillationRunnerCfg"
@@ -38,11 +42,16 @@ def test_task_registrations():
         },
     }
 
+    agent_keys = (
+        "rsl_rl_cfg_entry_point",
+        "rsl_rl_distillation_cfg_entry_point",
+        "rsl_rl_state_distillation_cfg_entry_point",
+    )
     for task_id, expected_values in expected.items():
         spec = gym.spec(task_id)
         assert spec.entry_point == expected_values["entry_point"]
         assert spec.kwargs["env_cfg_entry_point"] == expected_values["env_cfg_entry_point"]
-        for key in ("rsl_rl_cfg_entry_point", "rsl_rl_state_distillation_cfg_entry_point"):
+        for key in agent_keys:
             if key in expected_values:
                 assert spec.kwargs[key] == expected_values[key]
         if "default_agent" in expected_values:

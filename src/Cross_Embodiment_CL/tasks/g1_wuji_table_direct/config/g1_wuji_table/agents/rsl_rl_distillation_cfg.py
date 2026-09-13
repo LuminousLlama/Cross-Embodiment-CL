@@ -12,7 +12,12 @@ a PPO checkpoint loads into the teacher only.
 
 from isaaclab.utils import configclass
 
-from isaaclab_rl.rsl_rl import RslRlDistillationAlgorithmCfg, RslRlDistillationRunnerCfg, RslRlMLPModelCfg
+from isaaclab_rl.rsl_rl import (
+    RslRlCNNModelCfg,
+    RslRlDistillationAlgorithmCfg,
+    RslRlDistillationRunnerCfg,
+    RslRlMLPModelCfg,
+)
 
 from .rsl_rl_ppo_cfg import G1WujiTablePPORunnerCfg
 
@@ -54,4 +59,29 @@ class G1WujiTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
         # accumulated graph to a single step, which matters once the student encodes images.
         gradient_length=1,
         max_grad_norm=1.0,
+    )
+
+
+@configclass
+class G1WujiTableDepthDistillationRunnerCfg(G1WujiTableStateDistillationRunnerCfg):
+    """The deployable student: 87-D proprioception plus the 224x224 head depth image.
+
+    Needs the depth camera, so launch the environment with ``presets=distill``.
+    """
+
+    max_iterations = 1000
+    obs_groups = {"teacher": ["policy"], "student": ["student", "camera"]}
+    student = RslRlCNNModelCfg(
+        hidden_dims=_TEACHER_ACTOR.hidden_dims,
+        activation=_TEACHER_ACTOR.activation,
+        # Normalizes the proprioception only; the depth image is already scaled to [0, 1].
+        obs_normalization=True,
+        distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=0.05),
+        # Nature-CNN encoder: 224 -> 55 -> 26 -> 12 px, flattened to 64 * 12 * 12 features.
+        cnn_cfg=RslRlCNNModelCfg.CNNCfg(
+            output_channels=[32, 64, 64],
+            kernel_size=[8, 4, 3],
+            stride=[4, 2, 2],
+            activation="elu",
+        ),
     )
