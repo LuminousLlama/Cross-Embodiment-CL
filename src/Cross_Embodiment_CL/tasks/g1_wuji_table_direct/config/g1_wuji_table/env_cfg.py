@@ -125,6 +125,7 @@ class G1WujiTablePhysicsCfg(PresetCfg):
     # The student's depth camera must see the apple, whose visible mesh is visual-only.  An explicit
     # False would win over the camera's request for visual shapes, so this preset sets True.
     distill: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=True)
+    depth_view: NewtonCfg = distill
     default: NewtonCfg = newton_mjwarp
 
 
@@ -139,6 +140,7 @@ class G1WujiTableSceneCfg(PresetCfg):
     debug: InteractiveSceneCfg = default.replace(num_envs=4)
     eval: InteractiveSceneCfg = default.replace(num_envs=16)
     distill: InteractiveSceneCfg = default.replace(num_envs=1024)
+    depth_view: InteractiveSceneCfg = default
 
 
 @configclass
@@ -157,12 +159,17 @@ class G1WujiTableDebugPresetCfg(PresetCfg):
     train: G1WujiTableDebugCfg = G1WujiTableDebugCfg()
     eval: G1WujiTableDebugCfg = train
     distill: G1WujiTableDebugCfg = train
+    depth_view: G1WujiTableDebugCfg = train
 
 
 STUDENT_DEPTH_SIZE = 224
 """Side [px] of the student's square depth image."""
 STUDENT_DEPTH_CROP = square_crop(D435_DEPTH_848X480, STUDENT_DEPTH_SIZE)
 """Square crop of the D435 depth stream that the simulated camera reproduces."""
+_STUDENT_DEPTH_CAMERA_PRIM_PATH = "{ENV_REGEX_NS}/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
+"""Prim path of the student's D435 depth imager."""
+_STUDENT_DEPTH_CAMERA_STREAM_PATTERN = "/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
+"""Resolved camera-prim regex required by the Newton visualizer stream lookup."""
 
 
 @configclass
@@ -172,7 +179,7 @@ class G1WujiTableDepthCameraPresetCfg(PresetCfg):
     default: CameraCfg | None = None
     distill: CameraCfg = CameraCfg(
         # The G1 rev 1.0 head D435 frame on torso_link (x forward), at the depth imager's origin.
-        prim_path="{ENV_REGEX_NS}/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera",
+        prim_path=_STUDENT_DEPTH_CAMERA_PRIM_PATH,
         # Sensors update lazily, so the camera renders once per policy step, when the observation reads it.
         update_period=0.0,
         # Otherwise the camera keeps its spawn pose instead of following the torso.
@@ -191,6 +198,7 @@ class G1WujiTableDepthCameraPresetCfg(PresetCfg):
         offset=CameraCfg.OffsetCfg(convention="world"),
         renderer_cfg=NewtonWarpRendererCfg(enable_textures=False),
     )
+    depth_view: CameraCfg = distill
 
 
 @configclass
@@ -232,7 +240,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     contact_debug_interval: int = 1
     """Number of policy steps between contact-demand samples when :attr:`contact_debug` is enabled."""
     depth_camera: CameraCfg | None = G1WujiTableDepthCameraPresetCfg()
-    """The student's head depth camera, which adds the ``camera`` observation; ``presets=distill`` enables it."""
+    """The student's head depth camera, which adds the ``camera`` observation; ``distill`` and ``depth_view`` enable it."""
     student_depth_max_m: float = 1.2
     """Depth [m] that the student's normalized depth image saturates at."""
     goal_keypoint_marker_cfg = VisualizationMarkersCfg(
@@ -372,7 +380,21 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         ),
         # The Newton viewer, except for the headless ``train`` and ``eval`` presets.  An explicit ``--viz``
         # still takes precedence.
-        visualizer_cfgs=preset(default=[NewtonGLVisualizerCfg()], train=[], eval=[], distill=[]),
+        visualizer_cfgs=preset(
+            default=[NewtonGLVisualizerCfg()],
+            train=[],
+            eval=[],
+            distill=[],
+            depth_view=[
+                NewtonGLVisualizerCfg(
+                    streaming_view=True,
+                    streaming_sensor_prim_path=_STUDENT_DEPTH_CAMERA_STREAM_PATTERN,
+                    streaming_gt_types=("depth",),
+                    streaming_depth_min=0.1,
+                    streaming_depth_max=1.2,
+                )
+            ],
+        ),
     )
     scene: InteractiveSceneCfg = G1WujiTableSceneCfg()
 

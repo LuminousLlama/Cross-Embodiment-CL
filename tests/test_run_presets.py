@@ -31,6 +31,7 @@ def _visualizer_types(env_cfg) -> list[str]:
         (["presets=debug"], 4, True, ["newton_gl"], True),
         (["presets=eval"], 16, False, [], False),
         (["presets=distill"], 1024, True, [], False),
+        (["presets=depth_view"], 1, True, ["newton_gl"], False),
     ],
 )
 def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, keypoint_markers):
@@ -51,10 +52,16 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
 @pytest.mark.unit
 @pytest.mark.parametrize(
     ("overrides", "has_camera"),
-    [([], False), (["presets=train"], False), (["presets=eval"], False), (["presets=distill"], True)],
+    [
+        ([], False),
+        (["presets=train"], False),
+        (["presets=eval"], False),
+        (["presets=distill"], True),
+        (["presets=depth_view"], True),
+    ],
 )
-def test_depth_camera_only_in_distill_preset(overrides, has_camera):
-    """Only ``distill`` renders the student's depth camera, so PPO runs pay no rendering cost."""
+def test_depth_camera_only_in_student_presets(overrides, has_camera):
+    """Only student presets render the depth camera, so PPO runs pay no rendering cost."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=overrides)
 
     assert (env_cfg.depth_camera is not None) is has_camera
@@ -62,6 +69,20 @@ def test_depth_camera_only_in_distill_preset(overrides, has_camera):
         assert env_cfg.depth_camera.data_types == ["distance_to_image_plane"]
         assert (env_cfg.depth_camera.width, env_cfg.depth_camera.height) == (224, 224)
         assert env_cfg.depth_camera.update_latest_camera_pose is True
+
+
+@pytest.mark.unit
+def test_depth_view_preset_colorizes_the_student_camera():
+    """The opt-in manual viewer streams the depth-only student camera, not an unavailable RGB output."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=depth_view"])
+
+    visualizer = env_cfg.sim.visualizer_cfgs[0]
+    assert visualizer.streaming_view is True
+    assert visualizer.streaming_sensor_prim_path == (
+        "/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
+    )
+    assert visualizer.streaming_gt_types == ("depth",)
+    assert (visualizer.streaming_depth_min, visualizer.streaming_depth_max) == (0.1, 1.2)
 
 
 @pytest.mark.unit

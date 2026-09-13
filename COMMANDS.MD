@@ -25,6 +25,8 @@ The G1 + Wuji task bundles its launch settings into run presets, selected with
 | `train` | `newton_mjwarp`  | 2048 | none        | off              | off                  |
 | `debug` | `newton_mjwarp`  | 4    | `newton_gl` | on               | on                   |
 | `eval`  | `newton_mjwarp`  | 16   | none        | off              | off                  |
+| `distill` | `newton_mjwarp` | 1024 | none        | off              | on, student camera   |
+| `depth_view` | `newton_mjwarp` | 1 | `newton_gl` | off | on, depth stream |
 
 Anything given explicitly still wins over the preset: `--num_envs 64`, `--viz none`
 (headless eval), `--viz kit`, `env.debug.keypoint_markers=False`,
@@ -61,6 +63,40 @@ Zero actions, 4 environments, Newton viewer and keypoint markers:
 
 ```
 uv run isaaclab zero_agent --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets=debug
+```
+
+## Inspect the student depth camera
+
+`depth_view` is an interactive, one-environment Newton GL preset. Its stream panel colorizes the
+depth-only D435 output over 0.1--1.2 m; it does not change the student's depth tensor.
+
+In a linked worktree, reuse the sibling checkout's prepared venv and put this worktree's source
+first on `PYTHONPATH`:
+
+```
+PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab zero_agent \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets=depth_view
+```
+
+## Depth-student distillation
+
+The deployable student consumes 87-D proprioception plus one normalized 224x224 D435 depth image.
+Use the depth distillation runner to play a student checkpoint in the camera viewer:
+
+```
+PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab play --rl_library rsl_rl \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --agent rsl_rl_distillation_cfg_entry_point \
+  --checkpoint <student-checkpoint.pt> --num_envs 1 presets=depth_view
+```
+
+Evaluate deterministically, headlessly, at full apple weight with an absolute checkpoint path:
+
+```
+PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/python scripts/eval_policy.py \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --agent rsl_rl_distillation_cfg_entry_point \
+  --checkpoint <absolute-student-checkpoint.pt> presets=distill --num_envs 2 --episodes 64
 ```
 
 ## Evaluate a checkpoint
