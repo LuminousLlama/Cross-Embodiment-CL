@@ -1,0 +1,93 @@
+#usda 1.0
+(
+    # Newton-ready override layer for the vendored Inspire right hand.  Keep
+    # fixes here instead of editing the binary .usd, following the Wuji
+    # pattern (assets/hands/wuji_right_soft_simplified/wujihand.usda).
+    defaultPrim = "inspire_hand_right"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "inspire_hand_right" (
+    prepend references = @./inspire_hand_right_new_07_29_26.usd@
+)
+{
+    # Collider audit: every real link with geometry (inspire_hand_base -- the
+    # rigid body carrying hand_base_link's mesh/mass -- and the 12
+    # right_{index,middle,ring,little}_{1,2}/right_thumb_{1,2,3,4} links)
+    # already authors physics:approximation = "convexHull" on its collision
+    # mesh in the vendored file's GeomLib, except hand_base_link_collisions,
+    # which uses "convexDecomposition"; Newton's runtime CoACD call
+    # (merge=False, per AGENTS.md's apple note) explodes that into ~3000
+    # hulls on one body, so replace it with a single convexHull below,
+    # following Wuji's own right_palm_link fix. The *_tip frames and
+    # inspire_hand_base's own "hand_base_link" sub-frame carry no
+    # PhysicsRigidBodyAPI/collision at all, so no override is needed to keep
+    # them collider-free.
+    over "inspire_hand_base"
+    {
+        over "collisions" (
+            active = false
+        )
+        {
+        }
+        def Xform "newton_collision" (
+            prepend references = </inspire_hand_right/inspire_hand_base/visuals/hand_base_link_visuals>
+        )
+        {
+            over "mesh" (
+                prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI"]
+            )
+            {
+                token physics:approximation = "convexHull"
+            }
+        }
+    }
+
+    over "joints"
+    {
+        # The vendored file authors the mimic gearing/offset/referenceJoint
+        # values as *custom* attributes but never lists PhysxMimicJointAPI in
+        # apiSchemas, so Newton's USD importer (see .venv newton/_src/utils/
+        # import_usd.py ~5040-5075) never sees them as mimic constraints.
+        # Apply the schema here for the 6 coupled joints; gearing/offset are
+        # already authored correctly (index/middle/ring/little _2 x1.05,
+        # thumb_3 x0.4, thumb_4 x0.6, sign-flipped per PhysX's
+        # jointPos + gearing * refJointPos + offset = 0 convention).
+        over "right_index_2_joint" (
+            prepend apiSchemas = ["PhysxMimicJointAPI:rotX"]
+        )
+        {
+        }
+
+        over "right_middle_2_joint" (
+            prepend apiSchemas = ["PhysxMimicJointAPI:rotX"]
+        )
+        {
+        }
+
+        over "right_ring_2_joint" (
+            prepend apiSchemas = ["PhysxMimicJointAPI:rotX"]
+        )
+        {
+        }
+
+        over "right_little_2_joint" (
+            prepend apiSchemas = ["PhysxMimicJointAPI:rotX"]
+        )
+        {
+        }
+
+        over "right_thumb_3_joint" (
+            prepend apiSchemas = ["PhysxMimicJointAPI:rotX"]
+        )
+        {
+        }
+
+        over "right_thumb_4_joint" (
+            prepend apiSchemas = ["PhysxMimicJointAPI:rotX"]
+        )
+        {
+        }
+    }
+}

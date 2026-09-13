@@ -140,3 +140,67 @@ G1_WUJI_CFG.init_state = ArticulationCfg.InitialStateCfg(
     joint_vel={},
 )
 """Fixed-base simplified G1 with the local right Wuji hand assembly."""
+
+
+G1_INSPIRE_CFG = G1_BASE_CFG.copy()
+G1_INSPIRE_CFG.spawn.usd_path = str(_G1_ASSET_DIR / "g1_with_hands/g1_inspire.usda")
+G1_INSPIRE_CFG.spawn.activate_contact_sensors = True
+# "wuji_fingers" matches only Wuji joint names ("right_finger[1-5]_joint[1-4]"),
+# none of which exist on the Inspire hand; drop it rather than keep a dead group.
+del G1_INSPIRE_CFG.actuators["wuji_fingers"]
+G1_INSPIRE_CFG.init_state = ArticulationCfg.InitialStateCfg(
+    pos=(0.0, 0.0, 0.0),
+    # right_thumb_1_joint's range is [-1.2, -0.3] rad and right_thumb_2_joint's is
+    # [0.14, 0.56] rad (neither includes 0), so both need an explicit in-range
+    # open pose; right_thumb_3_joint/right_thumb_4_joint are their mimic
+    # followers (x0.4/x0.6) and need the matching in-range pose for the same
+    # reason. Values are the sister repo's hardware-safe open pose
+    # (Cross-Embodiment-RL-Bench assets/inspire_hand_rom.py INSPIRE_HAND_OPEN_JOINT_POS_RAD).
+    joint_pos={
+        "right_shoulder_roll_joint": -math.pi / 4,
+        "right_thumb_1_joint": -0.30,
+        "right_thumb_2_joint": 0.14,
+        "right_thumb_3_joint": 0.056001,
+        "right_thumb_4_joint": 0.084001,
+    },
+    joint_vel={},
+)
+G1_INSPIRE_CFG.actuators["inspire_fingers"] = ImplicitActuatorCfg(
+    # Only the six driven joints get an actuator; the four finger `_2` joints
+    # and the thumb `_3`/`_4` joints are PhysX mimic joints coupled to these
+    # six (see assets/hands/inspire_right/inspire_hand_right.usda), so they
+    # are intentionally left uncovered here -- the coupling is enforced by
+    # the USD's physxMimicJoint, not by an actuator.
+    joint_names_expr=[
+        "right_index_1_joint",
+        "right_middle_1_joint",
+        "right_ring_1_joint",
+        "right_little_1_joint",
+        "right_thumb_1_joint",
+        "right_thumb_2_joint",
+    ],
+    # Effort/velocity/gains/armature copy the sister repo's Inspire system-ID
+    # actuator (Cross-Embodiment-RL-Bench assets/g1_arm.py:246-264): a shared
+    # 30.0 N*m effort cap, the cross-embodiment 0.7 rad/s hardware velocity
+    # ceiling, per-joint fitted stiffness/damping, and 0.001 armature.
+    joint_effort_limit=30.0,
+    joint_velocity_limit=0.7,
+    stiffness={
+        "right_index_1_joint": 23.784141540527344,
+        "right_middle_1_joint": 28.284271240234375,
+        "right_ring_1_joint": 3.535533905029297,
+        "right_little_1_joint": 4.204482078552246,
+        "right_thumb_1_joint": 2715.2900390625,
+        "right_thumb_2_joint": 1442.4978332519531,
+    },
+    damping={
+        "right_index_1_joint": 0.04204482212662697,
+        "right_middle_1_joint": 0.01767767034471035,
+        "right_ring_1_joint": 0.02500000037252903,
+        "right_little_1_joint": 0.05000000074505806,
+        "right_thumb_1_joint": 0.1767766922712326,
+        "right_thumb_2_joint": 1.0606601536273956,
+    },
+    armature=0.001,
+)
+"""Fixed-base simplified G1 with the local right Inspire hand assembly."""

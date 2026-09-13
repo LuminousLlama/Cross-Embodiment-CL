@@ -1,0 +1,52 @@
+#usda 1.0
+(
+    # Reusable G1 + Inspire assembly. Renderer and editor-session state belongs
+    # in a scene, not in this robot asset.
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def Xform "g1_simplified" (
+        prepend payload = @../g1_simplified/g1_simplified.usda@
+    )
+    {
+        # Inspire is a nested robot in the assembled robot's public schema.
+        prepend rel isaac:physics:robotJoints = </World/inspire_hand>
+        prepend rel isaac:physics:robotLinks = </World/inspire_hand>
+    }
+
+    def Xform "inspire_hand" (
+        prepend payload = @../../hands/inspire_right/inspire_hand_right.usda@
+    )
+    {
+        # TODO(keyush): ASSUMPTION — Inspire mount reuses the Wuji wrist offset/rotation;
+        # real hand-arm gap and orientation must be set by hand before trusting results.
+        quatd xformOp:orient = (0.5000000000000001, 0.49999999999999994, 0.5, 0.5)
+        double3 xformOp:translate = (0.26, -0.14865170419216156, 0.09523282945156097)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+
+        over "inspire_hand_base"
+        {
+            def PhysicsFixedJoint "AssemblerFixedJoint"
+            {
+                rel physics:body0 = </World/g1_simplified/right_wrist_yaw_link>
+                rel physics:body1 = </World/inspire_hand/inspire_hand_base>
+                point3f physics:localPos0 = (0.060225707, 0, 0)
+                point3f physics:localPos1 = (0, 0, 0)
+                quatf physics:localRot0 = (0.5, 0.5, 0.5, 0.5)
+                quatf physics:localRot1 = (1, 0, 0, 0)
+            }
+        }
+
+        # The hand is attached to G1 through AssemblerFixedJoint, not its
+        # original independent root joint.
+        over "root_joint" (
+            active = false
+        )
+        {
+        }
+    }
+}
