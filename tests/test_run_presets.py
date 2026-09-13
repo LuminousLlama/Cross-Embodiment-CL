@@ -30,6 +30,7 @@ def _visualizer_types(env_cfg) -> list[str]:
         (["presets=train"], 2048, False, [], False),
         (["presets=debug"], 4, True, ["newton_gl"], True),
         (["presets=eval"], 16, False, [], False),
+        (["presets=distill"], 1024, True, [], False),
     ],
 )
 def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, keypoint_markers):
@@ -45,6 +46,22 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
     assert _visualizer_types(env_cfg) == visualizers
     assert env_cfg.debug.keypoint_markers is keypoint_markers
     assert env_cfg.apple_cfg.spawn.usd_path.endswith("assets/objects/YcbApple/textured_collision.usda")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("overrides", "has_camera"),
+    [([], False), (["presets=train"], False), (["presets=eval"], False), (["presets=distill"], True)],
+)
+def test_depth_camera_only_in_distill_preset(overrides, has_camera):
+    """Only ``distill`` renders the student's depth camera, so PPO runs pay no rendering cost."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=overrides)
+
+    assert (env_cfg.depth_camera is not None) is has_camera
+    if has_camera:
+        assert env_cfg.depth_camera.data_types == ["distance_to_image_plane"]
+        assert (env_cfg.depth_camera.width, env_cfg.depth_camera.height) == (224, 224)
+        assert env_cfg.depth_camera.update_latest_camera_pose is True
 
 
 @pytest.mark.unit

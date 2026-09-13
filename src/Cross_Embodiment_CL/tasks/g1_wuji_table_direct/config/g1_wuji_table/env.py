@@ -17,12 +17,13 @@ from isaaclab import cloner
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.envs import DirectRLEnv
 from isaaclab.markers import VisualizationMarkers
-from isaaclab.sensors import ContactSensor
+from isaaclab.sensors import Camera, ContactSensor
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils.math import matrix_from_quat, quat_apply, quat_inv, quat_mul, scale_transform
 
 from Cross_Embodiment_CL.models import WujiLatentActionPipeline
 
+from .depth_camera import normalize_depth
 from .env_cfg import G1WujiTableEnvCfg
 
 
@@ -152,6 +153,8 @@ class G1WujiTableEnv(DirectRLEnv):
             )
             self.contact_sensors[group_name] = ContactSensor(sensor_cfg)
         self.torso_contact_sensor = ContactSensor(self.cfg.torso_contact_sensor_cfg)
+        # The student's head depth camera exists only when a preset configures one (presets=distill).
+        self.depth_camera = Camera(self.cfg.depth_camera) if self.cfg.depth_camera is not None else None
 
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -1.0))
         source, destination = "/World/envs/env_0", "/World/envs/env_{}"
@@ -166,6 +169,8 @@ class G1WujiTableEnv(DirectRLEnv):
         self.scene.rigid_objects["apple"] = self.apple
         self.scene.sensors.update({f"{name}_contact": sensor for name, sensor in self.contact_sensors.items()})
         self.scene.sensors["torso_contact"] = self.torso_contact_sensor
+        if self.depth_camera is not None:
+            self.scene.sensors["depth_camera"] = self.depth_camera
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
@@ -306,7 +311,8 @@ class G1WujiTableEnv(DirectRLEnv):
 
         The observation contains normalized full-robot state and commanded arm/hand targets,
         followed by apple and goal state in the fixed robot-base frame and filtered contact forces.
-        The ``student`` group is the 87-D robot-state prefix alone, which a real robot can measure.
+        The ``student`` group is the 87-D robot-state prefix alone, which a real robot can measure.  With a depth
+        camera configured, ``camera`` adds its normalized depth image with shape ``(N, 1, H, W)``.
         """
         joint_limits = self.robot.data.soft_joint_pos_limits.torch
         joint_position = torch.clamp(
@@ -373,7 +379,12 @@ class G1WujiTableEnv(DirectRLEnv):
             raise RuntimeError(
                 f"Expected {self._STUDENT_OBSERVATION_DIM}-D student observation, received {proprioception.shape[-1]}."
             )
-        return {"policy": observation, "critic": observation, "student": proprioception}
+        observations = {"policy": observation, "critic": observation, "student": proprioception}
+        if self.depth_camera is not None:
+            # (N, H, W, 1) planar depth [m] to (N, 1, H, W), the layout RSL-RL's CNN expects.
+            depth = self.depth_camera.data.output["distance_to_image_plane"].torch
+            observations["camera"] = normalize_depth(depth, self.cfg.student_depth_max_m).permute(0, 3, 1, 2)
+        return observations
 
     def _get_rewards(self) -> torch.Tensor:
         """Reward reaching, thumb-opposed contact, and the upright object pose.

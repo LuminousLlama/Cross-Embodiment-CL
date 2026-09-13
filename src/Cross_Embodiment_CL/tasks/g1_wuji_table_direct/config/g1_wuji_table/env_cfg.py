@@ -18,17 +18,20 @@ from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.markers import VisualizationMarkersCfg
 from isaaclab.physics import PhysxAutoCfg
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg
+from isaaclab.sensors import CameraCfg, ContactSensorCfg
 from isaaclab.sim import SimulationCfg
 from isaaclab.utils import configclass
 from isaaclab.visualizers import VisualizerCfg
 from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
 from isaaclab_newton.physics.newton_manager_cfg import NewtonShapeCfg
+from isaaclab_newton.renderers import NewtonWarpRendererCfg
 from isaaclab_ov.physics import OvPhysxCfg
 from isaaclab_physx.physics import PhysxCfg
 from isaaclab_physx.sim.spawners.materials.physics_materials_cfg import PhysxRigidBodyMaterialCfg
 
 from isaaclab_tasks.utils import PresetCfg, preset
+
+from .depth_camera import D435_DEPTH_848X480, square_crop
 
 _G1_CONFIG_PATH = Path(__file__).resolve().parents[6] / "assets/g1/g1.py"
 # TODO make a objects CFG file
@@ -119,6 +122,9 @@ class G1WujiTablePhysicsCfg(PresetCfg):
     # environment, so those presets drop them.  Visual shapes do not collide, so dynamics match the default.
     train: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=False)
     eval: NewtonCfg = train
+    # The student's depth camera must see the apple, whose visible mesh is visual-only.  An explicit
+    # False would win over the camera's request for visual shapes, so this preset sets True.
+    distill: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=True)
     default: NewtonCfg = newton_mjwarp
 
 
@@ -132,6 +138,7 @@ class G1WujiTableSceneCfg(PresetCfg):
     train: InteractiveSceneCfg = default.replace(num_envs=2048)
     debug: InteractiveSceneCfg = default.replace(num_envs=4)
     eval: InteractiveSceneCfg = default.replace(num_envs=16)
+    distill: InteractiveSceneCfg = default.replace(num_envs=1024)
 
 
 @configclass
@@ -149,6 +156,41 @@ class G1WujiTableDebugPresetCfg(PresetCfg):
     default: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True)
     train: G1WujiTableDebugCfg = G1WujiTableDebugCfg()
     eval: G1WujiTableDebugCfg = train
+    distill: G1WujiTableDebugCfg = train
+
+
+STUDENT_DEPTH_SIZE = 224
+"""Side [px] of the student's square depth image."""
+STUDENT_DEPTH_CROP = square_crop(D435_DEPTH_848X480, STUDENT_DEPTH_SIZE)
+"""Square crop of the D435 depth stream that the simulated camera reproduces."""
+
+
+@configclass
+class G1WujiTableDepthCameraPresetCfg(PresetCfg):
+    """The student's head depth camera: absent by default, so PPO training renders nothing."""
+
+    default: CameraCfg | None = None
+    distill: CameraCfg = CameraCfg(
+        # The G1 rev 1.0 head D435 frame on torso_link (x forward), at the depth imager's origin.
+        prim_path="{ENV_REGEX_NS}/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera",
+        # Sensors update lazily, so the camera renders once per policy step, when the observation reads it.
+        update_period=0.0,
+        # Otherwise the camera keeps its spawn pose instead of following the torso.
+        update_latest_camera_pose=True,
+        # Planar z-depth, as a RealSense reports, rather than distance along the ray.
+        data_types=["distance_to_image_plane"],
+        width=STUDENT_DEPTH_SIZE,
+        height=STUDENT_DEPTH_SIZE,
+        # The Newton renderer draws square pixels about a centred principal point, which the crop guarantees.
+        spawn=sim_utils.PinholeCameraCfg.from_intrinsic_matrix(
+            STUDENT_DEPTH_CROP.output.matrix(),
+            width=STUDENT_DEPTH_SIZE,
+            height=STUDENT_DEPTH_SIZE,
+            clipping_range=(0.01, 10.0),
+        ),
+        offset=CameraCfg.OffsetCfg(convention="world"),
+        renderer_cfg=NewtonWarpRendererCfg(enable_textures=False),
+    )
 
 
 @configclass
@@ -189,6 +231,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Whether to sample MJWarp contact and constraint demand for capacity sizing; off during normal runs."""
     contact_debug_interval: int = 1
     """Number of policy steps between contact-demand samples when :attr:`contact_debug` is enabled."""
+    depth_camera: CameraCfg | None = G1WujiTableDepthCameraPresetCfg()
+    """The student's head depth camera, which adds the ``camera`` observation; ``presets=distill`` enables it."""
+    student_depth_max_m: float = 1.2
+    """Depth [m] that the student's normalized depth image saturates at."""
     goal_keypoint_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/CrossEmbodiment/goal_keypoints",
         markers={
@@ -326,7 +372,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         ),
         # The Newton viewer, except for the headless ``train`` and ``eval`` presets.  An explicit ``--viz``
         # still takes precedence.
-        visualizer_cfgs=preset(default=[NewtonGLVisualizerCfg()], train=[], eval=[]),
+        visualizer_cfgs=preset(default=[NewtonGLVisualizerCfg()], train=[], eval=[], distill=[]),
     )
     scene: InteractiveSceneCfg = G1WujiTableSceneCfg()
 
