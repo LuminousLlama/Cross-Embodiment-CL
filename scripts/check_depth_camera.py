@@ -31,7 +31,7 @@ from rsl_rl.runners import OnPolicyRunner
 from isaaclab.app import add_launcher_args, launch_simulation
 from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.utils.assets import retrieve_file_path
-from isaaclab.utils.math import project_points, quat_apply_inverse
+from isaaclab.utils.math import quat_apply_inverse
 
 from isaaclab_rl.entrypoints.backends import cli_args_rsl_rl as cli_args
 from isaaclab_rl.entrypoints.common import add_frontend_args, create_isaaclab_env
@@ -78,11 +78,16 @@ def _table_top_points(env) -> torch.Tensor:
 
 
 def _project(camera, points_w: torch.Tensor) -> torch.Tensor:
-    """Project world points into the camera image: returns ``(P, 3)`` of pixel u, pixel v, and camera z [m]."""
+    """Project world points into the camera image: returns ``(P, 3)`` of pixel u, pixel v, and camera z [m].
+
+    Projects with the intrinsic matrix directly: ``isaaclab.utils.math.project_points`` returns
+    ``(1, P, 3)`` for a ``(P, 3)`` input, contrary to its docstring.
+    """
     data = camera.data
     position, orientation = data.pos_w.torch[0], data.quat_w_ros.torch[0]
     points_camera = quat_apply_inverse(orientation.expand(points_w.shape[0], 4), points_w - position)
-    return project_points(points_camera, data.intrinsic_matrices.torch[0])
+    pixels = points_camera @ data.intrinsic_matrices.torch[0].T
+    return torch.cat((pixels[:, :2] / pixels[:, 2:3], points_camera[:, 2:3]), dim=-1)
 
 
 def _pixels(uvz: torch.Tensor, height: int, width: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
