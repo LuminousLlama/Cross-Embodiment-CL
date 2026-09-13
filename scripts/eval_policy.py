@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Cross-Embodiment CL Contributors.
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Headless, deterministic evaluation of an RSL-RL checkpoint.
+"""Headless evaluation or random-action contact stress test of an RSL-RL checkpoint.
 
 Based on IsaacLab's ``isaaclab_rl/entrypoints/backends/play_rsl_rl.py``: keeps its CLI and
 preset parsing, environment creation, runner construction, ``runner.load``, and
@@ -122,6 +122,11 @@ parser.add_argument(
 )
 parser.add_argument("--external_callback", default=None, help="Fully qualified path to an externally defined callback.")
 parser.add_argument("--episodes", type=int, default=64, help="Number of completed episodes to collect.")
+parser.add_argument(
+    "--random_actions",
+    action="store_true",
+    help="Sample normalized actions uniformly instead of the checkpoint policy for contact stress tests.",
+)
 parser.add_argument(
     "--out", type=str, default=None, help="Output JSON path. Defaults to <checkpoint dir>/eval_<checkpoint stem>.json."
 )
@@ -275,9 +280,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             print(f"[INFO] Collecting {args_cli.episodes} episodes...")
             while completed_episodes < args_cli.episodes:
                 with torch.inference_mode():
-                    actions = policy(obs)
+                    if args_cli.random_actions:
+                        actions = 2.0 * torch.rand((env.num_envs, env.num_actions), device=env.unwrapped.device) - 1.0
+                    else:
+                        actions = policy(obs)
                     obs, _, dones, extras = env.step(actions)
-                    policy.reset(dones)
+                    if not args_cli.random_actions:
+                        policy.reset(dones)
                 policy_step += 1
                 log = extras.get("log", {})
                 for tag, _value in log.items():
@@ -318,6 +327,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         "commit": commit,
         "num_envs": env_cfg.scene.num_envs,
         "episodes": completed_episodes,
+        "policy": "random_actions" if args_cli.random_actions else "deterministic",
         "seed": env_cfg.seed,
         "metrics": metrics,
         "debug_peaks": debug_peaks,
