@@ -1,4 +1,10 @@
 {
+    "git.worktreeIncludeFiles": [
+        ".vscode/settings.json",
+        ".vscode/launch.json",
+        "pyrightconfig.json",
+        ".claude/agents/**"
+    ],
     "files.associations": {
         "*.tpp": "cpp",
         "*.kit": "toml",

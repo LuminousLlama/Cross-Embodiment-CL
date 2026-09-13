@@ -2,6 +2,8 @@
 
 - Keep changes focused and follow existing local conventions.
 - For Isaac-specific implementation work, use the adjacent `../IsaacLab/` checkout as the source reference; consult its `AGENTS.md` and `skills/` directory before making those changes.
+- **Worktree location:** use the VS Code-style repository-local layout for new linked worktrees: `.worktree/<branch-name>/`. Do not create them in sibling or ad hoc directories.
+- **Worktree includes:** treat `.vscode/settings.json` `git.worktreeIncludeFiles` as the authoritative copy list. VS Code copies these ignored files and folders when it creates a worktree; when using another worktree-creation method, copy the same paths from the primary checkout into the new worktree, preserving their repository-relative paths. Do not copy other ignored state implicitly.
 - **Worktree execution:** a linked worktree may not have its own ready venv. Reuse the sibling main checkout's prepared venv, while making the active worktree's source authoritative: `PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/python <script>` or `PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab <command>`. Do not use `uv run` from a worktree merely to run an existing Isaac command: it may create and populate a separate venv, including large CUDA packages.
 - **Isaac Lab CLI discovery:** before claiming a command is unavailable or inventing a wrapper, query the executable that will actually run it: `../Cross-Embodiment-CL/.venv/bin/isaaclab --help` followed by `../Cross-Embodiment-CL/.venv/bin/isaaclab <command> --help`. In particular, the built-in `zero_agent` command runs an environment with zero actions; use it for interactive manual scene inspection rather than adding a custom zero-action script.
 
