@@ -235,6 +235,14 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Fixed apple goal position [m] in the environment frame."""
     adr_enabled: bool = False
     """Whether the success-gated adaptive domain-randomization schedule (see :mod:`.adr`) is active."""
+    adr_drives_gravity: bool = True
+    """Whether ADR strength also drives whole-scene gravity when ``adr_enabled`` is set.
+
+    With this on, gravity starts at the schedule's 0-strength level: 0 g, at which a touched apple floats
+    away, the terminal keypoint error stays large, success stays 0, and the level-advance gate never opens.
+    Set to ``False`` to keep gravity on the existing step-based ``gravity_curriculum_start``/
+    ``gravity_curriculum_steps`` ramp while spawn box and goal alpha stay ADR-driven.
+    """
     adr_max_level: int = 50
     """Number of levels :class:`.adr.AdaptiveDomainRandomization` can advance through."""
     adr_success_threshold: float = 0.40

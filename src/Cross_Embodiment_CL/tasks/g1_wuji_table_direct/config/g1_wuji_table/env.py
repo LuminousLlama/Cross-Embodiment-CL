@@ -281,9 +281,10 @@ class G1WujiTableEnv(DirectRLEnv):
         notification every policy step while keeping the 600-iteration ramp smooth.  Isaac Lab's current
         Newton, OvPhysX, and Isaac Sim PhysX managers expose different runtime gravity APIs, so this selects
         their capability rather than changing task dynamics by backend name.  When :attr:`G1WujiTableEnvCfg.
-        adr_enabled` is set, the ADR schedule's strength replaces the step-based ramp.
+        adr_enabled` and :attr:`~.G1WujiTableEnvCfg.adr_drives_gravity` are both set, the ADR schedule's
+        strength replaces the step-based ramp.
         """
-        if self.cfg.adr_enabled:
+        if self.cfg.adr_enabled and self.cfg.adr_drives_gravity:
             self._gravity_frac = self.adr.strength
         else:
             start = self.cfg.gravity_curriculum_start
