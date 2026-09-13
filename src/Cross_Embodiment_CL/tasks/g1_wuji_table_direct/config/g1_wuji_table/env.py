@@ -132,8 +132,6 @@ class G1WujiTableEnv(DirectRLEnv):
         self.object_start_position = torch.tensor(self.cfg.apple_cfg.init_state.pos, device=self.device).repeat(
             self.num_envs, 1
         )
-        # Read once: the apple's true mass, used to size the weight-curriculum assist force.
-        self._apple_mass = self.apple.data.body_mass.torch.clone()
         self._gravity_frac = 1.0
         self._last_applied_gravity_frac: float | None = None
         self._apply_gravity_curriculum(force=True)
@@ -217,7 +215,6 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         # The anti-windup clamp follows the measured position, which contact can push backwards; never command that.
         self.wuji_joint_targets.clamp_(min=wuji_command_lower)
-        self._apply_apple_weight_curriculum()
         self._apply_gravity_curriculum()
 
     def _apply_gravity_curriculum(self, force: bool = False) -> None:
@@ -255,38 +252,6 @@ class G1WujiTableEnv(DirectRLEnv):
 
             sim_utils.SimulationContext.instance().physics_sim_view.set_gravity(carb.Float3(*gravity))
         self._last_applied_gravity_frac = self._gravity_frac
-
-    def _apply_apple_weight_curriculum(self) -> None:
-        """Feed the apple a ramping fraction of its true weight via a world-frame upward assist force.
-
-        The felt weight ramps linearly from ``apple_weight_curriculum_start`` to full over
-        ``apple_weight_curriculum_steps`` env steps.  The assist force at the apple's centre of
-        mass makes up the untaken fraction, with zero torque.  When the start fraction is 1.0 the
-        curriculum is disabled and no wrench call is ever made, so default behaviour is unchanged.
-        """
-        start = self.cfg.apple_weight_curriculum_start
-        ramp = min(1.0, self.common_step_counter / self.cfg.apple_weight_curriculum_steps)
-        self._apple_weight_frac = start + (1.0 - start) * ramp
-        if start == 1.0:
-            return
-        gravity_z = abs(self.cfg.sim.gravity[2])
-        # MJWarp injects a RigidObject's external wrench once per outer (decimated) physics step,
-        # while gravity is a native term its integrator re-applies at every one of its internal
-        # ``num_substeps`` sub-steps.  A constant assist force therefore lands at only
-        # 1 / num_substeps of the magnitude set below; scale it back up so the apple actually
-        # feels (1 - frac) * weight.  Measured directly: with frac=-1 (assist = 2x weight), the
-        # apple's net acceleration was +g at num_substeps=1, ~0 at num_substeps=2, and -g/2 at
-        # num_substeps=4 -- exactly matching an effective force of (set force) / num_substeps.
-        # Backends without substepping (e.g. PhysX) have no such attribute and default to 1, a
-        # no-op.
-        num_substeps = getattr(self.cfg.sim.physics, "num_substeps", 1)
-        assist_force = (1.0 - self._apple_weight_frac) * self._apple_mass * gravity_z * num_substeps
-        forces = torch.zeros((self.num_envs, 1, 3), device=self.device)
-        forces[:, 0, 2] = assist_force.squeeze(-1)
-        torques = torch.zeros_like(forces)
-        self.apple.permanent_wrench_composer.set_forces_and_torques_index(
-            forces=forces, torques=torques, is_global=True
-        )
 
     def _advance_joint_targets(
         self,
@@ -768,7 +733,6 @@ class G1WujiTableEnv(DirectRLEnv):
             "Control/action_saturation_frac_step": (self.actions.abs() >= 0.999).float().mean(),
             "Control/arm_tracking_error_step": arm_tracking_error.mean(),
             "Control/wuji_tracking_error_step": wuji_tracking_error.mean(),
-            "Curriculum/apple_weight_frac_step": self._apple_weight_frac,
             "Curriculum/gravity_frac_step": self._gravity_frac,
             "Curriculum/goal_alpha_step": goal_alpha_step,
         }

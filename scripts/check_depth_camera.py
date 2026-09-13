@@ -156,8 +156,6 @@ def main(env_cfg: DirectRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     if getattr(env_cfg, "depth_camera", None) is None:
         raise ValueError("The environment has no depth camera; select one with presets=distill.")
     env_cfg.scene.num_envs = 1
-    # Inspect the task as deployed: full apple weight.
-    env_cfg.apple_weight_curriculum_start = 1.0
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
     agent_cfg = handle_deprecated_rsl_rl_cfg(agent_cfg, metadata.version("rsl-rl-lib"))
     frame_steps = sorted({int(step) for step in args_cli.frame_steps.split(",")})

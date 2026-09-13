@@ -240,7 +240,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     contact_debug_interval: int = 1
     """Number of policy steps between contact-demand samples when :attr:`contact_debug` is enabled."""
     depth_camera: CameraCfg | None = G1WujiTableDepthCameraPresetCfg()
-    """The student's head depth camera, which adds the ``camera`` observation; ``distill`` and ``depth_view`` enable it."""
+    """The student's head depth camera.
+
+    Adds the ``camera`` observation; ``distill`` and ``depth_view`` enable it.
+    """
     student_depth_max_m: float = 1.2
     """Depth [m] that the student's normalized depth image saturates at."""
     goal_keypoint_marker_cfg = VisualizationMarkersCfg(
@@ -327,20 +330,6 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     Force-graded contact alone is farmable by mashing one body into the apple against the
     table: measured, that pinned the apple 1.5 cm *below* its rest height at ~50 N while
     ``tanh`` saturated.  Height cannot be farmed that way and is the behaviour actually wanted.
-    """
-    apple_weight_curriculum_start: float = 1.0
-    """Fraction of the apple's true weight it feels at the start of training.
-
-    An upward force makes up the rest of its weight.  1.0 disables the curriculum: no wrench
-    is ever applied.  0.5 is the confirmed default (run R007, 100% no-noise eval success):
-    a light apple early lets lift discovery happen at all, with :attr:`entropy_coef` at 0.005.
-    ``eval_policy.py`` forces this back to 1.0, so evaluation always runs at full weight.
-    """
-    apple_weight_curriculum_steps: int = 19_200
-    """Env steps over which the felt weight ramps linearly from ``apple_weight_curriculum_start`` to full.
-
-    PPO runs 32 steps per iteration, so 19 200 steps is iteration 600: full weight well inside
-    the 2000-iteration training budget (run R007).
     """
     gravity_curriculum_start: float = 0.0
     """Fraction of configured scene gravity at the start of training; 1.0 disables the curriculum."""

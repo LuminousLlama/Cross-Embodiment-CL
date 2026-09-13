@@ -35,9 +35,8 @@ class G1WujiTablePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,
-        # 0.001 collapses exploration before the apple is ever lifted; 0.005 plus a light apple
-        # early (see G1WujiTableEnvCfg.apple_weight_curriculum_start) lets lift discovery happen
-        # within the 2000-iteration budget (measured: run R007).
+        # 0.001 collapses exploration before the apple is ever lifted; 0.005 preserves exploration
+        # while the gravity curriculum ramps up.
         entropy_coef=0.005,
         num_learning_epochs=5,
         num_mini_batches=4,

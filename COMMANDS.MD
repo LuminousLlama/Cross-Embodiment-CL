@@ -90,7 +90,7 @@ PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab play --rl_library 
   --checkpoint <student-checkpoint.pt> --num_envs 1 presets=depth_view
 ```
 
-Evaluate deterministically, headlessly, at full apple weight with an absolute checkpoint path:
+Evaluate deterministically, headlessly, at full gravity with an absolute checkpoint path:
 
 ```
 PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/python scripts/eval_policy.py \
