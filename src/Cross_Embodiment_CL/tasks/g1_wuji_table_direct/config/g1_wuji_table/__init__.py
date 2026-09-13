@@ -16,5 +16,8 @@ gym.register(
     kwargs={
         "env_cfg_entry_point": f"{__name__}.env_cfg:G1WujiTableEnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:G1WujiTablePPORunnerCfg",
+        "rsl_rl_state_distillation_cfg_entry_point": (
+            f"{agents.__name__}.rsl_rl_distillation_cfg:G1WujiTableStateDistillationRunnerCfg"
+        ),
     },
 )
