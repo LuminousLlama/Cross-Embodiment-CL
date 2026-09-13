@@ -212,8 +212,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     # the frozen 18-D Wuji latent action. The waist remains internally held.
     action_space = 25
     # The policy and critic deliberately receive the identical privileged state.
-    observation_space = 117
-    state_space = 117
+    observation_space = 171
+    state_space = 171
     contact_force_observation_max = 20.0
     """Maximum apple contact-force magnitude [N] before the log1p observation transform."""
     arm_action_ema_alpha = 0.25

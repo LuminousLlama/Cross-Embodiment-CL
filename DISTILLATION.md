@@ -3,8 +3,9 @@
 ## Status
 
 The privileged PPO teacher R007 was behavior-cloned into a depth student with RSL-RL DAgger. The
-student receives 87-D proprioception and one normalized 224x224 D435 depth image; the teacher
-retains the 117-D privileged observation.
+student received the former 87-D proprioception and one normalized 224x224 D435 depth image; the teacher
+used the former 117-D privileged observation. The current environment uses 141-D proprioception and a
+171-D privileged observation, so that checkpoint predates and is incompatible with the current observation contract.
 
 The stopped `depth_r0` run's `model_600.pt` checkpoint was evaluated locally with deterministic
 actions, full apple weight, two environments, and 64 completed episodes. It achieved 63/64 success
@@ -12,7 +13,7 @@ actions, full apple weight, two environments, and 64 completed episodes. It achi
 penetration, and 10.60 N thumb force. The sole failure was a workspace exit.
 
 This clears the Stage-1 behavior-cloning bar of at least 90% deterministic success. It does not by
-itself show that the policy materially uses depth: the fixed scene and 87-D controller state may
+itself show that the policy materially uses depth: the fixed scene and former 87-D controller state may
 permit a largely proprioceptive trajectory. A zero-depth camera ablation is the next validation if
 the visual-policy claim needs to be established.
 

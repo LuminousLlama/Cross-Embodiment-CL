@@ -80,7 +80,7 @@ PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab zero_agent \
 
 ## Depth-student distillation
 
-The deployable student consumes 87-D proprioception plus one normalized 224x224 D435 depth image.
+The deployable student consumes 141-D proprioception plus one normalized 224x224 D435 depth image.
 Use the depth distillation runner to play a student checkpoint in the camera viewer:
 
 ```

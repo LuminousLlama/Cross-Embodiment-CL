@@ -18,8 +18,8 @@ from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents.
     G1WujiTablePPORunnerCfg,
 )
 
-_OBSERVATION_DIM = 117
-_STUDENT_OBSERVATION_DIM = 87
+_OBSERVATION_DIM = 171
+_STUDENT_OBSERVATION_DIM = 141
 _DEPTH_SIZE = 224
 _ACTION_DIM = 25
 _DISTILLATION_CFGS = [G1WujiTableStateDistillationRunnerCfg, G1WujiTableDepthDistillationRunnerCfg]
@@ -84,6 +84,6 @@ def test_depth_student_reads_only_deployable_observations():
         distribution_cfg=student_cfg.distribution_cfg.to_dict(),
         cnn_cfg=student_cfg.cnn_cfg.to_dict(),
     )
-    # 224 -> 55 -> 26 -> 12 px through the encoder, flattened, then the 87-D proprioception.
+    # 224 -> 55 -> 26 -> 12 px through the encoder, flattened, then the 141-D proprioception.
     assert student.mlp[0].in_features == 64 * 12 * 12 + _STUDENT_OBSERVATION_DIM
     assert student(_observations(batch=2)).shape == (2, _ACTION_DIM)

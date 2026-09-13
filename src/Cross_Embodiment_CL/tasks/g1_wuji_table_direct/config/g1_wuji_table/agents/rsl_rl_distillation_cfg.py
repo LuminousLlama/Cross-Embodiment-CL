@@ -26,7 +26,7 @@ _TEACHER_ACTOR = G1WujiTablePPORunnerCfg().actor
 
 @configclass
 class G1WujiTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
-    """Plumbing check: a student with the teacher's own 117-D privileged observation.
+    """Plumbing check: a student with the teacher's own 171-D privileged observation.
 
     With identical inputs and architecture the student should reach the teacher's success rate, so a
     shortfall here is a pipeline bug rather than an observability limit.
@@ -64,7 +64,7 @@ class G1WujiTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
 
 @configclass
 class G1WujiTableDepthDistillationRunnerCfg(G1WujiTableStateDistillationRunnerCfg):
-    """The deployable student: 87-D proprioception plus the 224x224 head depth image.
+    """The deployable student: 141-D proprioception plus the 224x224 head depth image.
 
     Needs the depth camera, so launch the environment with ``presets=distill``.
     """

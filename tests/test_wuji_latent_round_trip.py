@@ -20,6 +20,49 @@ import Cross_Embodiment_CL.tasks  # noqa: E402, F401
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("physics_preset", ["newton_mjwarp", "isaacsim_physx"])
+def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset: str) -> None:
+    """Expose raw joint angles and the physical arm/effective Wuji command limits."""
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    resolve_presets(env_cfg, selected=(physics_preset,))
+    env_cfg.scene.num_envs = 4
+    env_cfg.sim.visualizer_cfgs = []
+    env_cfg.debug.keypoint_markers = False
+    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    try:
+        env.reset(seed=42)
+        unwrapped = env.unwrapped
+        robot = unwrapped.robot
+        observations = unwrapped._get_observations()
+
+        assert observations["policy"].shape == (4, 171)
+        assert observations["student"].shape == (4, 141)
+        assert torch.equal(observations["policy"][:, :141], observations["student"])
+        assert torch.equal(observations["student"][:, : robot.num_joints], robot.data.joint_pos.torch)
+
+        arm_limits = robot.data.soft_joint_pos_limits.torch[:, unwrapped.arm_joint_ids]
+        wuji_asset_limits = robot.data.soft_joint_pos_limits.torch[:, unwrapped.wuji_joint_ids]
+        wuji_command_limits = torch.stack(
+            (
+                torch.maximum(wuji_asset_limits[..., 0], unwrapped._wuji_command_lower_floor),
+                wuji_asset_limits[..., 1],
+            ),
+            dim=-1,
+        )
+        expected_command_limits = torch.cat(
+            (arm_limits.flatten(start_dim=1), wuji_command_limits.flatten(start_dim=1)), dim=-1
+        )
+        observed_command_limits = observations["student"][:, -expected_command_limits.shape[-1] :]
+        assert torch.equal(observed_command_limits, expected_command_limits)
+
+        zero_floor = unwrapped._wuji_command_lower_floor == 0.0
+        assert (wuji_asset_limits[..., 0][:, zero_floor] < 0.0).any()
+        assert torch.all(wuji_command_limits[..., 0][:, zero_floor] >= 0.0)
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
 def test_nonfinite_state_returns_zero_terminal_reward() -> None:
     """A state rejected by the done guard must not leak a NaN reward to the trainer."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
@@ -63,11 +106,12 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         assert unwrapped.local_cube_keypoints.shape == (8, 3)
         assert unwrapped.cfg.object_max_horizontal_displacement == 0.20
         assert unwrapped.cfg.success_keypoint_error_threshold == 0.10
-        assert unwrapped.cfg.observation_space == 117
-        assert unwrapped.cfg.state_space == 117
+        assert unwrapped.cfg.observation_space == 171
+        assert unwrapped.cfg.state_space == 171
         observations = unwrapped._get_observations()
-        assert set(observations) == {"policy", "critic"}
-        assert observations["policy"].shape == (1, 117)
+        assert set(observations) == {"policy", "critic", "student"}
+        assert observations["policy"].shape == (1, 171)
+        assert observations["student"].shape == (1, 141)
         assert torch.isfinite(observations["policy"]).all()
         assert torch.equal(observations["policy"], observations["critic"])
         assert unwrapped.torso_contact_sensor.data.normal_force_matrix_w.torch.shape == (1, 1, 1, 3)
@@ -185,7 +229,7 @@ def test_wuji_multi_env_reset_initializes_ema_targets() -> None:
         observations, _ = env.reset(seed=42)
         unwrapped = env.unwrapped
         default_joint_pos = unwrapped.robot.data.default_joint_pos.torch
-        assert observations["policy"].shape == (2, 117)
+        assert observations["policy"].shape == (2, 171)
         assert torch.equal(unwrapped.arm_joint_targets, default_joint_pos[:, unwrapped.arm_joint_ids])
         assert torch.equal(unwrapped.wuji_joint_targets, default_joint_pos[:, unwrapped.wuji_joint_ids])
     finally:

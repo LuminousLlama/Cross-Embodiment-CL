@@ -63,10 +63,10 @@ class G1WujiTableEnv(DirectRLEnv):
         },
     }
     _THUMB_CONTACT_GROUP = "finger1"
-    _OBSERVATION_DIM = 117
+    _OBSERVATION_DIM = 171
     # The deployable proprioceptive prefix of the privileged observation: joint positions and
-    # velocities plus the commanded arm and hand targets.
-    _STUDENT_OBSERVATION_DIM = 87
+    # velocities, commanded arm and hand targets, and their position limits.
+    _STUDENT_OBSERVATION_DIM = 141
 
     def __init__(self, cfg: G1WujiTableEnvCfg, render_mode: str | None = None, **kwargs) -> None:
         super().__init__(cfg, render_mode, **kwargs)
@@ -202,7 +202,7 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
         wuji_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.wuji_joint_ids]
-        wuji_command_lower = torch.maximum(wuji_limits[..., 0], self._wuji_command_lower_floor)
+        wuji_command_lower = self._wuji_command_lower_limits(wuji_limits)
         wuji_targets = self.wuji_action_pipeline.latent_action_to_joint_target(
             self.actions[:, len(self.arm_joint_ids) :], wuji_command_lower, wuji_limits[..., 1]
         )
@@ -216,6 +216,10 @@ class G1WujiTableEnv(DirectRLEnv):
         # The anti-windup clamp follows the measured position, which contact can push backwards; never command that.
         self.wuji_joint_targets.clamp_(min=wuji_command_lower)
         self._apply_gravity_curriculum()
+
+    def _wuji_command_lower_limits(self, wuji_limits: torch.Tensor) -> torch.Tensor:
+        """Return the effective Wuji command lower limits [rad]."""
+        return torch.maximum(wuji_limits[..., 0], self._wuji_command_lower_floor)
 
     def _apply_gravity_curriculum(self, force: bool = False) -> None:
         """Ramp the whole scene's configured gravity from ``gravity_curriculum_start`` to full strength.
@@ -316,23 +320,15 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
     def _get_observations(self) -> dict[str, torch.Tensor]:
-        """Return the identical 117-D privileged state for policy and critic, plus the student's proprioception.
+        """Return the identical 171-D privileged state for policy and critic, plus student proprioception.
 
-        The observation contains normalized full-robot state and commanded arm/hand targets,
-        followed by apple and goal state in the fixed robot-base frame and filtered contact forces.
-        The ``student`` group is the 87-D robot-state prefix alone, which a real robot can measure.  With a depth
-        camera configured, ``camera`` adds its normalized depth image with shape ``(N, 1, H, W)``.
+        The observation contains raw joint positions [rad], normalized joint velocities and commanded arm/hand
+        targets, raw arm and effective Wuji command limits [rad], followed by apple and goal state in the fixed
+        robot-base frame and filtered contact forces.  The ``student`` group is the 141-D deployable prefix.  With
+        a depth camera configured, ``camera`` adds its normalized depth image with shape ``(N, 1, H, W)``.
         """
         joint_limits = self.robot.data.soft_joint_pos_limits.torch
-        joint_position = torch.clamp(
-            scale_transform(
-                self.robot.data.joint_pos.torch,
-                joint_limits[..., 0],
-                joint_limits[..., 1],
-            ),
-            -1.0,
-            1.0,
-        )
+        joint_position = self.robot.data.joint_pos.torch
         # Arm and hand speeds are scaled by the task caps rather than the looser solver limits.
         joint_velocity_limits = self.robot.data.soft_joint_vel_limits.torch.clone()
         joint_velocity_limits[:, self.arm_joint_ids] = self.cfg.arm_joint_velocity_limit
@@ -342,6 +338,9 @@ class G1WujiTableEnv(DirectRLEnv):
 
         arm_limits = joint_limits[:, self.arm_joint_ids]
         wuji_limits = joint_limits[:, self.wuji_joint_ids]
+        wuji_command_limits = torch.stack(
+            (self._wuji_command_lower_limits(wuji_limits), wuji_limits[..., 1]), dim=-1
+        )
         arm_target = torch.clamp(
             scale_transform(self.arm_joint_targets, arm_limits[..., 0], arm_limits[..., 1]), -1.0, 1.0
         )
@@ -367,7 +366,17 @@ class G1WujiTableEnv(DirectRLEnv):
             torch.clamp(self._contact_group_forces(), max=self.cfg.contact_force_observation_max)
         )
 
-        proprioception = torch.cat((joint_position, joint_velocity, arm_target, wuji_target), dim=-1)
+        proprioception = torch.cat(
+            (
+                joint_position,
+                joint_velocity,
+                arm_target,
+                wuji_target,
+                arm_limits.flatten(start_dim=1),
+                wuji_command_limits.flatten(start_dim=1),
+            ),
+            dim=-1,
+        )
         observation = torch.cat(
             (
                 proprioception,
