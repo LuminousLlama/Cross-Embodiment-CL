@@ -40,6 +40,13 @@ def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset:
         assert torch.equal(observations["policy"][:, :141], observations["student"])
         assert torch.equal(observations["student"][:, : robot.num_joints], robot.data.joint_pos.torch)
 
+        shoulder_roll_joint_id = unwrapped.arm_joint_ids[1]
+        expected_shoulder_roll = torch.full_like(
+            robot.data.default_joint_pos.torch[:, shoulder_roll_joint_id], -torch.pi / 4
+        )
+        assert torch.allclose(robot.data.default_joint_pos.torch[:, shoulder_roll_joint_id], expected_shoulder_roll)
+        assert torch.allclose(robot.data.joint_pos.torch[:, shoulder_roll_joint_id], expected_shoulder_roll)
+
         arm_limits = robot.data.soft_joint_pos_limits.torch[:, unwrapped.arm_joint_ids]
         wuji_asset_limits = robot.data.soft_joint_pos_limits.torch[:, unwrapped.wuji_joint_ids]
         wuji_command_limits = torch.stack(

@@ -12,6 +12,7 @@ in one place.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import isaaclab.sim as sim_utils
@@ -132,7 +133,10 @@ G1_WUJI_CFG.spawn.activate_contact_sensors = True
 G1_WUJI_CFG.init_state = ArticulationCfg.InitialStateCfg(
     pos=(0.0, 0.0, 0.0),
     # The thumb-base lower limit is 0.047 rad; this is its valid neutral pose.
-    joint_pos={"right_finger1_joint1": 0.05},
+    joint_pos={
+        "right_shoulder_roll_joint": -math.pi / 4,
+        "right_finger1_joint1": 0.05,
+    },
     joint_vel={},
 )
 """Fixed-base simplified G1 with the local right Wuji hand assembly."""

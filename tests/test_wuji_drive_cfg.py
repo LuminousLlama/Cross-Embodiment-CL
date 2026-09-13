@@ -23,6 +23,17 @@ OFFICIAL_ARMATURE = {
 }
 
 
+@pytest.mark.unit
+def test_g1_wuji_initial_joint_pose() -> None:
+    """The right shoulder starts at -45 degrees while the thumb retains its legal neutral pose."""
+    assert G1_WUJI_CFG.init_state.joint_pos.keys() == {
+        "right_shoulder_roll_joint",
+        "right_finger1_joint1",
+    }
+    assert G1_WUJI_CFG.init_state.joint_pos["right_shoulder_roll_joint"] == pytest.approx(-math.pi / 4)
+    assert G1_WUJI_CFG.init_state.joint_pos["right_finger1_joint1"] == 0.05
+
+
 def _authored_drives() -> dict[str, tuple[float, float, float]]:
     """Return each finger joint's USD drive as (effort limit [N·m], stiffness [N·m/rad], damping [N·m·s/rad])."""
     # USD authors angular drive gains per degree.
