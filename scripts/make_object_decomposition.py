@@ -15,8 +15,10 @@ decomposition, no importer-side cap that does not do what it says.
 
 Decimation shrinks each hull inside the true surface, which leaves visible valleys between hulls
 at low hull and vertex counts. ``--extrude-margin`` enables CoACD's extrusion of neighbouring hulls
-across their shared faces to close them, and the script prints how far the source surface lies
-outside the hull union so the fit can be judged without a viewer.
+across their shared faces to close them. The script reports the fit both ways: how far the source
+surface lies outside the hull union (valleys a fingertip can sink into) and how far the union's
+outer surface lies from the source surface (bulges and filled-in concavities). ``--evaluate``
+prints the same report for an existing decomposed asset without running CoACD.
 
 ``--sdf-max-resolution R`` authors each hull as a triangle mesh (``physics:approximation = none``)
 with ``NewtonSDFCollisionAPI``, so Newton builds an SDF per hull. That only takes effect with
@@ -30,6 +32,8 @@ material and the source's explicit ``physics:mass``); only the collision geometr
 Usage:
     uv run python scripts/make_object_decomposition.py --usd-path assets/objects/YcbHammer/textured.usda \
         [--hulls N] [--max-verts V] [--threshold T] [--extrude-margin M] [--sdf-max-resolution R] [--output PATH]
+    uv run python scripts/make_object_decomposition.py --usd-path assets/objects/YcbHammer/textured.usda \
+        --evaluate assets/objects/YcbHammer/textured_coacd16.usda
 """
 
 from __future__ import annotations
@@ -41,7 +45,7 @@ import coacd
 import numpy as np
 import trimesh
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
-from scipy.spatial import ConvexHull
+from scipy.spatial import ConvexHull, cKDTree
 
 _DEFAULT_USD_PATH = Path(__file__).resolve().parents[1] / "assets/objects/YcbApple/textured.usda"
 _COLLISION_MESH_PATH = "/Object/geometry"
@@ -87,31 +91,69 @@ def _load_collision_mesh(stage: Usd.Stage) -> tuple[np.ndarray, np.ndarray]:
     return points, faces
 
 
-def _report_fit(points: np.ndarray, faces: np.ndarray, hulls: list[tuple[np.ndarray, np.ndarray]]) -> None:
-    """Print how far the source surface lies outside the hull union, and how much the hulls bloat it.
+def _load_hulls(asset_path: Path) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Read the ``hull*`` Mesh prims of a decomposed asset written by this script."""
+    stage = Usd.Stage.Open(str(asset_path))
+    hulls = []
+    for prim in stage.Traverse():
+        if prim.IsA(UsdGeom.Mesh) and prim.GetName().startswith("hull"):
+            mesh = UsdGeom.Mesh(prim)
+            verts = np.array(mesh.GetPointsAttr().Get(), dtype=np.float64)
+            faces = np.array(mesh.GetFaceVertexIndicesAttr().Get(), dtype=np.int64).reshape(-1, 3)
+            hulls.append((verts, faces))
+    if not hulls:
+        raise RuntimeError(f"No hull* meshes in {asset_path}")
+    return hulls
 
-    A surface sample's distance outside a convex hull is bounded below by its largest facet-plane
-    distance; the minimum over hulls is its distance outside the union. Large values are the
-    valleys a fingertip can sink into.
+
+def _report_fit(points: np.ndarray, faces: np.ndarray, hulls: list[tuple[np.ndarray, np.ndarray]]) -> None:
+    """Print the two-sided fit between the source surface and the hull union.
+
+    Valleys: a source-surface sample's distance outside a convex hull is bounded below by its largest
+    facet-plane distance; the minimum over hulls is its distance outside the union.
+    Bulges: hull-surface samples that are not inside another hull lie on the union's outer surface;
+    their distance to a dense source-surface sample approximates how far the collision surface sits
+    from the real one, which catches concavities a hull fills in.
     """
     source = trimesh.Trimesh(points, faces, process=False)
+    equations = [ConvexHull(verts).equations for verts, _ in hulls]
+
     samples, _ = trimesh.sample.sample_surface(source, 20000, seed=0)
-    outside = np.full(len(samples), np.inf)
-    hull_volume = 0.0
-    for verts, _ in hulls:
-        hull = ConvexHull(verts)
-        hull_volume += hull.volume
-        plane_distance = samples @ hull.equations[:, :3].T + hull.equations[:, 3]
-        outside = np.minimum(outside, plane_distance.max(axis=1))
-    gap_mm = np.clip(outside, 0.0, None) * 1000.0
+    outside = np.min([(samples @ eq[:, :3].T + eq[:, 3]).max(axis=1) for eq in equations], axis=0)
+    valley_mm = np.clip(outside, 0.0, None) * 1000.0
+
+    boundary = []
+    for i, (verts, hull_faces) in enumerate(hulls):
+        hull_mesh = trimesh.Trimesh(verts, hull_faces, process=False)
+        hull_samples, _ = trimesh.sample.sample_surface(hull_mesh, max(500, 40000 // len(hulls)), seed=i + 1)
+        # Samples on (within 0.5 mm of) or inside another hull belong to shared or internal faces.
+        inside_other = np.zeros(len(hull_samples), dtype=bool)
+        for j, eq in enumerate(equations):
+            if j != i:
+                inside_other |= (hull_samples @ eq[:, :3].T + eq[:, 3]).max(axis=1) < 5.0e-4
+        boundary.append(hull_samples[~inside_other])
+    boundary = np.concatenate(boundary)
+    dense, dense_faces = trimesh.sample.sample_surface(source, 400000, seed=100)
+    distance, nearest = cKDTree(dense).query(boundary)
+    # Only hull surface outside the source counts as a bulge; hull faces inside it border internal voids.
+    outward = np.einsum("ij,ij->i", boundary - dense[nearest], source.face_normals[dense_faces[nearest]]) > 0.0
+    bulge_mm = np.where(outward, distance, 0.0) * 1000.0
+    resolution_mm = np.sqrt(source.area / len(dense)) * 1000.0
+
     extent_mm = (points.max(axis=0) - points.min(axis=0)) * 1000.0
+    vertex_counts = [len(verts) for verts, _ in hulls]
     print(f"Source extent [mm]: {np.array2string(extent_mm, precision=1)}")
+    print(f"Hulls: {len(hulls)}, vertices per hull: min {min(vertex_counts)}, max {max(vertex_counts)}")
     print(
-        f"Surface outside hull union [mm]: mean {gap_mm.mean():.2f}, p95 {np.percentile(gap_mm, 95):.2f}, "
-        f"max {gap_mm.max():.2f}; within 1 mm: {100.0 * (gap_mm <= 1.0).mean():.1f}%"
+        f"Valleys, source surface outside hull union [mm]: mean {valley_mm.mean():.2f}, "
+        f"p95 {np.percentile(valley_mm, 95):.2f}, max {valley_mm.max():.2f}; "
+        f"within 1 mm: {100.0 * (valley_mm <= 1.0).mean():.1f}%"
     )
-    if source.is_volume:
-        print(f"Hull volume sum / source volume: {hull_volume / source.volume:.3f} (overlaps count twice)")
+    print(
+        f"Bulges, hull union surface away from source [mm] (sampling ~{resolution_mm:.2f} mm): "
+        f"mean {bulge_mm.mean():.2f}, p95 {np.percentile(bulge_mm, 95):.2f}, max {bulge_mm.max():.2f}; "
+        f"within 1 mm: {100.0 * (bulge_mm <= 1.0).mean():.1f}%"
+    )
 
 
 def _write_decomposed_asset(
@@ -203,16 +245,23 @@ def main() -> None:
     parser.add_argument(
         "--output", type=Path, default=None, help="Defaults to <name>_coacd<N>[_sdf<R>].usda next to the source."
     )
+    parser.add_argument(
+        "--evaluate", type=Path, default=None, help="Only report the fit of this existing decomposed asset."
+    )
     args = parser.parse_args()
 
     usd_path = args.usd_path.resolve()
+    stage = Usd.Stage.Open(str(usd_path))
+    points, faces = _load_collision_mesh(stage)
+    if args.evaluate is not None:
+        _report_fit(points, faces, _load_hulls(args.evaluate.resolve()))
+        return
+
     output_path = args.output.resolve() if args.output is not None else None
     if output_path is None:
         suffix = f"_coacd{args.hulls}" + (f"_sdf{args.sdf_max_resolution}" if args.sdf_max_resolution > 0 else "")
         output_path = usd_path.with_name(f"{usd_path.stem}{suffix}{usd_path.suffix}")
 
-    stage = Usd.Stage.Open(str(usd_path))
-    points, faces = _load_collision_mesh(stage)
     mesh = coacd.Mesh(points, faces)
     # decimate=True is required for max_ch_vertex to actually cap vertex count (see module
     # docstring); without it CoACD leaves each convex piece at its full source tessellation.
