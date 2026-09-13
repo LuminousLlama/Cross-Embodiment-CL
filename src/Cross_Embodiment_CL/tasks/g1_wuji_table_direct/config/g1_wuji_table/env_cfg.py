@@ -62,15 +62,13 @@ def _mjwarp_physics_cfg(load_visual_shapes: bool) -> NewtonCfg:
         solver_cfg=MJWarpSolverCfg(
             solver="newton",
             integrator="implicitfast",
-            # Random full-range hand motion has reached 581 constraint rows.
-            # Constraints include drives and limits as well as contacts, so
-            # this budget is intentionally independent of nconmax.
-            njmax=1024,
-            # The apple's convex decomposition has 61 hulls.  A deliberately
-            # deep apple-palm overlap exceeds the 70-contact dexterous baseline
-            # before its 144 constraint rows reach njmax.  Reserve headroom for
-            # valid hand-object contacts without changing the PhysX scene.
-            nconmax=512,
+            # The R007 deterministic and random-action probes peaked at 48
+            # rows and 68 contacts per world, respectively. A 128-row budget
+            # leaves at least 1.5x headroom and ran 2048 resumed-R007 worlds
+            # without an overflow; rows include drives and limits as well as
+            # contacts, so this remains independent of nconmax.
+            njmax=128,
+            nconmax=128,
             iterations=100,
             ls_iterations=50,
             tolerance=1e-6,

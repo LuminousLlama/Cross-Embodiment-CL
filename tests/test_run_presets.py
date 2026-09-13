@@ -37,6 +37,8 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=overrides)
 
     assert isinstance(env_cfg.sim.physics, NewtonCfg)
+    assert env_cfg.sim.physics.solver_cfg.nconmax == 128
+    assert env_cfg.sim.physics.solver_cfg.njmax == 128
     assert env_cfg.sim.physics.load_visual_shapes is visual_shapes
     assert env_cfg.scene.num_envs == num_envs
     assert env_cfg.scene.env_spacing == 3.0
