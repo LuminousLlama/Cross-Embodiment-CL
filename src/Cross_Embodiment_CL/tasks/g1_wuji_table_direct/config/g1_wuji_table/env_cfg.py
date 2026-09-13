@@ -233,6 +233,24 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Maximum Wuji finger joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
     goal_position = (0.35, -0.05, 0.24)
     """Fixed apple goal position [m] in the environment frame."""
+    adr_enabled: bool = False
+    """Whether the success-gated adaptive domain-randomization schedule (see :mod:`.adr`) is active."""
+    adr_max_level: int = 50
+    """Number of levels :class:`.adr.AdaptiveDomainRandomization` can advance through."""
+    adr_success_threshold: float = 0.40
+    """Rollout success rate above which the schedule advances one level."""
+    adr_initial_level: int = 0
+    """DR level at the start of training."""
+    adr_update_every_steps: int = 32
+    """Env steps between schedule updates; PPO runs 32 steps per rollout."""
+    adr_spawn_box_x: float = 0.11
+    """Full-strength apple spawn-box size along x [m]; the authored apple pose is the box's far corner."""
+    adr_spawn_box_y: float = 0.20
+    """Full-strength apple spawn-box size along y [m]; the authored apple pose is the box's far corner."""
+    adr_goal_alpha_end: float = 30.0
+    """Goal-reward keypoint-error sharpness once the DR schedule reaches full strength."""
+    adr_debug_spawn_area_vis: bool = False
+    """Whether to draw the full-strength apple spawn box as a translucent visual-only square."""
     debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
     """Diagnostics, e.g. ``env.debug.keypoint_markers=False``; headless ``train`` and ``eval`` turn them off."""
     contact_debug: bool = False

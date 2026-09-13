@@ -23,6 +23,7 @@ from isaaclab.utils.math import matrix_from_quat, quat_apply, quat_inv, quat_mul
 
 from Cross_Embodiment_CL.models import WujiLatentActionPipeline
 
+from .adr import AdaptiveDomainRandomization
 from .depth_camera import normalize_depth
 from .env_cfg import G1WujiTableEnvCfg
 
@@ -39,6 +40,19 @@ def contact_term(forces: torch.Tensor, mode: str, threshold: float, reference: f
     if mode == "binary":
         return (forces > threshold).float().mean(dim=1)
     raise ValueError(f"Unknown contact_reward_mode '{mode}'; expected 'force' or 'binary'.")
+
+
+def sample_spawn_offsets(
+    n: int, strength: float, box_x: float, box_y: float, device: torch.device | str = "cpu"
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sample per-env apple spawn offsets [m] from the ADR box's far corner toward its near corner.
+
+    ``dx`` and ``dy`` are independent ``U(-box_x * strength, 0)`` / ``U(-box_y * strength, 0)`` draws, so
+    ``strength=0`` returns zeros and the authored apple pose stays the box's far corner.
+    """
+    dx = -torch.rand(n, device=device) * box_x * strength
+    dy = -torch.rand(n, device=device) * box_y * strength
+    return dx, dy
 
 
 class G1WujiTableEnv(DirectRLEnv):
@@ -150,6 +164,15 @@ class G1WujiTableEnv(DirectRLEnv):
         self.object_start_position = torch.tensor(self.cfg.apple_cfg.init_state.pos, device=self.device).repeat(
             self.num_envs, 1
         )
+        self.adr: AdaptiveDomainRandomization | None = None
+        if self.cfg.adr_enabled:
+            self.adr = AdaptiveDomainRandomization(
+                max_level=self.cfg.adr_max_level,
+                success_threshold=self.cfg.adr_success_threshold,
+                level=self.cfg.adr_initial_level,
+            )
+            self._adr_successful_episodes = 0
+            self._adr_completed_episodes = 0
         self._gravity_frac = 1.0
         self._last_applied_gravity_frac: float | None = None
         self._apply_gravity_curriculum(force=True)
@@ -178,6 +201,20 @@ class G1WujiTableEnv(DirectRLEnv):
         self.torso_contact_sensor = ContactSensor(self.cfg.torso_contact_sensor_cfg)
         # The student's head depth camera exists only when a preset configures one (presets=distill).
         self.depth_camera = Camera(self.cfg.depth_camera) if self.cfg.depth_camera is not None else None
+
+        if self.cfg.adr_debug_spawn_area_vis:
+            # Visual-only (no collision, rigid body, or mass) square over the full-strength ADR spawn box,
+            # cloned per env below with the rest of "/World/envs/env_0".
+            box_x, box_y = self.cfg.adr_spawn_box_x, self.cfg.adr_spawn_box_y
+            debug_spawn_area_cfg = sim_utils.CuboidCfg(
+                size=(box_x, box_y, 0.001),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.6, 1.0), opacity=0.3),
+            )
+            debug_spawn_area_cfg.func(
+                "/World/envs/env_0/AdrSpawnArea",
+                debug_spawn_area_cfg,
+                translation=(0.35 - box_x / 2, -0.05 - box_y / 2, 0.0005),
+            )
 
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -1.0))
         source, destination = "/World/envs/env_0", "/World/envs/env_{}"
@@ -243,11 +280,15 @@ class G1WujiTableEnv(DirectRLEnv):
         The update is sent only when the fraction changes by at least 0.005, avoiding a model-property
         notification every policy step while keeping the 600-iteration ramp smooth.  Isaac Lab's current
         Newton, OvPhysX, and Isaac Sim PhysX managers expose different runtime gravity APIs, so this selects
-        their capability rather than changing task dynamics by backend name.
+        their capability rather than changing task dynamics by backend name.  When :attr:`G1WujiTableEnvCfg.
+        adr_enabled` is set, the ADR schedule's strength replaces the step-based ramp.
         """
-        start = self.cfg.gravity_curriculum_start
-        ramp = min(1.0, self.common_step_counter / self.cfg.gravity_curriculum_steps)
-        self._gravity_frac = start + (1.0 - start) * ramp
+        if self.cfg.adr_enabled:
+            self._gravity_frac = self.adr.strength
+        else:
+            start = self.cfg.gravity_curriculum_start
+            ramp = min(1.0, self.common_step_counter / self.cfg.gravity_curriculum_steps)
+            self._gravity_frac = start + (1.0 - start) * ramp
         if (
             not force
             and self._last_applied_gravity_frac is not None
@@ -498,9 +539,15 @@ class G1WujiTableEnv(DirectRLEnv):
             # nearest hand point 1.8 cm clear of the apple and touched in ~1% of steps.  Gated,
             # experimenting with contact costs nothing and the lift only competes once the apple
             # is held.  The gate itself had to be repaired first -- see contact_force_threshold.
-            goal_reward = (
-                self.cfg.goal_reward_scale * torch.exp(-self.cfg.goal_reward_alpha * keypoint_error) * contact_gate
-            )
+            # adr_enabled ramps the sharpness with DR strength instead of the fixed constant.
+            goal_alpha = self.cfg.goal_reward_alpha
+            goal_alpha_step = 0.0
+            if self.cfg.adr_enabled:
+                goal_alpha = self.cfg.goal_reward_alpha + (
+                    self.cfg.adr_goal_alpha_end - self.cfg.goal_reward_alpha
+                ) * self.adr.strength
+                goal_alpha_step = goal_alpha
+            goal_reward = self.cfg.goal_reward_scale * torch.exp(-goal_alpha * keypoint_error) * contact_gate
             # Graded in force rather than gated.  Paying contact_reward_scale * contact_gate is
             # zero until two fingers already touch, so it supplies no gradient toward touching
             # at all; this term rises with any contact and bridges reach -> grasp.  tanh bounds
@@ -520,7 +567,6 @@ class G1WujiTableEnv(DirectRLEnv):
                 )
                 * held
             )
-            goal_alpha_step = 0.0
             reward = reach_reward + goal_reward + contact_reward + lift_reward
         elif self.cfg.reward_mode == "adept":
             # Grasp gate: the thumb and at least one other finger (never the palm) each past
@@ -580,6 +626,10 @@ class G1WujiTableEnv(DirectRLEnv):
             nearest_hand_dist,
             goal_alpha_step,
         )
+        if self.cfg.adr_enabled and self.common_step_counter % self.cfg.adr_update_every_steps == 0:
+            self.adr.update(self._adr_successful_episodes, self._adr_completed_episodes)
+            self._adr_successful_episodes = 0
+            self._adr_completed_episodes = 0
         self._update_keypoint_markers(current_keypoints=current_keypoints, goal_keypoints=goal_keypoints)
         return reward
 
@@ -829,6 +879,9 @@ class G1WujiTableEnv(DirectRLEnv):
             "Curriculum/gravity_frac_step": self._gravity_frac,
             "Curriculum/goal_alpha_step": goal_alpha_step,
         }
+        if self.cfg.adr_enabled:
+            log["Curriculum/adr_level"] = float(self.adr.level)
+            log["Curriculum/adr_success_rate"] = self.adr.last_success_rate
         log.update(
             {
                 f"Contact/touch_frac_{name}_step": (contact_force_stack[:, index] > 0.0).float().mean()
@@ -865,11 +918,13 @@ class G1WujiTableEnv(DirectRLEnv):
                     for name, values in self._episode_reward_sums.items()
                 }
             )
+            episode_success = keypoint_error[reset_ids] < self.cfg.success_keypoint_error_threshold
+            if self.cfg.adr_enabled:
+                self._adr_successful_episodes += int(episode_success.sum().item())
+                self._adr_completed_episodes += len(reset_ids)
             log.update(
                 {
-                    "Task/success": (
-                        keypoint_error[reset_ids] < self.cfg.success_keypoint_error_threshold
-                    ).float().mean(),
+                    "Task/success": episode_success.float().mean(),
                     "Task/keypoint_error_ep_final": keypoint_error[reset_ids].mean(),
                     "Task/position_error_ep_final": position_error[reset_ids].mean(),
                     "Task/rotation_error_ep_final": rotation_error[reset_ids].mean(),
@@ -995,7 +1050,8 @@ class G1WujiTableEnv(DirectRLEnv):
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int]) -> None:
-        """Restore the authored robot, table, and apple poses without randomization."""
+        """Restore the authored robot, table, and apple poses; ``adr_enabled`` also samples the apple's
+        spawn xy within the current-strength ADR box and moves that env's goal xy to match."""
         super()._reset_idx(env_ids)
 
         robot_pose = self.robot.data.default_root_pose.torch[env_ids].clone()
@@ -1043,6 +1099,20 @@ class G1WujiTableEnv(DirectRLEnv):
             root_velocity=self.table.data.default_root_vel.torch[env_ids], env_ids=env_ids
         )
         apple_pose = self.apple.data.default_root_pose.torch[env_ids].clone()
+        if self.cfg.adr_enabled:
+            # Per-env apple spawn offset from the ADR box's far corner, at the current DR strength; the
+            # goal xy tracks the same spawn xy, so the object always starts directly under its goal.
+            dx, dy = sample_spawn_offsets(
+                len(env_ids),
+                self.adr.strength,
+                self.cfg.adr_spawn_box_x,
+                self.cfg.adr_spawn_box_y,
+                device=self.device,
+            )
+            apple_pose[:, 0] += dx
+            apple_pose[:, 1] += dy
+            self.object_start_position[env_ids, :2] = apple_pose[:, :2]
+            self.goal_position[env_ids, :2] = apple_pose[:, :2]
         apple_pose[:, :3] += self.scene.env_origins[env_ids]
         self.apple.write_root_pose_to_sim_index(root_pose=apple_pose, env_ids=env_ids)
         self.apple.write_root_velocity_to_sim_index(
