@@ -328,7 +328,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     table: measured, that pinned the apple 1.5 cm *below* its rest height at ~50 N while
     ``tanh`` saturated.  Height cannot be farmed that way and is the behaviour actually wanted.
     """
-    apple_weight_curriculum_start: float = 0.5
+    apple_weight_curriculum_start: float = 1.0
     """Fraction of the apple's true weight it feels at the start of training.
 
     An upward force makes up the rest of its weight.  1.0 disables the curriculum: no wrench
@@ -342,6 +342,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     PPO runs 32 steps per iteration, so 19 200 steps is iteration 600: full weight well inside
     the 2000-iteration training budget (run R007).
     """
+    gravity_curriculum_start: float = 0.0
+    """Fraction of configured scene gravity at the start of training; 1.0 disables the curriculum."""
+    gravity_curriculum_steps: int = 19_200
+    """Env steps for whole-scene gravity to ramp from :attr:`gravity_curriculum_start` to full gravity."""
     press_tolerance = 0.005
     """Depth [m] below rest height past which the apple counts as pressed, not held."""
     contact_force_threshold = 0.1

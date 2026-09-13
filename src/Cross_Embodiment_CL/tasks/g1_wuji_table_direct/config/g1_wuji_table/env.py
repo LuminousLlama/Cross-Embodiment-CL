@@ -112,6 +112,10 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError("wuji_action_ema_alpha must be in (0, 1].")
         if self.cfg.arm_joint_velocity_limit <= 0.0 or self.cfg.hand_joint_velocity_limit <= 0.0:
             raise ValueError("arm_joint_velocity_limit and hand_joint_velocity_limit must be positive.")
+        if not 0.0 <= self.cfg.gravity_curriculum_start <= 1.0:
+            raise ValueError("gravity_curriculum_start must be in [0, 1].")
+        if self.cfg.gravity_curriculum_steps <= 0:
+            raise ValueError("gravity_curriculum_steps must be positive.")
         if self.cfg.contact_debug_interval <= 0:
             raise ValueError("contact_debug_interval must be positive.")
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
@@ -130,6 +134,9 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         # Read once: the apple's true mass, used to size the weight-curriculum assist force.
         self._apple_mass = self.apple.data.body_mass.torch.clone()
+        self._gravity_frac = 1.0
+        self._last_applied_gravity_frac: float | None = None
+        self._apply_gravity_curriculum(force=True)
         self.table_top_height = self.cfg.table_cfg.init_state.pos[2] + 0.5 * self.cfg.table_cfg.spawn.size[2]
         self.local_cube_keypoints = self._make_cube_keypoints(self.cfg.keypoint_extent)
         self._init_episode_metrics()
@@ -211,6 +218,43 @@ class G1WujiTableEnv(DirectRLEnv):
         # The anti-windup clamp follows the measured position, which contact can push backwards; never command that.
         self.wuji_joint_targets.clamp_(min=wuji_command_lower)
         self._apply_apple_weight_curriculum()
+        self._apply_gravity_curriculum()
+
+    def _apply_gravity_curriculum(self, force: bool = False) -> None:
+        """Ramp the whole scene's configured gravity from ``gravity_curriculum_start`` to full strength.
+
+        The update is sent only when the fraction changes by at least 0.005, avoiding a model-property
+        notification every policy step while keeping the 600-iteration ramp smooth.  Isaac Lab's current
+        Newton, OvPhysX, and Isaac Sim PhysX managers expose different runtime gravity APIs, so this selects
+        their capability rather than changing task dynamics by backend name.
+        """
+        start = self.cfg.gravity_curriculum_start
+        ramp = min(1.0, self.common_step_counter / self.cfg.gravity_curriculum_steps)
+        self._gravity_frac = start + (1.0 - start) * ramp
+        if (
+            not force
+            and self._last_applied_gravity_frac is not None
+            and abs(self._gravity_frac - self._last_applied_gravity_frac) < 0.005
+        ):
+            return
+
+        gravity = (0.0, 0.0, self.cfg.sim.gravity[2] * self._gravity_frac)
+        physics_manager = self.sim.physics_manager
+        if hasattr(physics_manager, "get_model"):
+            from newton import ModelFlags
+
+            model = physics_manager.get_model()
+            if model is None:
+                raise RuntimeError("Newton model is not initialized; cannot apply the gravity curriculum.")
+            model.set_gravity(gravity)
+            physics_manager.add_model_change(ModelFlags.MODEL_PROPERTIES)
+        elif hasattr(physics_manager, "set_gravity"):
+            physics_manager.set_gravity(gravity)
+        else:
+            import carb
+
+            sim_utils.SimulationContext.instance().physics_sim_view.set_gravity(carb.Float3(*gravity))
+        self._last_applied_gravity_frac = self._gravity_frac
 
     def _apply_apple_weight_curriculum(self) -> None:
         """Feed the apple a ramping fraction of its true weight via a world-frame upward assist force.
@@ -725,6 +769,7 @@ class G1WujiTableEnv(DirectRLEnv):
             "Control/arm_tracking_error_step": arm_tracking_error.mean(),
             "Control/wuji_tracking_error_step": wuji_tracking_error.mean(),
             "Curriculum/apple_weight_frac_step": self._apple_weight_frac,
+            "Curriculum/gravity_frac_step": self._gravity_frac,
             "Curriculum/goal_alpha_step": goal_alpha_step,
         }
         log.update(
