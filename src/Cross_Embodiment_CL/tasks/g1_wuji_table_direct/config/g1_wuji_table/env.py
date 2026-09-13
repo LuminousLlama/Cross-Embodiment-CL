@@ -16,6 +16,8 @@ import isaaclab.sim as sim_utils
 from isaaclab import cloner
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.envs import DirectRLEnv
+from isaaclab.envs.mdp.events import randomize_rigid_body_mass, randomize_rigid_body_material
+from isaaclab.managers import EventTermCfg, SceneEntityCfg
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.sensors import Camera, ContactSensor
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
@@ -53,6 +55,53 @@ def sample_spawn_offsets(
     dx = -torch.rand(n, device=device) * box_x * strength
     dy = -torch.rand(n, device=device) * box_y * strength
     return dx, dy
+
+
+def scaled_uniform(
+    size: int | tuple[int, ...],
+    half_width: float,
+    strength: float,
+    device: torch.device | str = "cpu",
+) -> torch.Tensor:
+    """Sample ``U(-half_width * strength, half_width * strength)``; ``strength=0`` returns zeros."""
+    width = half_width * strength
+    return (torch.rand(size, device=device) * 2.0 - 1.0) * width
+
+
+def sample_latency_steps(
+    n: int, max_steps: int, strength: float, device: torch.device | str = "cpu"
+) -> torch.Tensor:
+    """Sample per-env action-delay steps [policy steps].
+
+    ``floor(U(0, max_steps * strength + 1))``, clamped to ``[0, round(max_steps * strength)]``, so
+    ``strength=0`` always returns zero delay and ``strength=1`` returns delays up to ``max_steps``.
+    """
+    cap = round(max_steps * strength)
+    delay = torch.floor(torch.rand(n, device=device) * (max_steps * strength + 1.0))
+    return delay.clamp_(0, cap).long()
+
+
+class ActionDelayBuffer:
+    """Ring buffer of the last ``capacity`` per-env actions, returning the action from ``delay`` steps ago."""
+
+    def __init__(self, capacity: int, num_envs: int, action_dim: int, device: torch.device | str) -> None:
+        self.capacity = capacity
+        self._buffer = torch.zeros((capacity, num_envs, action_dim), device=device)
+        self._step = 0
+
+    def push(self, actions: torch.Tensor) -> None:
+        """Record this step's actions and advance the ring pointer."""
+        self._buffer[self._step % self.capacity] = actions
+        self._step += 1
+
+    def get(self, delay: torch.Tensor) -> torch.Tensor:
+        """Return each env's action from ``delay`` steps ago; ``delay=0`` is the most recent push."""
+        row = (self._step - 1 - delay) % self.capacity
+        return self._buffer[row, torch.arange(self._buffer.shape[1], device=self._buffer.device)]
+
+    def reset(self, env_ids: torch.Tensor) -> None:
+        """Zero-fill the given envs' history, e.g. on episode reset."""
+        self._buffer[:, env_ids] = 0.0
 
 
 class G1WujiTableEnv(DirectRLEnv):
@@ -176,6 +225,30 @@ class G1WujiTableEnv(DirectRLEnv):
         self._gravity_frac = 1.0
         self._last_applied_gravity_frac: float | None = None
         self._apply_gravity_curriculum(force=True)
+        self._adr_extra_active = bool(self.cfg.adr_enabled and self.cfg.adr_extra_enabled)
+        if self._adr_extra_active:
+            num_joints = self.robot.data.joint_pos.torch.shape[-1]
+            self._adr_joint_pos_obs_bias = torch.zeros((self.num_envs, num_joints), device=self.device)
+            self._adr_joint_vel_obs_bias = torch.zeros_like(self._adr_joint_pos_obs_bias)
+            self._adr_object_pos_obs_bias = torch.zeros((self.num_envs, 3), device=self.device)
+            self._adr_hand_target_scale = torch.ones(self.num_envs, device=self.device)
+            self._adr_action_delay_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+            self._adr_action_buffer = ActionDelayBuffer(
+                capacity=self.cfg.adr_action_latency_max_steps + 1,
+                num_envs=self.num_envs,
+                action_dim=self.cfg.action_space,
+                device=self.device,
+            )
+            self._adr_friction_terms = self._make_adr_friction_terms()
+            self._adr_mass_asset_cfg = SceneEntityCfg("apple")
+            self._adr_mass_term = randomize_rigid_body_mass(
+                EventTermCfg(
+                    func=randomize_rigid_body_mass,
+                    mode="reset",
+                    params={"asset_cfg": self._adr_mass_asset_cfg, "operation": "scale"},
+                ),
+                self,
+            )
         self.table_top_height = self.cfg.table_cfg.init_state.pos[2] + 0.5 * self.cfg.table_cfg.spawn.size[2]
         self.local_cube_keypoints = self._make_cube_keypoints(self.cfg.keypoint_extent)
         self._init_episode_metrics()
@@ -234,15 +307,69 @@ class G1WujiTableEnv(DirectRLEnv):
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
 
+    def _make_adr_friction_terms(self) -> dict[str, tuple[randomize_rigid_body_material, float]]:
+        """Instantiate one ``randomize_rigid_body_material`` term per friction-randomized asset.
+
+        Newton-only, like :meth:`_init_penetration_probe`: on any other backend this returns an
+        empty dict and friction stays unrandomized. The Newton implementation caches its friction
+        range at construction and ignores the range passed to its ``__call__``, so
+        :meth:`_apply_adr_friction` writes its shape ``mu`` binding directly instead of calling it.
+        """
+        if "newton" not in self.sim.physics_manager.__name__.lower():
+            return {}
+        hand_asset_cfg = SceneEntityCfg("robot", body_names=["right_palm_link", "right_finger.*"])
+        hand_asset_cfg.resolve(self.scene)
+        terms: dict[str, tuple[randomize_rigid_body_material, float]] = {}
+        asset_cfgs = (("apple", SceneEntityCfg("apple")), ("table", SceneEntityCfg("table")), ("hand", hand_asset_cfg))
+        for name, asset_cfg in asset_cfgs:
+            term_cfg = EventTermCfg(func=randomize_rigid_body_material, mode="reset", params={"asset_cfg": asset_cfg})
+            term = randomize_rigid_body_material(term_cfg, self)
+            nominal = float(wp.to_torch(term._impl._friction_binding)[0, term._impl._shape_indices[0]].item())
+            terms[name] = (term, nominal)
+        return terms
+
+    def _apply_adr_friction(self, env_ids: torch.Tensor, strength: float) -> None:
+        """Blend each Newton-backed asset's shape friction from nominal toward a sampled value.
+
+        ``mu = nominal + strength * (U(adr_friction_range) - nominal)``; static equals dynamic, since
+        Newton's ``shape_material_mu`` is a single coefficient.
+        """
+        low, high = self.cfg.adr_friction_range
+        for term, nominal in self._adr_friction_terms.values():
+            impl = term._impl
+            friction_view = wp.to_torch(impl._friction_binding)
+            shape_idx = impl._shape_indices.to(self.device)
+            sample = torch.rand(len(env_ids), len(shape_idx), device=self.device) * (high - low) + low
+            friction_view[env_ids[:, None], shape_idx] = nominal + strength * (sample - nominal)
+            impl._newton_manager.add_model_change(impl._notify_shape_properties)
+
+    def _apply_adr_mass(self, env_ids: torch.Tensor, strength: float) -> None:
+        """Scale the apple's mass relative to its default mass, ``U(1 - m*strength, 1 + m*strength)``."""
+        half_width = self.cfg.adr_object_mass_scale * strength
+        self._adr_mass_term(
+            self,
+            env_ids,
+            asset_cfg=self._adr_mass_asset_cfg,
+            mass_distribution_params=(1.0 - half_width, 1.0 + half_width),
+            operation="scale",
+            recompute_inertia=True,
+        )
+
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Map normalized arm positions and Wuji latent actions onto speed-capped physical joint targets."""
         self.actions[:] = torch.clamp(actions, -1.0, 1.0)
+        applied_actions = self.actions
+        if self._adr_extra_active:
+            # The delayed action feeds the joint-target computation below; other uses of
+            # self.actions (e.g. the saturation-fraction log) keep reading the undelayed action.
+            self._adr_action_buffer.push(self.actions)
+            applied_actions = self._adr_action_buffer.get(self._adr_action_delay_steps)
         self._arm_joint_targets_start.copy_(self.arm_joint_targets)
         self._wuji_joint_targets_start.copy_(self.wuji_joint_targets)
         self._action_substep = 0
         arm_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.arm_joint_ids]
         arm_lower, arm_upper = arm_limits[..., 0], arm_limits[..., 1]
-        arm_actions = self.actions[:, : len(self.arm_joint_ids)]
+        arm_actions = applied_actions[:, : len(self.arm_joint_ids)]
         arm_targets = unscale_transform(arm_actions, arm_lower, arm_upper)
         self._arm_anti_windup_active.copy_(
             self._advance_joint_targets(
@@ -256,9 +383,20 @@ class G1WujiTableEnv(DirectRLEnv):
 
         wuji_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.wuji_joint_ids]
         wuji_command_lower = self._wuji_command_lower_limits(wuji_limits)
-        wuji_targets = self.wuji_action_pipeline.latent_action_to_joint_target(
-            self.actions[:, len(self.arm_joint_ids) :], wuji_command_lower, wuji_limits[..., 1]
-        )
+        wuji_latent_action = applied_actions[:, len(self.arm_joint_ids) :]
+        if self._adr_extra_active:
+            # Apply the per-env hand-target scale to the decoded target before the joint-limit clamp
+            # that latent_action_to_joint_target would otherwise apply first.
+            raw_wuji_targets = self.wuji_action_pipeline.retarget_mano_pose(
+                self.wuji_action_pipeline.decode_latent_action(wuji_latent_action)
+            )
+            wuji_targets = torch.clamp(
+                raw_wuji_targets * self._adr_hand_target_scale.unsqueeze(-1), wuji_command_lower, wuji_limits[..., 1]
+            )
+        else:
+            wuji_targets = self.wuji_action_pipeline.latent_action_to_joint_target(
+                wuji_latent_action, wuji_command_lower, wuji_limits[..., 1]
+            )
         self._advance_joint_targets(
             self.wuji_joint_targets,
             wuji_targets,
@@ -428,12 +566,25 @@ class G1WujiTableEnv(DirectRLEnv):
         """
         joint_limits = self.robot.data.soft_joint_pos_limits.torch
         joint_position = self.robot.data.joint_pos.torch
+        joint_velocity_raw = self.robot.data.joint_vel.torch
+        if self._adr_extra_active:
+            strength = self.adr.strength
+            joint_position = (
+                joint_position
+                + self._adr_joint_pos_obs_bias
+                + torch.randn_like(joint_position) * (self.cfg.adr_joint_pos_obs_noise * strength)
+            )
+            joint_velocity_raw = (
+                joint_velocity_raw
+                + self._adr_joint_vel_obs_bias
+                + torch.randn_like(joint_velocity_raw) * (self.cfg.adr_joint_vel_obs_noise * strength)
+            )
         # Arm and hand speeds are scaled by the task caps rather than the looser solver limits.
         joint_velocity_limits = self.robot.data.soft_joint_vel_limits.torch.clone()
         joint_velocity_limits[:, self.arm_joint_ids] = self.cfg.arm_joint_velocity_limit
         joint_velocity_limits[:, self.wuji_joint_ids] = self.cfg.hand_joint_velocity_limit
         joint_velocity_limits.clamp_min_(1.0e-6)
-        joint_velocity = torch.clamp(self.robot.data.joint_vel.torch / joint_velocity_limits, -1.0, 1.0)
+        joint_velocity = torch.clamp(joint_velocity_raw / joint_velocity_limits, -1.0, 1.0)
 
         arm_limits = joint_limits[:, self.arm_joint_ids]
         wuji_limits = joint_limits[:, self.wuji_joint_ids]
@@ -448,6 +599,13 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
         object_position = self.apple.data.root_pos_w.torch
+        if self._adr_extra_active:
+            # Observation-only noise: reward and success computations use the true apple position.
+            object_position = (
+                object_position
+                + self._adr_object_pos_obs_bias
+                + torch.randn_like(object_position) * (self.cfg.adr_object_pos_obs_noise * self.adr.strength)
+            )
         object_rotation = self.apple.data.root_quat_w.torch
         object_position_relative_to_base = object_position - self.robot.data.root_pos_w.torch
         object_rotation_6d = matrix_from_quat(object_rotation)[..., :, :2].reshape(self.num_envs, -1)
@@ -883,6 +1041,7 @@ class G1WujiTableEnv(DirectRLEnv):
         if self.cfg.adr_enabled:
             log["Curriculum/adr_level"] = float(self.adr.level)
             log["Curriculum/adr_success_rate"] = self.adr.last_success_rate
+            log["Curriculum/adr_extra_active"] = float(self.cfg.adr_extra_enabled)
         log.update(
             {
                 f"Contact/touch_frac_{name}_step": (contact_force_stack[:, index] > 0.0).float().mean()
@@ -1119,4 +1278,25 @@ class G1WujiTableEnv(DirectRLEnv):
         self.apple.write_root_velocity_to_sim_index(
             root_velocity=self.apple.data.default_root_vel.torch[env_ids], env_ids=env_ids
         )
+        if self._adr_extra_active:
+            strength = self.adr.strength
+            num_dof = self._adr_joint_pos_obs_bias.shape[-1]
+            self._adr_joint_pos_obs_bias[env_ids] = scaled_uniform(
+                (len(env_ids), num_dof), self.cfg.adr_joint_pos_obs_bias, strength, device=self.device
+            )
+            self._adr_joint_vel_obs_bias[env_ids] = scaled_uniform(
+                (len(env_ids), num_dof), self.cfg.adr_joint_vel_obs_bias, strength, device=self.device
+            )
+            self._adr_object_pos_obs_bias[env_ids] = scaled_uniform(
+                (len(env_ids), 3), self.cfg.adr_object_pos_obs_bias, strength, device=self.device
+            )
+            self._adr_hand_target_scale[env_ids] = 1.0 + scaled_uniform(
+                len(env_ids), self.cfg.adr_hand_target_scale, strength, device=self.device
+            )
+            self._adr_action_delay_steps[env_ids] = sample_latency_steps(
+                len(env_ids), self.cfg.adr_action_latency_max_steps, strength, device=self.device
+            )
+            self._adr_action_buffer.reset(env_ids)
+            self._apply_adr_friction(env_ids, strength)
+            self._apply_adr_mass(env_ids, strength)
         self._update_keypoint_markers()

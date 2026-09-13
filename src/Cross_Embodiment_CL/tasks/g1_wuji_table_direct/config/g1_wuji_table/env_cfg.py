@@ -259,6 +259,32 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Goal-reward keypoint-error sharpness once the DR schedule reaches full strength."""
     adr_debug_spawn_area_vis: bool = False
     """Whether to draw the full-strength apple spawn box as a translucent visual-only square."""
+    adr_extra_enabled: bool = False
+    """Whether the extra ADR-scaled observation-noise, action-latency, hand-target-scale, friction, and
+    mass terms in :class:`.env.G1WujiTableEnv` are active. Has no effect unless ``adr_enabled`` is also set."""
+    adr_joint_pos_obs_bias: float = 0.01
+    """Per-episode joint-position observation bias half-width [rad]: ``U(-b*s, b*s)``, resampled at reset."""
+    adr_joint_pos_obs_noise: float = 0.003
+    """Per-step joint-position observation noise standard deviation [rad]: ``N(0, sigma*s)``."""
+    adr_joint_vel_obs_bias: float = 0.02
+    """Per-episode joint-velocity bias half-width [rad/s], applied to the raw velocity before its
+    existing velocity-limit normalization."""
+    adr_joint_vel_obs_noise: float = 0.03
+    """Per-step joint-velocity noise standard deviation [rad/s], applied like :attr:`adr_joint_vel_obs_bias`."""
+    adr_object_pos_obs_bias: float = 0.01
+    """Per-episode apple-position observation bias half-width [m]; reward and success keep the true position."""
+    adr_object_pos_obs_noise: float = 0.005
+    """Per-step apple-position observation noise standard deviation [m], applied like
+    :attr:`adr_object_pos_obs_bias`."""
+    adr_action_latency_max_steps: int = 3
+    """Full-strength maximum per-env action delay [policy steps] applied to the raw arm/hand action."""
+    adr_hand_target_scale: float = 0.10
+    """Full-strength half-width of the per-env multiplicative Wuji hand-target scale, ``U(1-a*s, 1+a*s)``."""
+    adr_friction_range: tuple[float, float] = (0.2, 0.8)
+    """Full-strength friction range for the apple, table, and Wuji hand links; blended from nominal by ``s``."""
+    adr_object_mass_scale: float = 0.20
+    """Full-strength half-width of the apple's per-env mass scale relative to its default mass,
+    ``U(1-m*s, 1+m*s)``."""
     debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
     """Diagnostics, e.g. ``env.debug.keypoint_markers=False``; headless ``train`` and ``eval`` turn them off."""
     contact_debug: bool = False
