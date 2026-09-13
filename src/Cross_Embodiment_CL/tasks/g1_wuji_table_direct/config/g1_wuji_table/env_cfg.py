@@ -351,6 +351,15 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """
     contact_reward_scale = 0.5
     """Per-step scale of the dense grasp reward, the stepping stone between reach and lift."""
+    contact_reward_mode: str = "force"
+    """Grading of the shaped mode's dense contact term (see :func:`env.contact_term`).
+
+    ``"force"`` (default) is today's ``tanh(contact_force_stack / contact_force_reference)``
+    grading, so squeezing harder pays more until it saturates. ``"binary"`` is a per-group contact
+    indicator, ``contact_force_stack > contact_force_threshold``, averaged over groups, so the
+    policy is paid for how many groups touch the apple, never for how hard it squeezes. The
+    goal-reward contact gate is unaffected either way. Any other value raises ``ValueError``.
+    """
     contact_force_reference = 0.2
     """Force [N] at which one group's dense contact term reaches tanh(1) ~ 0.76.
 

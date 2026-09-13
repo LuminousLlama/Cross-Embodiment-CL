@@ -27,6 +27,20 @@ from .depth_camera import normalize_depth
 from .env_cfg import G1WujiTableEnvCfg
 
 
+def contact_term(forces: torch.Tensor, mode: str, threshold: float, reference: float) -> torch.Tensor:
+    """Per-group dense contact term for the shaped reward, averaged over the group dimension.
+
+    ``mode="force"`` grades by force, ``tanh(forces / reference)``, so squeezing harder pays more
+    until it saturates.  ``mode="binary"`` is a per-group contact indicator, ``forces >
+    threshold``, so the policy is paid for how many groups touch, never for how hard it squeezes.
+    """
+    if mode == "force":
+        return torch.tanh(forces / reference).mean(dim=1)
+    if mode == "binary":
+        return (forces > threshold).float().mean(dim=1)
+    raise ValueError(f"Unknown contact_reward_mode '{mode}'; expected 'force' or 'binary'.")
+
+
 class G1WujiTableEnv(DirectRLEnv):
     """G1-Wuji scene with normalized arm and latent-hand position actions."""
 
@@ -118,6 +132,10 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError("gravity_curriculum_steps must be positive.")
         if self.cfg.contact_debug_interval <= 0:
             raise ValueError("contact_debug_interval must be positive.")
+        if self.cfg.contact_reward_mode not in ("force", "binary"):
+            raise ValueError(
+                f"contact_reward_mode must be 'force' or 'binary', got '{self.cfg.contact_reward_mode}'."
+            )
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
         self.arm_joint_targets = torch.zeros((self.num_envs, len(self.arm_joint_ids)), device=self.device)
         self.wuji_joint_targets = torch.zeros((self.num_envs, len(self.wuji_joint_ids)), device=self.device)
@@ -494,7 +512,12 @@ class G1WujiTableEnv(DirectRLEnv):
             held = object_position[:, 2] > rest_height - self.cfg.press_tolerance
             contact_reward = (
                 self.cfg.contact_reward_scale
-                * torch.tanh(contact_force_stack / self.cfg.contact_force_reference).mean(dim=1)
+                * contact_term(
+                    contact_force_stack,
+                    self.cfg.contact_reward_mode,
+                    self.cfg.contact_force_threshold,
+                    self.cfg.contact_force_reference,
+                )
                 * held
             )
             goal_alpha_step = 0.0
