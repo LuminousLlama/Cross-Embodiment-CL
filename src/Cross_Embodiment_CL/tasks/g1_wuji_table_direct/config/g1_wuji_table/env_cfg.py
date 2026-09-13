@@ -255,6 +255,9 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Full-strength apple spawn-box size along x [m]; the authored apple pose is the box's far corner."""
     adr_spawn_box_y: float = 0.20
     """Full-strength apple spawn-box size along y [m]; the authored apple pose is the box's far corner."""
+    adr_nominal_spawn_prob: float = 0.0
+    """When ADR is enabled, each reset env independently keeps the exact authored apple pose (zero spawn
+    offset) with this probability, so the box corner stays in the training distribution."""
     adr_goal_alpha_end: float = 30.0
     """Goal-reward keypoint-error sharpness once the DR schedule reaches full strength."""
     adr_debug_spawn_area_vis: bool = False

@@ -57,6 +57,20 @@ def sample_spawn_offsets(
     return dx, dy
 
 
+def apply_nominal_spawn_mask(
+    dx: torch.Tensor, dy: torch.Tensor, prob: float, generator: torch.Generator | None = None
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Zero ``dx``/``dy`` for envs that keep the exact authored apple pose (zero spawn offset).
+
+    Each entry independently keeps the authored pose with probability ``prob``; ``prob=0`` returns
+    ``dx``/``dy`` unchanged without drawing any random numbers, so the default is byte-identical.
+    """
+    if prob == 0.0:
+        return dx, dy
+    mask = torch.rand(dx.shape[0], device=dx.device, generator=generator) < prob
+    return dx.masked_fill(mask, 0.0), dy.masked_fill(mask, 0.0)
+
+
 def scaled_uniform(
     size: int | tuple[int, ...],
     half_width: float,
@@ -1307,6 +1321,7 @@ class G1WujiTableEnv(DirectRLEnv):
                 self.cfg.adr_spawn_box_y,
                 device=self.device,
             )
+            dx, dy = apply_nominal_spawn_mask(dx, dy, self.cfg.adr_nominal_spawn_prob)
             apple_pose[:, 0] += dx
             apple_pose[:, 1] += dy
             self.object_start_position[env_ids, :2] = apple_pose[:, :2]
