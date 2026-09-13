@@ -30,8 +30,8 @@ G1_BASE_CFG = ArticulationCfg(
         joint_pos={},
         joint_vel={},
     ),
-    # Unitree G1 joint limits and effort limits, with deliberately moderate
-    # arm PD gains for an initially easy-to-control manipulation interface.
+    # Unitree G1 joint limits and effort limits.  The arm gains use the
+    # documented G1 simulation values for the realistic-arm-gains experiment.
     actuators={
         "waist": ImplicitActuatorCfg(
             joint_names_expr=["waist_.*_joint"],
@@ -67,8 +67,8 @@ G1_BASE_CFG = ArticulationCfg(
                 ".*_wrist_yaw_joint": 5.0,
             },
             joint_velocity_limit=1.5,
-            stiffness=300.0,
-            damping=30.0,
+            stiffness=40.0,
+            damping=10.0,
             armature={
                 ".*_shoulder_.*": 0.001,
                 ".*_elbow_.*": 0.001,
