@@ -47,7 +47,7 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
     assert _visualizer_types(env_cfg) == visualizers
     assert env_cfg.debug.keypoint_markers is keypoint_markers
     assert env_cfg.debug.adr_spawn_area_marker is spawn_area_marker
-    assert env_cfg.apple_cfg.spawn.usd_path.endswith("assets/objects/YcbApple/textured_collision.usda")
+    assert env_cfg.object_cfg.spawn.usd_path.endswith("assets/objects/YcbApple/textured_collision.usda")
 
 
 @pytest.mark.unit

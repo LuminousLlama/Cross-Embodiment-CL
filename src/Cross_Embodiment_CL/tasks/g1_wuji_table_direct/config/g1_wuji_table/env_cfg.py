@@ -365,7 +365,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     reward_mode: str = "shaped"
     """Reward formulation used by :meth:`G1WujiTableEnv._get_rewards`.
 
-    ``"shaped"`` (default) is today's reach + contact-gated goal + lift + dense-graded contact
+    ``"shaped"`` (default) is today's reach + contact-gated goal + lift + binary contact
     reward, with the press guard on the contact term. ``"adept"`` is the ADEPT-style minimal
     reward: reach, plus a goal term gated on a two-body force threshold (thumb and any other
     finger, not the palm) whose keypoint-error sharpness ramps over training, plus a flat
@@ -401,12 +401,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     goal_reward_scale = 5.0
     goal_reward_alpha = 15.0
     lift_reward_scale = 3.0
-    """Per-step reward for carrying the apple the full way from its rest height to the goal.
-
-    Force-graded contact alone is farmable by mashing one body into the apple against the
-    table: measured, that pinned the apple 1.5 cm *below* its rest height at ~50 N while
-    ``tanh`` saturated.  Height cannot be farmed that way and is the behaviour actually wanted.
-    """
+    """Per-step reward for carrying the apple the full way from its rest height to the goal."""
     gravity_curriculum_start: float = 0.0
     """Fraction of configured scene gravity at the start of training; 1.0 disables the curriculum."""
     gravity_curriculum_steps: int = 19_200
@@ -426,22 +421,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     sensor sat on the collider-less ``right_finger1_tip_link`` frame.
     """
     contact_reward_scale = 0.5
-    """Per-step scale of the dense grasp reward, the stepping stone between reach and lift."""
-    contact_reward_mode: str = "binary"
-    """Grading of the shaped mode's dense contact term (see :func:`env.contact_term`).
-
-    ``"force"`` is the original ``tanh(contact_force_stack / contact_force_reference)``
-    grading, so squeezing harder pays more until it saturates. ``"binary"`` (default) is a per-group contact
-    indicator, ``contact_force_stack > contact_force_threshold``, averaged over groups, so the
-    policy is paid for how many groups touch the apple, never for how hard it squeezes. The
-    goal-reward contact gate is unaffected either way. Any other value raises ``ValueError``.
-    """
-    contact_force_reference = 0.2
-    """Force [N] at which one group's dense contact term reaches tanh(1) ~ 0.76.
-
-    The dense term must be graded in force rather than gated: a binary gate pays nothing
-    until it is already satisfied, so it supplies no gradient toward making contact.
-    """
+    """Per-step scale of the binary per-contact-group grasp reward."""
     success_keypoint_error_threshold = 0.10
     """Terminal mean virtual-keypoint error threshold [m] for the success metric."""
     object_max_horizontal_displacement = 0.20
@@ -492,7 +472,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         # The G1 asset's fixed pelvis is at z=0; the table top is therefore at pelvis height.
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, -0.02)),
     )
-    apple_cfg: RigidObjectCfg = RigidObjectCfg(
+    object_cfg: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Apple",
         spawn=sim_utils.UsdFileCfg(
             usd_path=str(_APPLE_USD_PATH),

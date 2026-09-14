@@ -30,20 +30,6 @@ from .depth_camera import normalize_depth
 from .env_cfg import G1WujiTableEnvCfg
 
 
-def contact_term(forces: torch.Tensor, mode: str, threshold: float, reference: float) -> torch.Tensor:
-    """Per-group dense contact term for the shaped reward, averaged over the group dimension.
-
-    ``mode="force"`` grades by force, ``tanh(forces / reference)``, so squeezing harder pays more
-    until it saturates.  ``mode="binary"`` is a per-group contact indicator, ``forces >
-    threshold``, so the policy is paid for how many groups touch, never for how hard it squeezes.
-    """
-    if mode == "force":
-        return torch.tanh(forces / reference).mean(dim=1)
-    if mode == "binary":
-        return (forces > threshold).float().mean(dim=1)
-    raise ValueError(f"Unknown contact_reward_mode '{mode}'; expected 'force' or 'binary'.")
-
-
 def sample_spawn_offsets(
     n: int, strength: float, box_x: float, box_y: float, device: torch.device | str = "cpu"
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -238,10 +224,6 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError("gravity_curriculum_steps must be positive.")
         if self.cfg.contact_debug_interval <= 0:
             raise ValueError("contact_debug_interval must be positive.")
-        if self.cfg.contact_reward_mode not in ("force", "binary"):
-            raise ValueError(
-                f"contact_reward_mode must be 'force' or 'binary', got '{self.cfg.contact_reward_mode}'."
-            )
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
         self.arm_joint_targets = torch.zeros((self.num_envs, len(self.arm_joint_ids)), device=self.device)
         self.wuji_joint_targets = torch.zeros((self.num_envs, len(self.wuji_joint_ids)), device=self.device)
@@ -253,7 +235,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self.waist_joint_targets = torch.zeros((self.num_envs, len(self.waist_joint_ids)), device=self.device)
         self.goal_position = torch.tensor(self.cfg.goal_position, device=self.device).repeat(self.num_envs, 1)
         self.goal_rotation = torch.tensor((0.0, 0.0, 0.0, 1.0), device=self.device).repeat(self.num_envs, 1)
-        self.object_start_position = torch.tensor(self.cfg.apple_cfg.init_state.pos, device=self.device).repeat(
+        self.object_start_position = torch.tensor(self.cfg.object_cfg.init_state.pos, device=self.device).repeat(
             self.num_envs, 1
         )
         self.adr: AdaptiveDomainRandomization | None = None
@@ -309,7 +291,7 @@ class G1WujiTableEnv(DirectRLEnv):
         if self.cfg.debug.adr_spawn_area_marker or self.cfg.adr_debug_spawn_area_vis:
             self.adr_spawn_area_marker = VisualizationMarkers(self.cfg.adr_spawn_area_marker_cfg)
             marker_thickness = self.cfg.adr_spawn_area_marker_cfg.markers["area"].size[2]
-            apple_x, apple_y = self.cfg.apple_cfg.init_state.pos[:2]
+            apple_x, apple_y = self.cfg.object_cfg.init_state.pos[:2]
             marker_center = torch.tensor(
                 (
                     apple_x - 0.5 * self.cfg.adr_spawn_box_x,
@@ -331,7 +313,7 @@ class G1WujiTableEnv(DirectRLEnv):
     def _setup_scene(self) -> None:
         self.robot = Articulation(self.cfg.robot_cfg)
         self.table = RigidObject(self.cfg.table_cfg)
-        self.apple = RigidObject(self.cfg.apple_cfg)
+        self.apple = RigidObject(self.cfg.object_cfg)
         # One multi-body sensor per group; its force matrix is (envs, bodies, 1 apple, 3).
         self.contact_sensors: dict[str, ContactSensor] = {}
         for group_name, body_names in self._CONTACT_BODY_GROUPS.items():
@@ -761,29 +743,19 @@ class G1WujiTableEnv(DirectRLEnv):
                 ) * self.adr.strength
                 goal_alpha_step = goal_alpha
             goal_reward = self.cfg.goal_reward_scale * torch.exp(-goal_alpha * keypoint_error) * contact_gate
-            # Graded in force rather than gated.  Paying contact_reward_scale * contact_gate is
-            # zero until two fingers already touch, so it supplies no gradient toward touching
-            # at all; this term rises with any contact and bridges reach -> grasp.  tanh bounds
-            # it so pressing the apple into the table cannot out-earn lifting it.
             lift_reward = self.cfg.lift_reward_scale * self._lift_fraction(object_position)
-            # Contact only counts while the apple is not being crushed downward, which is what
-            # closes off the press exploit without removing the gradient toward touching.
             rest_height = self.object_start_position[:, 2] + self.scene.env_origins[:, 2]
+            # Pay binary contact only while the apple remains above the pressed-below-rest guard.
             held = object_position[:, 2] > rest_height - self.cfg.press_tolerance
             contact_reward = (
                 self.cfg.contact_reward_scale
-                * contact_term(
-                    contact_force_stack,
-                    self.cfg.contact_reward_mode,
-                    self.cfg.contact_force_threshold,
-                    self.cfg.contact_force_reference,
-                )
+                * (contact_force_stack > self.cfg.contact_force_threshold).float().mean(dim=1)
                 * held
             )
             reward = reach_reward + goal_reward + contact_reward + lift_reward
         elif self.cfg.reward_mode == "adept":
             # Grasp gate: the thumb and at least one other finger (never the palm) each past
-            # adept_gate_force, per the ADEPT paper's minimal reward. No dense contact term, no
+            # adept_gate_force, per the ADEPT paper's minimal reward. No shaped contact term, no
             # lift term, and no press guard -- the gate alone stands in for all three.
             thumb_index = list(self.contact_sensors).index(self._THUMB_CONTACT_GROUP)
             other_finger_indices = [
@@ -929,7 +901,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._mjw_data = solver.mjw_data
         # One-time record of the apple's built collision-shape count, so runs log the real hull
         # count produced by whatever mesh_approximation_name/max_hull_vertices Hydra selected.
-        approximation = self.cfg.apple_cfg.spawn.collision_props.mesh_collision_property.mesh_approximation_name
+        approximation = self.cfg.object_cfg.spawn.collision_props.mesh_collision_property.mesh_approximation_name
         print(f"[apple-collision] approximation={approximation} shapes={int(self._apple_geoms.sum())}")
 
     def _contact_penetration(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -1057,10 +1029,10 @@ class G1WujiTableEnv(DirectRLEnv):
         current step averaged over environments; ``ep`` (mean), ``ep_min``, ``ep_max``,
         ``ep_final``, and ``ep_return`` (sum) summarise the episodes that reset this step.
 
-        ``contact_gate`` and ``goal_alpha_step`` are the mode-appropriate grasp gate and goal
+        ``contact_gate`` and ``goal_alpha_step`` are the grasp gate and goal
         sharpness from :meth:`G1WujiTableEnv._get_rewards`: the ``Contact/gate_frac_*`` tags
-        below read whichever gate the active ``reward_mode`` used, and ``goal_alpha_step`` is 0.0
-        under ``reward_mode="shaped"``, which has no ramp.
+        below read the gate used by the active reward formulation, and ``goal_alpha_step`` reports
+        the active scheduled sharpness or 0.0 when no schedule applies.
         """
         self._episode_reward_sums["reach"] += reach_reward
         self._episode_reward_sums["goal"] += goal_reward
