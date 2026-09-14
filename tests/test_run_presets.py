@@ -25,17 +25,27 @@ def _visualizer_types(env_cfg) -> list[str]:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("overrides", "num_envs", "visual_shapes", "visualizers", "keypoint_markers", "spawn_area_marker"),
+    (
+        "overrides",
+        "num_envs",
+        "visual_shapes",
+        "visualizers",
+        "keypoint_markers",
+        "spawn_area_marker",
+        "student_depth_preview",
+    ),
     [
-        ([], 1, True, ["newton_gl"], True, True),
-        (["presets=train"], 2048, False, [], False, False),
-        (["presets=debug"], 4, True, ["newton_gl"], True, True),
-        (["presets=eval"], 16, False, [], False, False),
-        (["presets=distill"], 1024, True, [], False, False),
-        (["presets=debug,depth_view"], 4, True, ["newton_gl"], True, True),
+        ([], 1, True, ["newton_gl"], True, True, False),
+        (["presets=train"], 2048, False, [], False, False, False),
+        (["presets=debug"], 4, True, ["newton_gl"], True, True, False),
+        (["presets=eval"], 16, False, [], False, False, False),
+        (["presets=distill"], 1024, True, [], False, False, False),
+        (["presets=debug,depth_view"], 4, True, ["newton_gl"], True, True, True),
     ],
 )
-def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, keypoint_markers, spawn_area_marker):
+def test_run_preset_bundles(
+    overrides, num_envs, visual_shapes, visualizers, keypoint_markers, spawn_area_marker, student_depth_preview
+):
     """The default and each run preset set physics, environment count, viewer, and diagnostics together."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=overrides)
 
@@ -48,6 +58,7 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
     assert _visualizer_types(env_cfg) == visualizers
     assert env_cfg.debug.keypoint_markers is keypoint_markers
     assert env_cfg.debug.adr_spawn_area_marker is spawn_area_marker
+    assert env_cfg.debug.student_depth_preview is student_depth_preview
 
 
 @pytest.mark.unit
@@ -108,8 +119,8 @@ def test_depth_camera_only_in_student_presets(overrides, has_camera):
 
 
 @pytest.mark.unit
-def test_depth_view_preset_colorizes_the_student_camera():
-    """The opt-in manual viewer streams the depth-only student camera, not an unavailable RGB output."""
+def test_depth_view_preset_colorizes_the_final_student_observation():
+    """The manual viewer streams the normalized, letterboxed student image rather than the render buffer."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=debug,depth_view"])
 
     visualizer = env_cfg.sim.visualizer_cfgs[0]
@@ -118,7 +129,8 @@ def test_depth_view_preset_colorizes_the_student_camera():
         "/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
     )
     assert visualizer.streaming_gt_types == ("depth",)
-    assert (visualizer.streaming_depth_min, visualizer.streaming_depth_max) == (0.1, 1.2)
+    assert (visualizer.streaming_depth_min, visualizer.streaming_depth_max) == (0.0, 1.0)
+    assert env_cfg.debug.student_depth_preview is True
 
 
 @pytest.mark.unit

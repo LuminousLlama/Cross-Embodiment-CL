@@ -186,6 +186,8 @@ class G1WujiTableDebugCfg:
     """Whether to draw the goal (green) and current (red) object-pose keypoint markers."""
     adr_spawn_area_marker: bool = False
     """Whether to draw the configured full-strength ADR spawn area as a visual-only square."""
+    student_depth_preview: bool = False
+    """Whether the camera panel shows the finalized normalized 224x224 student observation."""
 
 
 @configclass
@@ -196,6 +198,7 @@ class G1WujiTableDebugPresetCfg(PresetCfg):
     train: G1WujiTableDebugCfg = G1WujiTableDebugCfg()
     eval: G1WujiTableDebugCfg = train
     distill: G1WujiTableDebugCfg = train
+    depth_view: G1WujiTableDebugCfg = G1WujiTableDebugCfg(adr_spawn_area_marker=True, student_depth_preview=True)
 
 
 STUDENT_DEPTH_SIZE = 224
@@ -573,8 +576,11 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
                     streaming_view=True,
                     streaming_sensor_prim_path=_STUDENT_DEPTH_CAMERA_STREAM_PATTERN,
                     streaming_gt_types=("depth",),
-                    streaming_depth_min=0.1,
-                    streaming_depth_max=1.2,
+                    # The task publishes the exact normalized student tensor under the preferred
+                    # ``depth`` output key. The native metric render remains available under
+                    # ``distance_to_image_plane`` for observation assembly and diagnostics.
+                    streaming_depth_min=0.0,
+                    streaming_depth_max=1.0,
                 )
             ],
         ),

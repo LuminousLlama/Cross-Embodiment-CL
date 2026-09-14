@@ -32,6 +32,7 @@ from isaaclab.utils.math import (
     scale_transform,
     unscale_transform,
 )
+from isaaclab.utils.warp import ProxyArray
 
 from Cross_Embodiment_CL.models import WujiLatentActionPipeline
 
@@ -271,6 +272,7 @@ class G1WujiTableEnv(DirectRLEnv):
     _STUDENT_OBSERVATION_DIM = 141
 
     def __init__(self, cfg: G1WujiTableEnvCfg, render_mode: str | None = None, **kwargs) -> None:
+        self._student_depth_preview: torch.Tensor | None = None
         super().__init__(cfg, render_mode, **kwargs)
 
         self.arm_joint_ids, _ = self.robot.find_joints(self._ARM_JOINT_NAMES, preserve_order=True)
@@ -920,8 +922,19 @@ class G1WujiTableEnv(DirectRLEnv):
             depth = self.depth_camera.data.output["distance_to_image_plane"].torch
             depth = depth.permute(0, 3, 1, 2)
             depth = resize_and_pad_depth(depth, STUDENT_DEPTH_LETTERBOX)
-            observations["camera"] = normalize_depth(depth, self.cfg.student_depth_max_m)
+            student_depth = normalize_depth(depth, self.cfg.student_depth_max_m)
+            observations["camera"] = student_depth
+            if self.cfg.debug.student_depth_preview:
+                self._publish_student_depth_preview(student_depth)
         return observations
+
+    def _publish_student_depth_preview(self, student_depth: torch.Tensor) -> None:
+        """Expose the exact normalized student image through the camera panel's preferred depth key."""
+        preview = student_depth.permute(0, 2, 3, 1)
+        if self._student_depth_preview is None:
+            self._student_depth_preview = torch.empty_like(preview, memory_format=torch.contiguous_format)
+            self.depth_camera.data.output["depth"] = ProxyArray(wp.from_torch(self._student_depth_preview))
+        self._student_depth_preview.copy_(preview)
 
     def _get_rewards(self) -> torch.Tensor:
         """Reward reaching, thumb-opposed contact, and the upright object pose.
