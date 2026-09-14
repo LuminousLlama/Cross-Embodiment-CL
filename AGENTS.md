@@ -7,6 +7,13 @@
 - **Worktree execution:** a linked worktree may not have its own ready venv. Reuse the sibling main checkout's prepared venv, while making the active worktree's source authoritative: `PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/python <script>` or `PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab <command>`. Do not use `uv run` from a worktree merely to run an existing Isaac command: it may create and populate a separate venv, including large CUDA packages.
 - **Isaac Lab CLI discovery:** before claiming a command is unavailable or inventing a wrapper, query the executable that will actually run it: `../Cross-Embodiment-CL/.venv/bin/isaaclab --help` followed by `../Cross-Embodiment-CL/.venv/bin/isaaclab <command> --help`. In particular, the built-in `zero_agent` command runs an environment with zero actions; use it for interactive manual scene inspection rather than adding a custom zero-action script.
 
+## Test value policy
+
+- Do not add a test unless it is genuinely valuable and catches a concrete, plausible regression. Tests must never be written merely for the sake of having a test, increasing coverage, mirroring a code change, or satisfying a routine expectation that every change gets a test.
+- Valuable tests name a concrete failure mode and exercise observable behavior, integration or wiring, boundary/error handling, or comparison against an independent source of truth.
+- Do not add tests that merely mirror implementation literals or defaults, assert private structure or ownership without an observable consequence, or duplicate dimensions/defaults already exercised by a stronger test. For configuration changes, prefer resolver or runtime effects; for assets, compare against authored or official sources. If no meaningful failure mode exists, do not add a test.
+- Do not delete existing high-value tests merely because they include constants.
+
 ## G1 + Wuji tabletop DirectRL environment
 
 - The active task is `CrossEmbodimentCl-G1-Wuji-Table-Direct`, implemented under `src/Cross_Embodiment_CL/tasks/g1_wuji_table_direct/`.  Keep it a small privileged-state Stage-1 task: one fixed-base G1/Wuji, one YCB apple, one table; do not import legacy curriculum, vision, IK, or domain-randomization machinery without an explicit request.

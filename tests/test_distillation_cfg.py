@@ -59,14 +59,6 @@ def test_ppo_actor_loads_strictly_into_teacher(cfg_class):
     teacher.load_state_dict(actor.state_dict(), strict=True)
 
 
-@pytest.mark.parametrize("cfg_class", _DISTILLATION_CFGS)
-def test_student_mlp_matches_teacher(cfg_class):
-    """The student MLP deliberately has the teacher's capacity."""
-    distillation_cfg = cfg_class()
-    assert distillation_cfg.student.hidden_dims == distillation_cfg.teacher.hidden_dims
-    assert distillation_cfg.student.activation == distillation_cfg.teacher.activation
-
-
 def test_depth_student_reads_only_deployable_observations():
     """The depth student encodes proprioception and the depth image, never the privileged state."""
     distillation_cfg = G1WujiTableDepthDistillationRunnerCfg()

@@ -108,17 +108,10 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         env.reset(seed=42)
         robot = unwrapped.robot
         joint_ids = unwrapped.wuji_joint_ids
-        assert torch.allclose(unwrapped.goal_position, torch.tensor([[0.35, -0.05, 0.24]], device=unwrapped.device))
         assert unwrapped.goal_keypoint_marker is not None
         assert unwrapped.object_keypoint_marker is not None
         assert unwrapped.adr_spawn_area_marker is not None
-        assert unwrapped.cfg.adr_enabled is False
-        assert unwrapped.cfg.episode_length_s == 8.0
         assert unwrapped.local_cube_keypoints.shape == (8, 3)
-        assert unwrapped.cfg.object_max_horizontal_displacement == 0.20
-        assert unwrapped.cfg.success_keypoint_error_threshold == 0.10
-        assert unwrapped.cfg.observation_space == 171
-        assert unwrapped.cfg.state_space == 171
         observations = unwrapped._get_observations()
         assert set(observations) == {"policy", "critic", "student"}
         assert observations["policy"].shape == (1, 171)

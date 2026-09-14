@@ -47,7 +47,6 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
     assert _visualizer_types(env_cfg) == visualizers
     assert env_cfg.debug.keypoint_markers is keypoint_markers
     assert env_cfg.debug.adr_spawn_area_marker is spawn_area_marker
-    assert env_cfg.object_cfg.spawn.usd_path.endswith("assets/objects/YcbApple/textured_collision.usda")
 
 
 @pytest.mark.unit
@@ -139,15 +138,6 @@ def test_contact_debug_is_opt_in_and_configurable():
     assert default_cfg.contact_debug_interval == 1
     assert configured_cfg.contact_debug is True
     assert configured_cfg.contact_debug_interval == 16
-
-
-@pytest.mark.unit
-def test_gravity_curriculum_defaults():
-    """Training ramps the whole scene from zero to full gravity."""
-    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
-
-    assert env_cfg.gravity_curriculum_start == 0.0
-    assert env_cfg.gravity_curriculum_steps == 19_200
 
 
 @pytest.mark.unit
