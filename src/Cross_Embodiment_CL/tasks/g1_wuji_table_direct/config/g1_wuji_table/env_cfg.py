@@ -125,7 +125,6 @@ class G1WujiTablePhysicsCfg(PresetCfg):
     # The student's depth camera must see the apple, whose visible mesh is visual-only.  An explicit
     # False would win over the camera's request for visual shapes, so this preset sets True.
     distill: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=True)
-    depth_view: NewtonCfg = distill
     default: NewtonCfg = newton_mjwarp
 
 
@@ -140,7 +139,6 @@ class G1WujiTableSceneCfg(PresetCfg):
     debug: InteractiveSceneCfg = default.replace(num_envs=4)
     eval: InteractiveSceneCfg = default.replace(num_envs=16)
     distill: InteractiveSceneCfg = default.replace(num_envs=1024)
-    depth_view: InteractiveSceneCfg = default
 
 
 @configclass
@@ -161,7 +159,6 @@ class G1WujiTableDebugPresetCfg(PresetCfg):
     train: G1WujiTableDebugCfg = G1WujiTableDebugCfg()
     eval: G1WujiTableDebugCfg = train
     distill: G1WujiTableDebugCfg = train
-    depth_view: G1WujiTableDebugCfg = G1WujiTableDebugCfg(adr_spawn_area_marker=True)
 
 
 STUDENT_DEPTH_SIZE = 224
@@ -216,6 +213,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     # The policy and critic deliberately receive the identical privileged state.
     observation_space = 171
     state_space = 171
+    log_control_metrics: bool = False
+    """Whether to emit all ``Control/*`` TensorBoard/extras topics."""
     contact_force_observation_max = 20.0
     """Maximum apple contact-force magnitude [N] before the log1p observation transform."""
     arm_action_ema_alpha = 0.25
@@ -438,6 +437,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         ),
         # The Newton viewer, except for the headless ``train`` and ``eval`` presets.  An explicit ``--viz``
         # still takes precedence.
+        # ``depth_view`` is an overlay: it adds the streaming panel while preserving the selected
+        # run preset's physics, environment count, and diagnostic markers.
         visualizer_cfgs=preset(
             default=[NewtonGLVisualizerCfg()],
             train=[],

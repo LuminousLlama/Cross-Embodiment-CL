@@ -26,7 +26,7 @@ The G1 + Wuji task bundles its launch settings into run presets, selected with
 | `debug` | `newton_mjwarp`  | 4    | `newton_gl` | on               | on                   |
 | `eval`  | `newton_mjwarp`  | 16   | none        | off              | off                  |
 | `distill` | `newton_mjwarp` | 1024 | none        | off              | on, student camera   |
-| `depth_view` | `newton_mjwarp` | 1 | `newton_gl` | off | on, depth stream |
+| `depth_view` overlay | preserves selected run preset | preserves selected run preset | adds streaming `newton_gl` | preserves selected run preset | on, depth stream |
 
 Anything given explicitly still wins over the preset: `--num_envs 64`, `--viz none`
 (headless eval), `--viz kit`, `env.debug.keypoint_markers=False`,
@@ -67,15 +67,16 @@ uv run isaaclab zero_agent --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets
 
 ## Inspect the student depth camera
 
-`depth_view` is an interactive, one-environment Newton GL preset. Its stream panel colorizes the
-depth-only D435 output over 0.1--1.2 m; it does not change the student's depth tensor.
+`depth_view` is an overlay that adds a Newton GL stream panel for the depth-only D435 output,
+colorized over 0.1--1.2 m; it does not change the student's depth tensor. Combine it with a run
+preset such as `debug` to retain that preset's environment count and markers.
 
 In a linked worktree, reuse the sibling checkout's prepared venv and put this worktree's source
 first on `PYTHONPATH`:
 
 ```
 PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab zero_agent \
-  --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets=depth_view
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets=debug,depth_view
 ```
 
 ## Depth-student distillation
@@ -87,7 +88,7 @@ Use the depth distillation runner to play a student checkpoint in the camera vie
 PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab play --rl_library rsl_rl \
   --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
   --agent rsl_rl_distillation_cfg_entry_point \
-  --checkpoint <student-checkpoint.pt> --num_envs 1 presets=depth_view
+  --checkpoint <student-checkpoint.pt> --num_envs 1 presets=debug,depth_view
 ```
 
 Evaluate deterministically, headlessly, at full gravity with an absolute checkpoint path:

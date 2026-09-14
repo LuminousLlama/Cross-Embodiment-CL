@@ -125,6 +125,9 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         rewards = unwrapped._get_rewards()
         assert rewards.shape == (1,)
         assert torch.isfinite(rewards).all()
+        _, _, _, _, default_extras = env.step(torch.zeros((1, unwrapped.cfg.action_space), device=unwrapped.device))
+        assert not any(key.startswith("Control/") for key in default_extras["log"])
+        unwrapped.cfg.log_control_metrics = True
         unwrapped.episode_length_buf.fill_(unwrapped.max_episode_length - 1)
         _, _, _, _, extras = env.step(torch.zeros((1, unwrapped.cfg.action_space), device=unwrapped.device))
         expected_log_keys = {
@@ -140,6 +143,9 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
             "Task/object_height_ep_max",
             "Contact/gate_frac_ep",
             "Task/success",
+            "Control/action_saturation_frac_step",
+            "Control/arm_tracking_error_step",
+            "Control/wuji_tracking_error_step",
             "Control/arm_tracking_error_ep",
             "Control/wuji_tracking_error_ep",
             "Control/arm_target_rate_step",

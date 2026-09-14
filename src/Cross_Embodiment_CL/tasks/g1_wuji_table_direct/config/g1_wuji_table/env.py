@@ -1064,12 +1064,17 @@ class G1WujiTableEnv(DirectRLEnv):
             "Reward/goal_step": goal_reward.mean(),
             "Reward/contact_step": contact_reward.mean(),
             "Reward/lift_step": lift_reward.mean(),
-            "Control/action_saturation_frac_step": (self.actions.abs() >= 0.999).float().mean(),
-            "Control/arm_tracking_error_step": arm_tracking_error.mean(),
-            "Control/wuji_tracking_error_step": wuji_tracking_error.mean(),
             "Curriculum/gravity_frac_step": self._gravity_frac,
             "Curriculum/goal_alpha_step": goal_alpha_step,
         }
+        if self.cfg.log_control_metrics:
+            log.update(
+                {
+                    "Control/action_saturation_frac_step": (self.actions.abs() >= 0.999).float().mean(),
+                    "Control/arm_tracking_error_step": arm_tracking_error.mean(),
+                    "Control/wuji_tracking_error_step": wuji_tracking_error.mean(),
+                }
+            )
         if self.cfg.adr_enabled:
             log["Curriculum/adr_level"] = float(self.adr.level)
             log["Curriculum/adr_success_rate"] = self.adr.last_success_rate
@@ -1080,7 +1085,8 @@ class G1WujiTableEnv(DirectRLEnv):
                 for index, name in enumerate(self.contact_sensors)
             }
         )
-        log.update(self._arm_control_metrics())
+        if self.cfg.log_control_metrics:
+            log.update(self._arm_control_metrics())
         if self._mjw_data is not None:
             # Deepest contact per environment [m], averaged over environments.
             hand_penetration, table_penetration, self_penetration, elbow_torso_penetration = (
@@ -1124,12 +1130,6 @@ class G1WujiTableEnv(DirectRLEnv):
                     "Task/object_height_ep_max": self._episode_max_object_height[reset_ids].mean(),
                     "Reach/hand_distance_farthest_ep_min": self._episode_min_hand_distance[reset_ids].mean(),
                     "Contact/gate_frac_ep": (self._episode_contact_gate_steps[reset_ids] / episode_steps).mean(),
-                    "Control/arm_tracking_error_ep": (
-                        self._episode_arm_tracking_error_sum[reset_ids] / episode_steps
-                    ).mean(),
-                    "Control/wuji_tracking_error_ep": (
-                        self._episode_wuji_tracking_error_sum[reset_ids] / episode_steps
-                    ).mean(),
                     "Terminations/torso_apple": self._termination_torso_apple[reset_ids].float().mean(),
                     "Terminations/below_table": self._termination_below_table[reset_ids].float().mean(),
                     "Terminations/workspace_exit": self._termination_workspace_exit[reset_ids].float().mean(),
@@ -1137,6 +1137,17 @@ class G1WujiTableEnv(DirectRLEnv):
                     "Terminations/timeout": self.reset_time_outs[reset_ids].float().mean(),
                 }
             )
+            if self.cfg.log_control_metrics:
+                log.update(
+                    {
+                        "Control/arm_tracking_error_ep": (
+                            self._episode_arm_tracking_error_sum[reset_ids] / episode_steps
+                        ).mean(),
+                        "Control/wuji_tracking_error_ep": (
+                            self._episode_wuji_tracking_error_sum[reset_ids] / episode_steps
+                        ).mean(),
+                    }
+                )
             if self._mjw_data is not None:
                 log["Contact/penetration_hand_ep_max"] = self._episode_max_hand_penetration[reset_ids].mean()
                 log["Contact/penetration_self_ep_max"] = self._episode_max_self_penetration[reset_ids].mean()

@@ -31,7 +31,7 @@ def _visualizer_types(env_cfg) -> list[str]:
         (["presets=debug"], 4, True, ["newton_gl"], True, True),
         (["presets=eval"], 16, False, [], False, False),
         (["presets=distill"], 1024, True, [], False, False),
-        (["presets=depth_view"], 1, True, ["newton_gl"], False, True),
+        (["presets=debug,depth_view"], 4, True, ["newton_gl"], True, True),
     ],
 )
 def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, keypoint_markers, spawn_area_marker):
@@ -57,7 +57,7 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
         (["presets=train"], False),
         (["presets=eval"], False),
         (["presets=distill"], True),
-        (["presets=depth_view"], True),
+        (["presets=debug,depth_view"], True),
     ],
 )
 def test_depth_camera_only_in_student_presets(overrides, has_camera):
@@ -74,7 +74,7 @@ def test_depth_camera_only_in_student_presets(overrides, has_camera):
 @pytest.mark.unit
 def test_depth_view_preset_colorizes_the_student_camera():
     """The opt-in manual viewer streams the depth-only student camera, not an unavailable RGB output."""
-    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=depth_view"])
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=debug,depth_view"])
 
     visualizer = env_cfg.sim.visualizer_cfgs[0]
     assert visualizer.streaming_view is True
