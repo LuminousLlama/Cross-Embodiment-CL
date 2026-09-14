@@ -80,7 +80,7 @@ def test_depth_letterbox_rejects_non_square_pixels():
         fit_depth_letterbox(PinholeIntrinsics(848, 480, fx=430.0, fy=440.0, cx=424.0, cy=240.0), 224)
 
 
-def test_normalize_depth_keeps_missing_returns_at_zero():
+def test_normalize_depth_keeps_invalid_depth_at_zero():
     depth = torch.tensor([0.0, 0.6, 2.0, float("nan"), float("inf")])
     assert torch.equal(normalize_depth(depth, 1.2), torch.tensor([0.0, 0.5, 1.0, 0.0, 0.0]))
 
@@ -97,14 +97,13 @@ def test_intrinsic_warp_identity_and_principal_point_shift():
     assert torch.count_nonzero(shifted) == 1
 
 
-def test_depth_calibration_preserves_missing_returns():
+def test_depth_calibration_preserves_invalid_depth():
     depth = torch.tensor([[[[0.0, 0.5], [1.0, 2.0]]]])
     randomized = randomize_depth_measurement(
         depth,
         depth_scale=torch.tensor([1.1]),
         depth_bias_m=torch.tensor([0.01]),
         noise_std_at_1m_m=0.0,
-        missing_return_prob=0.0,
         boundary_corruption_prob=0.0,
         boundary_threshold_m=0.02,
         strength=1.0,
@@ -113,7 +112,7 @@ def test_depth_calibration_preserves_missing_returns():
     torch.testing.assert_close(randomized, torch.tensor([[[[0.0, 0.56], [1.11, 2.21]]]]))
 
 
-def test_depth_noise_is_per_pixel_depth_dependent_and_never_revives_missing_returns():
+def test_depth_noise_is_per_pixel_depth_dependent_and_never_revives_invalid_depth():
     depth = torch.tensor([[[[0.0, 0.5, 1.0]]]])
     torch.manual_seed(7)
     expected_noise = torch.randn_like(depth) * (0.004 * depth.square())
@@ -123,7 +122,6 @@ def test_depth_noise_is_per_pixel_depth_dependent_and_never_revives_missing_retu
         depth_scale=torch.ones(1),
         depth_bias_m=torch.zeros(1),
         noise_std_at_1m_m=0.004,
-        missing_return_prob=0.0,
         boundary_corruption_prob=0.0,
         boundary_threshold_m=0.02,
         strength=1.0,
@@ -131,22 +129,6 @@ def test_depth_noise_is_per_pixel_depth_dependent_and_never_revives_missing_retu
 
     torch.testing.assert_close(randomized, (depth + expected_noise).clamp_min(0.0))
     assert randomized[0, 0, 0, 0] == 0.0
-
-
-def test_missing_returns_drop_only_valid_pixels():
-    depth = torch.tensor([[[[0.0, 0.5], [1.0, 2.0]]]])
-    randomized = randomize_depth_measurement(
-        depth,
-        depth_scale=torch.ones(1),
-        depth_bias_m=torch.zeros(1),
-        noise_std_at_1m_m=0.0,
-        missing_return_prob=1.0,
-        boundary_corruption_prob=0.0,
-        boundary_threshold_m=0.02,
-        strength=1.0,
-    )
-
-    assert torch.count_nonzero(randomized) == 0
 
 
 def test_boundary_corruption_is_confined_to_depth_discontinuities():
@@ -157,7 +139,6 @@ def test_boundary_corruption_is_confined_to_depth_discontinuities():
         depth_scale=torch.ones(1),
         depth_bias_m=torch.zeros(1),
         noise_std_at_1m_m=0.0,
-        missing_return_prob=0.0,
         boundary_corruption_prob=1.0,
         boundary_threshold_m=0.02,
         strength=1.0,
@@ -165,5 +146,5 @@ def test_boundary_corruption_is_confined_to_depth_discontinuities():
 
     assert torch.equal(randomized[..., 0], depth[..., 0])
     assert torch.equal(randomized[..., 3], depth[..., 3])
-    assert set(randomized.flatten().tolist()) <= {0.0, 0.5, 1.0}
+    assert set(randomized.flatten().tolist()) <= {0.5, 1.0}
     assert not torch.equal(randomized[..., 1:3], depth[..., 1:3])

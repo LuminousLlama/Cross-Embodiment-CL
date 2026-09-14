@@ -405,12 +405,11 @@ class G1WujiTableEnv(DirectRLEnv):
             invalid = {name: value for name, value in nonnegative_camera_cfg.items() if value < 0.0}
             if invalid:
                 raise ValueError(f"Camera ADR ranges must be non-negative, received {invalid}.")
-            for name, probability in (
-                ("adr.depth_missing_return_prob", self.cfg.adr.depth_missing_return_prob),
-                ("adr.depth_boundary_corruption_prob", self.cfg.adr.depth_boundary_corruption_prob),
-            ):
-                if not 0.0 <= probability <= 1.0:
-                    raise ValueError(f"{name} must be in [0, 1], received {probability}.")
+            if not 0.0 <= self.cfg.adr.depth_boundary_corruption_prob <= 1.0:
+                raise ValueError(
+                    "adr.depth_boundary_corruption_prob must be in [0, 1], received "
+                    f"{self.cfg.adr.depth_boundary_corruption_prob}."
+                )
             for name, half_width in (
                 ("adr.camera_focal_scale", self.cfg.adr.camera_focal_scale),
                 ("adr.depth_scale", self.cfg.adr.depth_scale),
@@ -545,53 +544,78 @@ class G1WujiTableEnv(DirectRLEnv):
     def _randomize_depth_camera(self, env_ids: torch.Tensor, strength: float) -> None:
         """Sample fixed-per-episode student-camera extrinsics, intrinsics, and calibration."""
         count = len(env_ids)
-        translation = scaled_uniform(
-            (count, 3), self.cfg.adr.camera_position_range, strength, device=self.device
-        )
-        rotation = scaled_uniform(
-            (count, 3), math.radians(self.cfg.adr.camera_rotation_range_deg), strength, device=self.device
-        )
-        delta_quat = quat_from_euler_xyz(rotation[:, 0], rotation[:, 1], rotation[:, 2])
-        camera_pos_w, camera_quat_w = combine_frame_transforms(
-            self._adr_camera_nominal_pos_w[env_ids],
-            self._adr_camera_nominal_quat_w[env_ids],
-            translation,
-            delta_quat,
-        )
-        self.depth_camera.set_world_poses(
-            positions=camera_pos_w,
-            orientations=camera_quat_w,
-            env_ids=env_ids,
-            convention="world",
-        )
+        if self.cfg.adr.camera_position_enabled or self.cfg.adr.camera_rotation_enabled:
+            position_range = self.cfg.adr.camera_position_range if self.cfg.adr.camera_position_enabled else 0.0
+            rotation_range = (
+                math.radians(self.cfg.adr.camera_rotation_range_deg) if self.cfg.adr.camera_rotation_enabled else 0.0
+            )
+            translation = scaled_uniform((count, 3), position_range, strength, device=self.device)
+            rotation = scaled_uniform((count, 3), rotation_range, strength, device=self.device)
+            delta_quat = quat_from_euler_xyz(rotation[:, 0], rotation[:, 1], rotation[:, 2])
+            camera_pos_w, camera_quat_w = combine_frame_transforms(
+                self._adr_camera_nominal_pos_w[env_ids],
+                self._adr_camera_nominal_quat_w[env_ids],
+                translation,
+                delta_quat,
+            )
+            self.depth_camera.set_world_poses(
+                positions=camera_pos_w,
+                orientations=camera_quat_w,
+                env_ids=env_ids,
+                convention="world",
+            )
 
         self._adr_camera_focal_scale[env_ids] = 1.0 + scaled_uniform(
-            count, self.cfg.adr.camera_focal_scale, strength, device=self.device
+            count,
+            self.cfg.adr.camera_focal_scale if self.cfg.adr.camera_focal_enabled else 0.0,
+            strength,
+            device=self.device,
         )
         self._adr_camera_principal_point_offset[env_ids] = scaled_uniform(
-            (count, 2), self.cfg.adr.camera_principal_point_offset, strength, device=self.device
+            (count, 2),
+            self.cfg.adr.camera_principal_point_offset if self.cfg.adr.camera_principal_point_enabled else 0.0,
+            strength,
+            device=self.device,
         )
         self._adr_depth_scale[env_ids] = 1.0 + scaled_uniform(
-            count, self.cfg.adr.depth_scale, strength, device=self.device
+            count,
+            self.cfg.adr.depth_scale if self.cfg.adr.depth_scale_enabled else 0.0,
+            strength,
+            device=self.device,
         )
         self._adr_depth_bias[env_ids] = scaled_uniform(
-            count, self.cfg.adr.depth_bias, strength, device=self.device
+            count,
+            self.cfg.adr.depth_bias if self.cfg.adr.depth_bias_enabled else 0.0,
+            strength,
+            device=self.device,
         )
 
     def _randomize_depth_camera_frame(self, depth: torch.Tensor) -> torch.Tensor:
         """Apply the sampled student-only intrinsic and depth-measurement DR to one rendered frame."""
-        depth = warp_depth_intrinsics(
-            depth,
-            self._adr_camera_focal_scale,
-            self._adr_camera_principal_point_offset,
+        if self.cfg.adr.camera_focal_enabled or self.cfg.adr.camera_principal_point_enabled:
+            depth = warp_depth_intrinsics(
+                depth,
+                self._adr_camera_focal_scale,
+                self._adr_camera_principal_point_offset,
+            )
+        measurement_enabled = (
+            self.cfg.adr.depth_scale_enabled
+            or self.cfg.adr.depth_bias_enabled
+            or self.cfg.adr.depth_pixel_noise_enabled
+            or self.cfg.adr.depth_boundary_corruption_enabled
         )
+        if not measurement_enabled:
+            return depth
         return randomize_depth_measurement(
             depth,
             self._adr_depth_scale,
             self._adr_depth_bias,
-            noise_std_at_1m_m=self.cfg.adr.depth_noise_std_at_1m,
-            missing_return_prob=self.cfg.adr.depth_missing_return_prob,
-            boundary_corruption_prob=self.cfg.adr.depth_boundary_corruption_prob,
+            noise_std_at_1m_m=(self.cfg.adr.depth_noise_std_at_1m if self.cfg.adr.depth_pixel_noise_enabled else 0.0),
+            boundary_corruption_prob=(
+                self.cfg.adr.depth_boundary_corruption_prob
+                if self.cfg.adr.depth_boundary_corruption_enabled
+                else 0.0
+            ),
             boundary_threshold_m=self.cfg.adr.depth_boundary_threshold,
             strength=self.adr.strength,
         )
