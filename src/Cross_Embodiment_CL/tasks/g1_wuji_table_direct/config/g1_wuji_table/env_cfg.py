@@ -239,11 +239,12 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adr_drives_gravity: bool = True
     """Whether ADR strength also drives whole-scene gravity when ``adr_enabled`` is set.
 
-    With this on, gravity starts at the schedule's 0-strength level: 0 g, at which a touched apple floats
-    away, the terminal keypoint error stays large, success stays 0, and the level-advance gate never opens.
+    With this on, gravity follows the ADR schedule from :attr:`adr_gravity_start` to full strength.
     Set to ``False`` to keep gravity on the existing step-based ``gravity_curriculum_start``/
     ``gravity_curriculum_steps`` ramp while spawn box and goal alpha stay ADR-driven.
     """
+    adr_gravity_start: float = 0.1
+    """Whole-scene gravity fraction at ADR strength zero when :attr:`adr_drives_gravity` is enabled."""
     adr_max_level: int = 50
     """Number of levels :class:`.adr.AdaptiveDomainRandomization` can advance through."""
     adr_success_threshold: float = 0.40
@@ -259,13 +260,27 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adr_nominal_spawn_prob: float = 0.3
     """When ADR is enabled, each reset env independently keeps the exact authored apple pose (zero spawn
     offset) with this probability, so the box corner stays in the training distribution."""
+    adr_spawn_enabled: bool = True
+    """Whether ADR strength controls apple spawn offsets and nominal-spawn sampling."""
     adr_goal_alpha_end: float = 30.0
     """Goal-reward keypoint-error sharpness once the DR schedule reaches full strength."""
+    adr_goal_alpha_enabled: bool = True
+    """Whether ADR strength increases the shaped goal-reward sharpness."""
     adr_debug_spawn_area_vis: bool = False
     """Legacy opt-in alias for :attr:`debug.adr_spawn_area_marker`."""
     adr_extra_enabled: bool = False
     """Whether the extra ADR-scaled observation-noise, action-latency, hand-target-scale, friction, and
     mass terms in :class:`.env.G1WujiTableEnv` are active. Has no effect unless ``adr_enabled`` is also set."""
+    adr_sensor_noise_enabled: bool = True
+    """Whether the extra ADR master enables observation noise and bias."""
+    adr_action_latency_enabled: bool = True
+    """Whether the extra ADR master enables per-env action latency."""
+    adr_hand_target_scale_enabled: bool = True
+    """Whether the extra ADR master enables per-env Wuji target scaling."""
+    adr_friction_enabled: bool = True
+    """Whether the extra ADR master enables friction randomization."""
+    adr_mass_enabled: bool = True
+    """Whether the extra ADR master enables apple mass randomization."""
     adr_joint_pos_obs_bias: float = 0.01
     """Per-episode joint-position observation bias half-width [rad]: ``U(-b*s, b*s)``, resampled at reset."""
     adr_joint_pos_obs_noise: float = 0.003
