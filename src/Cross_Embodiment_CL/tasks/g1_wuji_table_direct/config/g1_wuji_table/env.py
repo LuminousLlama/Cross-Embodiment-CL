@@ -222,6 +222,8 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError("gravity_curriculum_start must be in [0, 1].")
         if not 0.0 <= self.cfg.adr_gravity_start <= 1.0:
             raise ValueError("adr_gravity_start must be in [0, 1].")
+        if self.cfg.adr_robot_position_range < 0.0:
+            raise ValueError("adr_robot_position_range must be nonnegative.")
         if self.cfg.gravity_curriculum_steps <= 0:
             raise ValueError("gravity_curriculum_steps must be positive.")
         if self.cfg.contact_debug_interval <= 0:
@@ -254,6 +256,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._apply_gravity_curriculum(force=True)
         self._adr_extra_active = bool(self.cfg.adr_enabled and self.cfg.adr_extra_enabled)
         self._adr_spawn_active = bool(self.cfg.adr_enabled and self.cfg.adr_spawn_enabled)
+        self._adr_robot_position_active = bool(self.cfg.adr_enabled and self.cfg.adr_robot_position_enabled)
         self._adr_goal_alpha_active = bool(self.cfg.adr_enabled and self.cfg.adr_goal_alpha_enabled)
         self._adr_sensor_noise_active = bool(self._adr_extra_active and self.cfg.adr_sensor_noise_enabled)
         self._adr_action_latency_active = bool(self._adr_extra_active and self.cfg.adr_action_latency_enabled)
@@ -1273,11 +1276,14 @@ class G1WujiTableEnv(DirectRLEnv):
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int]) -> None:
-        """Restore the authored robot, table, and apple poses; ``adr_enabled`` also samples the apple's
-        spawn xy within the current-strength ADR box and moves that env's goal xy to match."""
+        """Restore authored poses; ADR may perturb the robot root and apple spawn independently."""
         super()._reset_idx(env_ids)
 
         robot_pose = self.robot.data.default_root_pose.torch[env_ids].clone()
+        if self._adr_robot_position_active:
+            robot_pose[:, :3] += scaled_uniform(
+                (len(env_ids), 3), self.cfg.adr_robot_position_range, self.adr.strength, device=self.device
+            )
         robot_pose[:, :3] += self.scene.env_origins[env_ids]
         self.robot.write_root_pose_to_sim_index(root_pose=robot_pose, env_ids=env_ids)
         self.robot.write_root_velocity_to_sim_index(

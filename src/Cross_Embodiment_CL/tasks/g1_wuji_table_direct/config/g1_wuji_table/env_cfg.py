@@ -262,6 +262,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     offset) with this probability, so the box corner stays in the training distribution."""
     adr_spawn_enabled: bool = True
     """Whether ADR strength controls apple spawn offsets and nominal-spawn sampling."""
+    adr_robot_position_enabled: bool = False
+    """Whether ADR strength randomizes the robot root position independently of other DR terms."""
+    adr_robot_position_range: float = 0.03
+    """Full-strength robot root-position randomization half-width [m] along each axis."""
     adr_goal_alpha_end: float = 30.0
     """Goal-reward keypoint-error sharpness once the DR schedule reaches full strength."""
     adr_goal_alpha_enabled: bool = True
