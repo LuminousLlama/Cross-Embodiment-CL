@@ -265,8 +265,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adr_debug_spawn_area_vis: bool = False
     """Legacy opt-in alias for :attr:`debug.adr_spawn_area_marker`."""
     adr_extra_enabled: bool = False
-    """Whether the extra ADR-scaled observation-noise, action-latency, hand-target-scale, friction, and
-    mass terms in :class:`.env.G1WujiTableEnv` are active. Has no effect unless ``adr_enabled`` is also set."""
+    """Whether the extra ADR-scaled observation, camera, action, friction, and mass terms are active.
+
+    Has no effect unless ``adr_enabled`` is also set. Camera terms additionally require a student-camera preset.
+    """
     adr_joint_pos_obs_bias: float = 0.01
     """Per-episode joint-position observation bias half-width [rad]: ``U(-b*s, b*s)``, resampled at reset."""
     adr_joint_pos_obs_noise: float = 0.003
@@ -290,6 +292,26 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adr_object_mass_scale: float = 0.20
     """Full-strength half-width of the apple's per-env mass scale relative to its default mass,
     ``U(1-m*s, 1+m*s)``."""
+    adr_camera_position_range: float = 0.03
+    """Full-strength per-episode camera translation half-width [m] along each camera-local axis."""
+    adr_camera_rotation_range_deg: float = 3.0
+    """Full-strength per-episode camera roll/pitch/yaw half-width [deg] about its nominal mounting pose."""
+    adr_camera_focal_scale: float = 0.01
+    """Full-strength per-episode focal-length scale half-width around one."""
+    adr_camera_principal_point_offset: float = 2.0
+    """Full-strength per-episode principal-point offset half-width [px] along each content-image axis."""
+    adr_depth_scale: float = 0.01
+    """Full-strength per-episode metric-depth scale half-width around one."""
+    adr_depth_bias: float = 0.003
+    """Full-strength per-episode metric-depth bias half-width [m]."""
+    adr_depth_noise_std_at_1m: float = 0.004
+    """Full-strength per-pixel Gaussian depth-noise standard deviation at 1 m [m], scaling with depth squared."""
+    adr_depth_missing_return_prob: float = 0.02
+    """Full-strength per-pixel probability that a valid student depth return becomes zero."""
+    adr_depth_boundary_corruption_prob: float = 0.25
+    """Full-strength probability of corrupting a pixel on either side of a depth discontinuity."""
+    adr_depth_boundary_threshold: float = 0.02
+    """Neighboring metric-depth difference [m] that marks a silhouette boundary for corruption."""
     adr_physics_update_every_steps: int = 32
     """Env steps between batched physics-model writes.
 
