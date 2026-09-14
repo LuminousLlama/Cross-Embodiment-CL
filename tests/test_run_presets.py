@@ -107,6 +107,66 @@ def test_scalar_overrides_win_inside_run_presets():
 
 
 @pytest.mark.unit
+def test_train_and_dr_none_select_nominal_gravity_without_randomized_terms():
+    """The no-DR preset keeps full gravity while disabling every stochastic ADR term."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=train,dr_none"])
+
+    adr = env_cfg.adr
+    assert adr.enabled is True
+    assert adr.initial_level == adr.max_level == 50
+    assert adr.gravity_start + (1.0 - adr.gravity_start) * adr.initial_level / adr.max_level == 1.0
+    assert not any(
+        (
+            adr.spawn_enabled,
+            adr.robot_position_enabled,
+            adr.goal_alpha_enabled,
+            adr.extra_enabled,
+            adr.sensor_noise_enabled,
+            adr.action_latency_enabled,
+            adr.hand_target_scale_enabled,
+            adr.friction_enabled,
+            adr.mass_enabled,
+        )
+    )
+
+
+@pytest.mark.unit
+def test_eval_and_dr_full_enable_all_randomized_terms_at_full_level():
+    """The full-DR preset composes with eval and starts at its full-strength endpoint."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=eval,dr_full"])
+
+    adr = env_cfg.adr
+    assert adr.enabled is True
+    assert adr.initial_level == adr.max_level == 50
+    assert all(
+        (
+            adr.spawn_enabled,
+            adr.robot_position_enabled,
+            adr.goal_alpha_enabled,
+            adr.extra_enabled,
+            adr.sensor_noise_enabled,
+            adr.action_latency_enabled,
+            adr.hand_target_scale_enabled,
+            adr.friction_enabled,
+            adr.mass_enabled,
+        )
+    )
+
+
+@pytest.mark.unit
+def test_adr_scalar_override_wins_after_dr_full_preset():
+    """Specific ADR flags can still be disabled after selecting the full-DR preset."""
+    env_cfg, _ = resolve_task_config(
+        TASK,
+        AGENT,
+        overrides=["presets=dr_full", "env.adr.mass_enabled=False"],
+    )
+
+    assert env_cfg.adr.mass_enabled is False
+    assert env_cfg.adr.extra_enabled is True
+
+
+@pytest.mark.unit
 def test_adr_spawn_area_marker_has_no_physics_properties():
     """The spawn-area square is display geometry, never a collider or rigid body."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])

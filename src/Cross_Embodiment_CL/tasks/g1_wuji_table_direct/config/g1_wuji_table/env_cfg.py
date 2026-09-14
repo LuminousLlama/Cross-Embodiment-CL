@@ -201,6 +201,109 @@ class G1WujiTableDepthCameraPresetCfg(PresetCfg):
 
 
 @configclass
+class G1WujiTableAdrCfg:
+    """Adaptive domain-randomization schedule and term configuration."""
+
+    enabled: bool = False
+    """Whether the success-gated adaptive domain-randomization schedule is active."""
+    drives_gravity: bool = True
+    """Whether ADR strength drives whole-scene gravity from ``gravity_start`` to full strength."""
+    gravity_start: float = 0.1
+    """Whole-scene gravity fraction at ADR strength zero when :attr:`drives_gravity` is enabled."""
+    max_level: int = 50
+    """Number of levels the adaptive schedule can advance through."""
+    success_threshold: float = 0.40
+    """Rollout success rate above which the schedule advances one level."""
+    initial_level: int = 0
+    """DR level at the start of training."""
+    update_every_steps: int = 480
+    """Env steps between schedule updates; matches one 480-step episode horizon."""
+    spawn_box_x: float = 0.11
+    """Full-strength apple spawn-box size along x [m]."""
+    spawn_box_y: float = 0.20
+    """Full-strength apple spawn-box size along y [m]."""
+    spawn_enabled: bool = True
+    """Whether ADR strength controls centered continuous apple spawn offsets."""
+    robot_position_enabled: bool = False
+    """Whether ADR strength randomizes the robot root position independently of other DR terms."""
+    robot_position_range: float = 0.03
+    """Full-strength robot root-position randomization half-width [m] along each axis."""
+    goal_alpha_end: float = 30.0
+    """Goal-reward keypoint-error sharpness at full ADR strength."""
+    goal_alpha_enabled: bool = True
+    """Whether ADR strength increases the shaped goal-reward sharpness."""
+    extra_enabled: bool = False
+    """Whether the extra observation-noise, latency, hand-scale, friction, and mass terms are active."""
+    sensor_noise_enabled: bool = True
+    """Whether the extra ADR master enables observation noise and bias."""
+    action_latency_enabled: bool = True
+    """Whether the extra ADR master enables per-env action latency."""
+    hand_target_scale_enabled: bool = True
+    """Whether the extra ADR master enables per-env Wuji target scaling."""
+    friction_enabled: bool = True
+    """Whether the extra ADR master enables friction randomization."""
+    mass_enabled: bool = True
+    """Whether the extra ADR master enables apple mass randomization."""
+    joint_pos_obs_bias: float = 0.01
+    """Per-episode joint-position observation bias half-width [rad]."""
+    joint_pos_obs_noise: float = 0.003
+    """Per-step joint-position observation noise standard deviation [rad]."""
+    joint_vel_obs_bias: float = 0.02
+    """Per-episode joint-velocity bias half-width [rad/s]."""
+    joint_vel_obs_noise: float = 0.03
+    """Per-step joint-velocity noise standard deviation [rad/s]."""
+    object_pos_obs_bias: float = 0.01
+    """Per-episode apple-position observation bias half-width [m]."""
+    object_pos_obs_noise: float = 0.005
+    """Per-step apple-position observation noise standard deviation [m]."""
+    action_latency_max_steps: int = 3
+    """Full-strength maximum per-env action delay [policy steps]."""
+    hand_target_scale: float = 0.10
+    """Full-strength half-width of the per-env multiplicative Wuji hand-target scale."""
+    friction_range: tuple[float, float] = (0.2, 0.8)
+    """Full-strength friction range for the apple, table, and Wuji hand links."""
+    object_mass_scale: float = 0.20
+    """Full-strength half-width of the apple's per-env mass scale relative to its default mass."""
+    physics_update_every_steps: int = 32
+    """Env steps between batched physics-model writes."""
+
+
+@configclass
+class G1WujiTableAdrPresetCfg(PresetCfg):
+    """ADR presets for nominal, no-DR, and full-DR runs."""
+
+    default: G1WujiTableAdrCfg = G1WujiTableAdrCfg()
+    dr_none: G1WujiTableAdrCfg = default.replace(
+        enabled=True,
+        initial_level=50,
+        max_level=50,
+        spawn_enabled=False,
+        robot_position_enabled=False,
+        goal_alpha_enabled=False,
+        extra_enabled=False,
+        sensor_noise_enabled=False,
+        action_latency_enabled=False,
+        hand_target_scale_enabled=False,
+        friction_enabled=False,
+        mass_enabled=False,
+    )
+    dr_full: G1WujiTableAdrCfg = default.replace(
+        enabled=True,
+        initial_level=50,
+        max_level=50,
+        spawn_enabled=True,
+        robot_position_enabled=True,
+        goal_alpha_enabled=True,
+        extra_enabled=True,
+        sensor_noise_enabled=True,
+        action_latency_enabled=True,
+        hand_target_scale_enabled=True,
+        friction_enabled=True,
+        mass_enabled=True,
+    )
+
+
+@configclass
 class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Configuration for a fixed G1-Wuji assembly facing a pelvis-height work table."""
 
@@ -234,86 +337,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Maximum Wuji finger joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
     goal_position = (0.35, -0.05, 0.24)
     """Fixed apple goal position [m] in the environment frame."""
-    adr_enabled: bool = False
-    """Whether the success-gated adaptive domain-randomization schedule (see :mod:`.adr`) is active."""
-    adr_drives_gravity: bool = True
-    """Whether ADR strength also drives whole-scene gravity when ``adr_enabled`` is set.
-
-    With this on, gravity follows the ADR schedule from :attr:`adr_gravity_start` to full strength.
-    Set to ``False`` to keep gravity on the existing step-based ``gravity_curriculum_start``/
-    ``gravity_curriculum_steps`` ramp while spawn box and goal alpha stay ADR-driven.
-    """
-    adr_gravity_start: float = 0.1
-    """Whole-scene gravity fraction at ADR strength zero when :attr:`adr_drives_gravity` is enabled."""
-    adr_max_level: int = 50
-    """Number of levels :class:`.adr.AdaptiveDomainRandomization` can advance through."""
-    adr_success_threshold: float = 0.40
-    """Rollout success rate above which the schedule advances one level."""
-    adr_initial_level: int = 0
-    """DR level at the start of training."""
-    adr_update_every_steps: int = 480
-    """Env steps between schedule updates; matches one 480-step episode horizon."""
-    adr_spawn_box_x: float = 0.11
-    """Full-strength apple spawn-box size along x [m]; the authored apple pose is the box's far corner."""
-    adr_spawn_box_y: float = 0.20
-    """Full-strength apple spawn-box size along y [m]; the authored apple pose is the box's far corner."""
-    adr_nominal_spawn_prob: float = 0.3
-    """When ADR is enabled, each reset env independently keeps the exact authored apple pose (zero spawn
-    offset) with this probability, so the box corner stays in the training distribution."""
-    adr_spawn_enabled: bool = True
-    """Whether ADR strength controls apple spawn offsets and nominal-spawn sampling."""
-    adr_robot_position_enabled: bool = False
-    """Whether ADR strength randomizes the robot root position independently of other DR terms."""
-    adr_robot_position_range: float = 0.03
-    """Full-strength robot root-position randomization half-width [m] along each axis."""
-    adr_goal_alpha_end: float = 30.0
-    """Goal-reward keypoint-error sharpness once the DR schedule reaches full strength."""
-    adr_goal_alpha_enabled: bool = True
-    """Whether ADR strength increases the shaped goal-reward sharpness."""
+    adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
+    """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
     adr_debug_spawn_area_vis: bool = False
     """Legacy opt-in alias for :attr:`debug.adr_spawn_area_marker`."""
-    adr_extra_enabled: bool = False
-    """Whether the extra ADR-scaled observation-noise, action-latency, hand-target-scale, friction, and
-    mass terms in :class:`.env.G1WujiTableEnv` are active. Has no effect unless ``adr_enabled`` is also set."""
-    adr_sensor_noise_enabled: bool = True
-    """Whether the extra ADR master enables observation noise and bias."""
-    adr_action_latency_enabled: bool = True
-    """Whether the extra ADR master enables per-env action latency."""
-    adr_hand_target_scale_enabled: bool = True
-    """Whether the extra ADR master enables per-env Wuji target scaling."""
-    adr_friction_enabled: bool = True
-    """Whether the extra ADR master enables friction randomization."""
-    adr_mass_enabled: bool = True
-    """Whether the extra ADR master enables apple mass randomization."""
-    adr_joint_pos_obs_bias: float = 0.01
-    """Per-episode joint-position observation bias half-width [rad]: ``U(-b*s, b*s)``, resampled at reset."""
-    adr_joint_pos_obs_noise: float = 0.003
-    """Per-step joint-position observation noise standard deviation [rad]: ``N(0, sigma*s)``."""
-    adr_joint_vel_obs_bias: float = 0.02
-    """Per-episode joint-velocity bias half-width [rad/s], applied to the raw velocity before its
-    existing velocity-limit normalization."""
-    adr_joint_vel_obs_noise: float = 0.03
-    """Per-step joint-velocity noise standard deviation [rad/s], applied like :attr:`adr_joint_vel_obs_bias`."""
-    adr_object_pos_obs_bias: float = 0.01
-    """Per-episode apple-position observation bias half-width [m]; reward and success keep the true position."""
-    adr_object_pos_obs_noise: float = 0.005
-    """Per-step apple-position observation noise standard deviation [m], applied like
-    :attr:`adr_object_pos_obs_bias`."""
-    adr_action_latency_max_steps: int = 3
-    """Full-strength maximum per-env action delay [policy steps] applied to the raw arm/hand action."""
-    adr_hand_target_scale: float = 0.10
-    """Full-strength half-width of the per-env multiplicative Wuji hand-target scale, ``U(1-a*s, 1+a*s)``."""
-    adr_friction_range: tuple[float, float] = (0.2, 0.8)
-    """Full-strength friction range for the apple, table, and Wuji hand links; blended from nominal by ``s``."""
-    adr_object_mass_scale: float = 0.20
-    """Full-strength half-width of the apple's per-env mass scale relative to its default mass,
-    ``U(1-m*s, 1+m*s)``."""
-    adr_physics_update_every_steps: int = 32
-    """Env steps between batched physics-model writes.
-
-    Physics DR (friction, mass) for envs that reset is applied in one batch every N env steps
-    instead of on every reset; the new episode runs on its previous physics parameters for at most
-    N steps, negligible against 480-step episodes."""
     debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
     """Viewer diagnostics; headless ``train`` and ``eval`` turn them off."""
     contact_debug: bool = False

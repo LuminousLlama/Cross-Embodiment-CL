@@ -72,6 +72,33 @@ def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset:
 
 
 @pytest.mark.integration
+def test_sensor_noise_is_actor_only_and_critic_stays_clean() -> None:
+    """Sensor-noise ADR changes actor/student values, never the critic's simulator view."""
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    resolve_presets(env_cfg, selected=("newton_mjwarp",))
+    env_cfg.scene.num_envs = 2
+    env_cfg.sim.visualizer_cfgs = []
+    env_cfg.debug.keypoint_markers = False
+    env_cfg.adr.enabled = True
+    env_cfg.adr.extra_enabled = True
+    env_cfg.adr.sensor_noise_enabled = True
+    env_cfg.adr.initial_level = env_cfg.adr.max_level
+    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    try:
+        env.reset(seed=42)
+        unwrapped = env.unwrapped
+        observations = unwrapped._get_observations()
+        assert torch.equal(
+            observations["critic"][:, : unwrapped.robot.num_joints],
+            unwrapped.robot.data.joint_pos.torch,
+        )
+        assert torch.equal(observations["policy"][:, :141], observations["student"])
+        assert not torch.equal(observations["policy"], observations["critic"])
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
 def test_nonfinite_state_returns_zero_terminal_reward() -> None:
     """A state rejected by the done guard must not leak a NaN reward to the trainer."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")

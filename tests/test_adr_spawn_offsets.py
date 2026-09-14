@@ -23,13 +23,13 @@ def test_sample_spawn_offsets_is_zero_at_zero_strength():
 def test_sample_spawn_offsets_stays_within_the_strength_scaled_box():
     dx, dy = sample_spawn_offsets(n=1000, strength=0.5, box_x=0.11, box_y=0.20)
 
-    assert torch.all(dx <= 0.0) and torch.all(dx >= -0.11 * 0.5)
-    assert torch.all(dy <= 0.0) and torch.all(dy >= -0.20 * 0.5)
+    assert torch.all(dx <= 0.11 * 0.5 / 2) and torch.all(dx >= -0.11 * 0.5 / 2)
+    assert torch.all(dy <= 0.20 * 0.5 / 2) and torch.all(dy >= -0.20 * 0.5 / 2)
 
 
 @pytest.mark.unit
 def test_sample_spawn_offsets_reaches_the_full_strength_box():
     dx, dy = sample_spawn_offsets(n=1000, strength=1.0, box_x=0.11, box_y=0.20)
 
-    assert torch.all(dx <= 0.0) and torch.all(dx >= -0.11)
-    assert torch.all(dy <= 0.0) and torch.all(dy >= -0.20)
+    assert torch.all(dx <= 0.11 / 2) and torch.all(dx >= -0.11 / 2)
+    assert torch.all(dy <= 0.20 / 2) and torch.all(dy >= -0.20 / 2)
