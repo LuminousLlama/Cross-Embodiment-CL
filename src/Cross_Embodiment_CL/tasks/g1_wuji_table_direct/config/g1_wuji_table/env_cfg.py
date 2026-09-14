@@ -251,8 +251,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Rollout success rate above which the schedule advances one level."""
     adr_initial_level: int = 0
     """DR level at the start of training."""
-    adr_update_every_steps: int = 32
-    """Env steps between schedule updates; PPO runs 32 steps per rollout."""
+    adr_update_every_steps: int = 480
+    """Env steps between schedule updates; matches one 480-step episode horizon."""
     adr_spawn_box_x: float = 0.11
     """Full-strength apple spawn-box size along x [m]; the authored apple pose is the box's far corner."""
     adr_spawn_box_y: float = 0.20
