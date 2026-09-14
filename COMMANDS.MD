@@ -68,7 +68,8 @@ uv run isaaclab zero_agent --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets
 ## Inspect the student depth camera
 
 `depth_view` is an interactive, one-environment Newton GL preset. Its stream panel colorizes the
-depth-only D435 output over 0.1--1.2 m; it does not change the student's depth tensor.
+unpadded 224x127 full-width D435 output over 0.1--1.2 m. The observation path adds 48 zero rows above
+and 49 below to retain the student's 224x224 tensor contract.
 
 In a linked worktree, reuse the sibling checkout's prepared venv and put this worktree's source
 first on `PYTHONPATH`:
@@ -81,6 +82,7 @@ PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab zero_agent \
 ## Depth-student distillation
 
 The deployable student consumes 141-D proprioception plus one normalized 224x224 D435 depth image.
+The valid 224x127 region retains the full horizontal field of view and is padded vertically.
 Use the depth distillation runner to play a student checkpoint in the camera viewer:
 
 ```

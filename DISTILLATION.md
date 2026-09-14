@@ -7,6 +7,10 @@ student received the former 87-D proprioception and one normalized 224x224 D435 
 used the former 117-D privileged observation. The current environment uses 141-D proprioception and a
 171-D privileged observation, so that checkpoint predates and is incompatible with the current observation contract.
 
+New distillation runs retain the D435's full-width view: the 848x480 source is resized to 224x127 and
+padded with 48 zero rows above and 49 below. The simulator renders the same 224x127 pinhole content
+before padding, while the CNN interface remains 224x224.
+
 The stopped `depth_r0` run's `model_600.pt` checkpoint was evaluated locally with deterministic
 actions, full apple weight, two environments, and 64 completed episodes. It achieved 63/64 success
 (98.44%), 2.71 cm final position error, 5.49 deg final rotation error, 1.58 mm maximum hand-apple
