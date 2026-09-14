@@ -13,7 +13,7 @@ from pxr import Usd, UsdPhysics
 
 from isaaclab.utils.string import resolve_matching_names_values
 
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg import G1_WUJI_CFG
+from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg import G1_WUJI_CFG, _g1_config
 
 HAND_USD = Path(__file__).resolve().parents[1] / "assets/hands/wuji_right_soft_simplified/wujihand.usda"
 JOINT_NAMES = [f"right_finger{finger}_joint{joint}" for finger in range(1, 6) for joint in range(1, 5)]
@@ -32,6 +32,13 @@ def test_g1_wuji_initial_joint_pose() -> None:
     }
     assert G1_WUJI_CFG.init_state.joint_pos["right_shoulder_roll_joint"] == pytest.approx(-math.pi / 4)
     assert G1_WUJI_CFG.init_state.joint_pos["right_finger1_joint1"] == 0.05
+
+
+@pytest.mark.unit
+def test_wuji_finger_actuator_belongs_to_wuji_cfg() -> None:
+    """Only the Wuji hand variant owns the Wuji-specific actuator group."""
+    assert "wuji_fingers" not in _g1_config.G1_BASE_CFG.actuators
+    assert "wuji_fingers" in G1_WUJI_CFG.actuators
 
 
 def _authored_drives() -> dict[str, tuple[float, float, float]]:

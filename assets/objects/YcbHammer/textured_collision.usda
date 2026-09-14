@@ -13,7 +13,7 @@ def Xform "Object" (
 )
 {
     custom string crossEmbodiment:objectName = "YcbHammer"
-    float physics:mass = 0.665
+    float physics:mass = 0.09
 
     def Material "physicsMaterial" (
         apiSchemas = ["PhysicsMaterialAPI", "PhysxMaterialAPI"]
