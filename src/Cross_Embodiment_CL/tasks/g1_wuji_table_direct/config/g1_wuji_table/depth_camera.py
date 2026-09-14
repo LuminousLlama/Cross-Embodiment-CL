@@ -181,6 +181,171 @@ def resize_and_pad_depth(depth_m: torch.Tensor, letterbox: DepthLetterbox) -> to
     )
 
 
+def warp_depth_intrinsics(
+    depth_m: torch.Tensor,
+    focal_scale: torch.Tensor,
+    principal_point_offset_px: torch.Tensor,
+) -> torch.Tensor:
+    """Reproject batched pinhole depth for per-episode intrinsic perturbations.
+
+    The input and output have the same resolution. ``focal_scale`` multiplies both focal lengths, while
+    ``principal_point_offset_px`` shifts ``(cx, cy)`` from the image centre. Nearest sampling preserves
+    foreground/background discontinuities and rays outside the nominal image become missing returns.
+
+    Args:
+        depth_m: Metric depth shaped ``(N, 1, H, W)``.
+        focal_scale: Per-image focal-length scale shaped ``(N,)``.
+        principal_point_offset_px: Per-image ``(cx, cy)`` offsets [px], shaped ``(N, 2)``.
+
+    Returns:
+        Reprojected metric depth with the same shape as ``depth_m``.
+    """
+    if depth_m.dim() != 4 or depth_m.shape[1] != 1:
+        raise ValueError(f"Expected depth shaped (N,1,H,W), received {tuple(depth_m.shape)}.")
+    batch_size, _, height, width = depth_m.shape
+    if focal_scale.shape != (batch_size,):
+        raise ValueError(f"Expected focal_scale shaped ({batch_size},), received {tuple(focal_scale.shape)}.")
+    if principal_point_offset_px.shape != (batch_size, 2):
+        raise ValueError(
+            "Expected principal_point_offset_px shaped "
+            f"({batch_size},2), received {tuple(principal_point_offset_px.shape)}."
+        )
+    if torch.any(focal_scale <= 0.0):
+        raise ValueError("focal_scale must be positive.")
+
+    dtype = depth_m.dtype
+    columns = torch.arange(width, device=depth_m.device, dtype=dtype) + 0.5
+    rows = torch.arange(height, device=depth_m.device, dtype=dtype) + 0.5
+    center_x = 0.5 * width
+    center_y = 0.5 * height
+    scale = focal_scale.to(device=depth_m.device, dtype=dtype)
+    offset = principal_point_offset_px.to(device=depth_m.device, dtype=dtype)
+    source_columns = (
+        columns.view(1, 1, width) - (center_x + offset[:, 0].view(batch_size, 1, 1))
+    ) / scale.view(batch_size, 1, 1) + center_x
+    source_rows = (
+        rows.view(1, height, 1) - (center_y + offset[:, 1].view(batch_size, 1, 1))
+    ) / scale.view(batch_size, 1, 1) + center_y
+    grid_x = (2.0 * source_columns / width - 1.0).expand(-1, height, -1)
+    grid_y = (2.0 * source_rows / height - 1.0).expand(-1, -1, width)
+    grid = torch.stack((grid_x, grid_y), dim=-1)
+    return F.grid_sample(depth_m, grid, mode="nearest", padding_mode="zeros", align_corners=False)
+
+
+def _depth_discontinuity_mask(depth_m: torch.Tensor, threshold_m: float) -> torch.Tensor:
+    """Return a one-pixel mask on both sides of 4-connected depth discontinuities."""
+    valid = depth_m > 0.0
+    edge = torch.zeros_like(valid)
+
+    horizontal_pair = valid[..., 1:] & valid[..., :-1]
+    horizontal_jump = horizontal_pair & (torch.abs(depth_m[..., 1:] - depth_m[..., :-1]) > threshold_m)
+    edge[..., 1:] |= horizontal_jump
+    edge[..., :-1] |= horizontal_jump
+
+    vertical_pair = valid[..., 1:, :] & valid[..., :-1, :]
+    vertical_jump = vertical_pair & (torch.abs(depth_m[..., 1:, :] - depth_m[..., :-1, :]) > threshold_m)
+    edge[..., 1:, :] |= vertical_jump
+    edge[..., :-1, :] |= vertical_jump
+    return edge
+
+
+def _shift_depth(depth_m: torch.Tensor, direction: int) -> torch.Tensor:
+    """Shift depth by one pixel without wrapping; directions are left, right, up, down."""
+    if direction == 0:
+        return F.pad(depth_m[..., :-1], (1, 0, 0, 0))
+    if direction == 1:
+        return F.pad(depth_m[..., 1:], (0, 1, 0, 0))
+    if direction == 2:
+        return F.pad(depth_m[..., :-1, :], (0, 0, 1, 0))
+    if direction == 3:
+        return F.pad(depth_m[..., 1:, :], (0, 0, 0, 1))
+    raise ValueError(f"Expected direction in [0, 3], received {direction}.")
+
+
+def randomize_depth_measurement(
+    depth_m: torch.Tensor,
+    depth_scale: torch.Tensor,
+    depth_bias_m: torch.Tensor,
+    noise_std_at_1m_m: float,
+    missing_return_prob: float,
+    boundary_corruption_prob: float,
+    boundary_threshold_m: float,
+    strength: float,
+) -> torch.Tensor:
+    """Apply student-only D435-style measurement corruption to metric depth.
+
+    Calibration scale/bias are fixed per episode by the caller. Gaussian noise is sampled per pixel
+    with standard deviation proportional to ``depth^2``. Random valid pixels become missing returns,
+    while selected depth discontinuities either become missing or copy a four-connected neighbor to
+    mimic one-pixel foreground/background silhouette errors.
+
+    Args:
+        depth_m: Metric depth shaped ``(N, 1, H, W)``; zero denotes a missing return.
+        depth_scale: Per-image multiplicative calibration shaped ``(N,)``.
+        depth_bias_m: Per-image calibration bias [m], shaped ``(N,)``.
+        noise_std_at_1m_m: Full-strength Gaussian standard deviation at 1 m [m].
+        missing_return_prob: Full-strength independent dropout probability for valid pixels.
+        boundary_corruption_prob: Full-strength corruption probability for depth-edge pixels.
+        boundary_threshold_m: Minimum neighboring depth jump [m] considered a boundary.
+        strength: ADR strength in ``[0, 1]``.
+
+    Returns:
+        Randomized metric depth with the same shape as ``depth_m``.
+    """
+    if depth_m.dim() != 4 or depth_m.shape[1] != 1:
+        raise ValueError(f"Expected depth shaped (N,1,H,W), received {tuple(depth_m.shape)}.")
+    batch_size = depth_m.shape[0]
+    if depth_scale.shape != (batch_size,) or depth_bias_m.shape != (batch_size,):
+        raise ValueError(
+            f"Expected depth_scale and depth_bias_m shaped ({batch_size},), received "
+            f"{tuple(depth_scale.shape)} and {tuple(depth_bias_m.shape)}."
+        )
+    if not 0.0 <= strength <= 1.0:
+        raise ValueError(f"strength must be in [0, 1], received {strength}.")
+    for name, probability in (
+        ("missing_return_prob", missing_return_prob),
+        ("boundary_corruption_prob", boundary_corruption_prob),
+    ):
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError(f"{name} must be in [0, 1], received {probability}.")
+    if noise_std_at_1m_m < 0.0 or boundary_threshold_m < 0.0:
+        raise ValueError("Depth-noise standard deviation and boundary threshold must be non-negative.")
+
+    clean = torch.nan_to_num(depth_m, nan=0.0, posinf=0.0, neginf=0.0).clamp_min(0.0)
+    if strength == 0.0:
+        return clean
+
+    valid = clean > 0.0
+    scale = depth_scale.to(device=depth_m.device, dtype=depth_m.dtype).view(batch_size, 1, 1, 1)
+    bias = depth_bias_m.to(device=depth_m.device, dtype=depth_m.dtype).view(batch_size, 1, 1, 1)
+    randomized = torch.where(valid, clean * scale + bias, torch.zeros_like(clean)).clamp_min_(0.0)
+
+    if noise_std_at_1m_m > 0.0:
+        noise_std = noise_std_at_1m_m * strength * randomized.square()
+        randomized.add_(torch.randn_like(randomized) * noise_std)
+        randomized.clamp_min_(0.0)
+
+    boundary_prob = boundary_corruption_prob * strength
+    if boundary_prob > 0.0:
+        edge = _depth_discontinuity_mask(clean, boundary_threshold_m)
+        choice = torch.rand_like(randomized)
+        selected = edge & (choice < boundary_prob)
+        # Split the selected interval equally between a missing return and four neighbor directions.
+        bucket_width = boundary_prob / 5.0
+        boundary_source = randomized.clone()
+        randomized.masked_fill_(selected & (choice < bucket_width), 0.0)
+        for direction in range(4):
+            lower = bucket_width * (direction + 1)
+            upper = bucket_width * (direction + 2)
+            replace = selected & (choice >= lower) & (choice < upper)
+            randomized = torch.where(replace, _shift_depth(boundary_source, direction), randomized)
+
+    dropout_prob = missing_return_prob * strength
+    if dropout_prob > 0.0:
+        randomized.masked_fill_((randomized > 0.0) & (torch.rand_like(randomized) < dropout_prob), 0.0)
+    return randomized
+
+
 def normalize_depth(depth_m: torch.Tensor, max_depth_m: float) -> torch.Tensor:
     """Clip metric depth to ``[0, max_depth_m]`` and scale it to ``[0, 1]``.
 

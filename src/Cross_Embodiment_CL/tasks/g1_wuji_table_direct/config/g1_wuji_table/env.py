@@ -7,7 +7,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import math
+from collections.abc import Callable, Sequence
 
 import torch
 import warp as wp
@@ -19,9 +20,10 @@ from isaaclab.envs import DirectRLEnv
 from isaaclab.envs.mdp.events import randomize_rigid_body_mass, randomize_rigid_body_material
 from isaaclab.managers import EventTermCfg, SceneEntityCfg
 from isaaclab.markers import VisualizationMarkers
-from isaaclab.sensors import Camera, ContactSensor
+from isaaclab.sensors import Camera, CameraCfg, ContactSensor
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
 from isaaclab.utils.math import (
+    combine_frame_transforms,
     matrix_from_quat,
     quat_apply,
     quat_from_euler_xyz,
@@ -34,7 +36,7 @@ from isaaclab.utils.math import (
 from Cross_Embodiment_CL.models import WujiLatentActionPipeline
 
 from .adr import AdaptiveDomainRandomization
-from .depth_camera import normalize_depth, resize_and_pad_depth
+from .depth_camera import normalize_depth, randomize_depth_measurement, resize_and_pad_depth, warp_depth_intrinsics
 from .env_cfg import STUDENT_DEPTH_LETTERBOX, G1WujiTableEnvCfg
 
 
@@ -212,6 +214,22 @@ class PendingPhysicsRandomization:
         return env_ids
 
 
+class _StudentDepthCamera(Camera):
+    """Camera whose metric-depth buffer can be postprocessed before any consumer reads it."""
+
+    def __init__(self, cfg: CameraCfg) -> None:
+        self.depth_postprocessor: Callable[[torch.Tensor], torch.Tensor] | None = None
+        super().__init__(cfg)
+
+    def _update_buffers_impl(self, env_mask: wp.array) -> None:
+        super()._update_buffers_impl(env_mask)
+        if self.depth_postprocessor is None:
+            return
+        depth = self._data.output["distance_to_image_plane"].torch
+        randomized = self.depth_postprocessor(depth.permute(0, 3, 1, 2))
+        depth.copy_(randomized.permute(0, 2, 3, 1))
+
+
 class G1WujiTableEnv(DirectRLEnv):
     """G1-Wuji scene with normalized arm and latent-hand position actions."""
 
@@ -372,6 +390,40 @@ class G1WujiTableEnv(DirectRLEnv):
             self._adr_physics_pending = PendingPhysicsRandomization(
                 self.num_envs, self.cfg.adr.physics_update_every_steps, device=self.device
             )
+        self._adr_camera_active = bool(self._adr_extra_active and self.depth_camera is not None)
+        if self._adr_camera_active:
+            nonnegative_camera_cfg = {
+                "adr.camera_position_range": self.cfg.adr.camera_position_range,
+                "adr.camera_rotation_range_deg": self.cfg.adr.camera_rotation_range_deg,
+                "adr.camera_principal_point_offset": self.cfg.adr.camera_principal_point_offset,
+                "adr.depth_bias": self.cfg.adr.depth_bias,
+                "adr.depth_noise_std_at_1m": self.cfg.adr.depth_noise_std_at_1m,
+                "adr.depth_boundary_threshold": self.cfg.adr.depth_boundary_threshold,
+            }
+            invalid = {name: value for name, value in nonnegative_camera_cfg.items() if value < 0.0}
+            if invalid:
+                raise ValueError(f"Camera ADR ranges must be non-negative, received {invalid}.")
+            for name, probability in (
+                ("adr.depth_missing_return_prob", self.cfg.adr.depth_missing_return_prob),
+                ("adr.depth_boundary_corruption_prob", self.cfg.adr.depth_boundary_corruption_prob),
+            ):
+                if not 0.0 <= probability <= 1.0:
+                    raise ValueError(f"{name} must be in [0, 1], received {probability}.")
+            for name, half_width in (
+                ("adr.camera_focal_scale", self.cfg.adr.camera_focal_scale),
+                ("adr.depth_scale", self.cfg.adr.depth_scale),
+            ):
+                if not 0.0 <= half_width < 1.0:
+                    raise ValueError(f"{name} must be in [0, 1), received {half_width}.")
+
+            camera_data = self.depth_camera.data
+            self._adr_camera_nominal_pos_w = camera_data.pos_w.torch.clone()
+            self._adr_camera_nominal_quat_w = camera_data.quat_w_world.torch.clone()
+            self._adr_camera_focal_scale = torch.ones(self.num_envs, device=self.device)
+            self._adr_camera_principal_point_offset = torch.zeros((self.num_envs, 2), device=self.device)
+            self._adr_depth_scale = torch.ones(self.num_envs, device=self.device)
+            self._adr_depth_bias = torch.zeros(self.num_envs, device=self.device)
+            self.depth_camera.depth_postprocessor = self._randomize_depth_camera_frame
         self.table_top_height = self.cfg.table_cfg.init_state.pos[2] + 0.5 * self.cfg.table_cfg.spawn.size[2]
         self.local_cube_keypoints = self._make_cube_keypoints(self.cfg.keypoint_extent)
         self._init_episode_metrics()
@@ -420,7 +472,7 @@ class G1WujiTableEnv(DirectRLEnv):
             self.contact_sensors[group_name] = ContactSensor(sensor_cfg)
         self.torso_contact_sensor = ContactSensor(self.cfg.torso_contact_sensor_cfg)
         # The student's head depth camera exists only when a preset configures one (presets=distill).
-        self.depth_camera = Camera(self.cfg.depth_camera) if self.cfg.depth_camera is not None else None
+        self.depth_camera = _StudentDepthCamera(self.cfg.depth_camera) if self.cfg.depth_camera is not None else None
 
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -1.0))
         source, destination = "/World/envs/env_0", "/World/envs/env_{}"
@@ -486,6 +538,60 @@ class G1WujiTableEnv(DirectRLEnv):
             mass_distribution_params=(1.0 - half_width, 1.0 + half_width),
             operation="scale",
             recompute_inertia=True,
+        )
+
+    def _randomize_depth_camera(self, env_ids: torch.Tensor, strength: float) -> None:
+        """Sample fixed-per-episode student-camera extrinsics, intrinsics, and calibration."""
+        count = len(env_ids)
+        translation = scaled_uniform(
+            (count, 3), self.cfg.adr.camera_position_range, strength, device=self.device
+        )
+        rotation = scaled_uniform(
+            (count, 3), math.radians(self.cfg.adr.camera_rotation_range_deg), strength, device=self.device
+        )
+        delta_quat = quat_from_euler_xyz(rotation[:, 0], rotation[:, 1], rotation[:, 2])
+        camera_pos_w, camera_quat_w = combine_frame_transforms(
+            self._adr_camera_nominal_pos_w[env_ids],
+            self._adr_camera_nominal_quat_w[env_ids],
+            translation,
+            delta_quat,
+        )
+        self.depth_camera.set_world_poses(
+            positions=camera_pos_w,
+            orientations=camera_quat_w,
+            env_ids=env_ids,
+            convention="world",
+        )
+
+        self._adr_camera_focal_scale[env_ids] = 1.0 + scaled_uniform(
+            count, self.cfg.adr.camera_focal_scale, strength, device=self.device
+        )
+        self._adr_camera_principal_point_offset[env_ids] = scaled_uniform(
+            (count, 2), self.cfg.adr.camera_principal_point_offset, strength, device=self.device
+        )
+        self._adr_depth_scale[env_ids] = 1.0 + scaled_uniform(
+            count, self.cfg.adr.depth_scale, strength, device=self.device
+        )
+        self._adr_depth_bias[env_ids] = scaled_uniform(
+            count, self.cfg.adr.depth_bias, strength, device=self.device
+        )
+
+    def _randomize_depth_camera_frame(self, depth: torch.Tensor) -> torch.Tensor:
+        """Apply the sampled student-only intrinsic and depth-measurement DR to one rendered frame."""
+        depth = warp_depth_intrinsics(
+            depth,
+            self._adr_camera_focal_scale,
+            self._adr_camera_principal_point_offset,
+        )
+        return randomize_depth_measurement(
+            depth,
+            self._adr_depth_scale,
+            self._adr_depth_bias,
+            noise_std_at_1m_m=self.cfg.adr.depth_noise_std_at_1m,
+            missing_return_prob=self.cfg.adr.depth_missing_return_prob,
+            boundary_corruption_prob=self.cfg.adr.depth_boundary_corruption_prob,
+            boundary_threshold_m=self.cfg.adr.depth_boundary_threshold,
+            strength=self.adr.strength,
         )
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
@@ -812,7 +918,8 @@ class G1WujiTableEnv(DirectRLEnv):
         if self.depth_camera is not None:
             # (N, H, W, 1) full-width planar depth [m] to the padded (N, 1, 224, 224) student input.
             depth = self.depth_camera.data.output["distance_to_image_plane"].torch
-            depth = resize_and_pad_depth(depth.permute(0, 3, 1, 2), STUDENT_DEPTH_LETTERBOX)
+            depth = depth.permute(0, 3, 1, 2)
+            depth = resize_and_pad_depth(depth, STUDENT_DEPTH_LETTERBOX)
             observations["camera"] = normalize_depth(depth, self.cfg.student_depth_max_m)
         return observations
 
@@ -1469,7 +1576,12 @@ class G1WujiTableEnv(DirectRLEnv):
         self.apple.write_root_velocity_to_sim_index(
             root_velocity=self.apple.data.default_root_vel.torch[env_ids], env_ids=env_ids
         )
-        if self._adr_sensor_noise_active or self._adr_hand_target_scale_active or self._adr_action_latency_active:
+        if (
+            self._adr_sensor_noise_active
+            or self._adr_hand_target_scale_active
+            or self._adr_action_latency_active
+            or self._adr_camera_active
+        ):
             strength = self.adr.strength
             if self._adr_sensor_noise_active:
                 num_dof = self._adr_joint_pos_obs_bias.shape[-1]
@@ -1491,6 +1603,8 @@ class G1WujiTableEnv(DirectRLEnv):
                     len(env_ids), self.cfg.adr.action_latency_max_steps, strength, device=self.device
                 )
                 self._adr_action_buffer.reset(env_ids)
+            if self._adr_camera_active:
+                self._randomize_depth_camera(env_ids, strength)
         if self._adr_friction_active or self._adr_mass_active:
             # Friction/mass are physics-model writes; batch them (see PendingPhysicsRandomization)
             # instead of writing per reset, to avoid a Newton model-change notification per step.

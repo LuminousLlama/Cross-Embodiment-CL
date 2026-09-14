@@ -301,6 +301,26 @@ class G1WujiTableAdrCfg:
     """Full-strength friction range for the apple, table, and Wuji hand links."""
     object_mass_scale: float = 0.20
     """Full-strength half-width of the apple's per-env mass scale relative to its default mass."""
+    camera_position_range: float = 0.03
+    """Full-strength camera translation half-width [m] along each camera-local axis."""
+    camera_rotation_range_deg: float = 3.0
+    """Full-strength camera roll/pitch/yaw half-width [deg] about its nominal mounting pose."""
+    camera_focal_scale: float = 0.01
+    """Full-strength focal-length scale half-width around one."""
+    camera_principal_point_offset: float = 2.0
+    """Full-strength principal-point offset half-width [px] along each content-image axis."""
+    depth_scale: float = 0.01
+    """Full-strength metric-depth scale half-width around one."""
+    depth_bias: float = 0.003
+    """Full-strength additive metric-depth bias half-width [m]."""
+    depth_noise_std_at_1m: float = 0.004
+    """Full-strength per-pixel Gaussian depth-noise standard deviation at 1 m [m]."""
+    depth_missing_return_prob: float = 0.02
+    """Full-strength probability that a valid depth return becomes zero."""
+    depth_boundary_corruption_prob: float = 0.25
+    """Full-strength probability of corrupting a pixel beside a depth discontinuity."""
+    depth_boundary_threshold: float = 0.02
+    """Neighboring metric-depth difference [m] that marks a silhouette boundary."""
     physics_update_every_steps: int = 32
     """Env steps between batched physics-model writes."""
 
