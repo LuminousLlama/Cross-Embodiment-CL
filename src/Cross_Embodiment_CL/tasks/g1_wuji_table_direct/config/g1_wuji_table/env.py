@@ -1281,7 +1281,7 @@ class G1WujiTableEnv(DirectRLEnv):
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int]) -> None:
-        """Restore authored poses; ADR may perturb the robot root and apple spawn independently."""
+        """Restore poses; the apple starts at the ADR-area center plus optional ADR perturbation."""
         super()._reset_idx(env_ids)
 
         robot_pose = self.robot.data.default_root_pose.torch[env_ids].clone()
@@ -1338,6 +1338,8 @@ class G1WujiTableEnv(DirectRLEnv):
         apple_pose[:, 0] -= 0.5 * self.cfg.adr.spawn_box_x
         apple_pose[:, 1] -= 0.5 * self.cfg.adr.spawn_box_y
         if self._adr_spawn_active:
+            # Add a symmetric per-env perturbation around the rectangle center at the current DR
+            # strength; the goal xy tracks the same spawn xy.
             dx, dy = sample_spawn_offsets(
                 len(env_ids),
                 self.adr.strength,
@@ -1347,8 +1349,8 @@ class G1WujiTableEnv(DirectRLEnv):
             )
             apple_pose[:, 0] += dx
             apple_pose[:, 1] += dy
-            self.object_start_position[env_ids, :2] = apple_pose[:, :2]
-            self.goal_position[env_ids, :2] = apple_pose[:, :2]
+        self.object_start_position[env_ids, :2] = apple_pose[:, :2]
+        self.goal_position[env_ids, :2] = apple_pose[:, :2]
         apple_pose[:, :3] += self.scene.env_origins[env_ids]
         self.apple.write_root_pose_to_sim_index(root_pose=apple_pose, env_ids=env_ids)
         self.apple.write_root_velocity_to_sim_index(
