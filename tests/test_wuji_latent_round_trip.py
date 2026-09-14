@@ -72,6 +72,28 @@ def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset:
 
 
 @pytest.mark.integration
+def test_depth_view_publishes_the_exact_final_student_image() -> None:
+    """The viewer-facing camera output is the finalized student tensor in NHWC layout."""
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    resolve_presets(env_cfg, selected=("depth_view",))
+    env_cfg.sim.visualizer_cfgs = []
+    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    try:
+        env.reset(seed=42)
+        unwrapped = env.unwrapped
+        observations = unwrapped._get_observations()
+        preview = unwrapped.depth_camera.data.output["depth"].torch
+        native = unwrapped.depth_camera.data.output["distance_to_image_plane"].torch
+
+        assert observations["camera"].shape == (1, 1, 224, 224)
+        assert preview.shape == (1, 224, 224, 1)
+        assert native.shape == (1, 127, 224, 1)
+        assert torch.equal(preview.permute(0, 3, 1, 2), observations["camera"])
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
 def test_nonfinite_state_returns_zero_terminal_reward() -> None:
     """A state rejected by the done guard must not leak a NaN reward to the trainer."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
