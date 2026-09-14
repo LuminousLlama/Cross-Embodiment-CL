@@ -13,47 +13,69 @@ import torch
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.depth_camera import (
     D435_DEPTH_848X480,
     PinholeIntrinsics,
-    crop_and_resize_depth,
+    fit_depth_letterbox,
     normalize_depth,
-    square_crop,
+    resize_and_pad_depth,
 )
 
 
 def _render_tilted_plane(intrinsics: PinholeIntrinsics) -> torch.Tensor:
-    """Depth of the plane ``z + 0.3 * y = 1`` sampled at pixel centres, shape ``(1, H, W)``."""
+    """Depth of ``z + 0.2 * x + 0.3 * y = 1`` at pixel centres, shape ``(1, H, W)``."""
+    u = torch.arange(intrinsics.width, dtype=torch.float64) + 0.5
     v = torch.arange(intrinsics.height, dtype=torch.float64) + 0.5
+    ray_x = (u - intrinsics.cx) / intrinsics.fx
     ray_y = (v - intrinsics.cy) / intrinsics.fy
-    depth = 1.0 / (1.0 + 0.3 * ray_y)
-    return depth[None, :, None].expand(1, intrinsics.height, intrinsics.width)
+    return 1.0 / (1.0 + 0.2 * ray_x[None, None, :] + 0.3 * ray_y[None, :, None])
 
 
-def test_datasheet_d435_crop_matches_the_signed_off_geometry():
-    """848x480 at 58 deg crops columns 184-663 and becomes a centred 224x224 camera with f = 202.1."""
+def test_datasheet_d435_letterbox_retains_the_full_horizontal_view():
+    """The full 848x480 D435 view becomes 224x127 content inside the 224x224 student input."""
     assert D435_DEPTH_848X480.fy == pytest.approx(240.0 / math.tan(math.radians(29.0)))
-    crop = square_crop(D435_DEPTH_848X480, 224)
-    assert (crop.left, crop.top, crop.size) == (184, 0, 480)
-    assert crop.output.fx == pytest.approx(202.05, abs=0.01)
-    assert (crop.output.cx, crop.output.cy) == (112.0, 112.0)
-    assert 2.0 * math.degrees(math.atan(112.0 / crop.output.fy)) == pytest.approx(58.0)
+    letterbox = fit_depth_letterbox(D435_DEPTH_848X480, 224)
+
+    assert (letterbox.content.width, letterbox.content.height) == (224, 127)
+    assert (letterbox.pad_left, letterbox.pad_right, letterbox.pad_top, letterbox.pad_bottom) == (0, 0, 48, 49)
+    assert (letterbox.content.cx, letterbox.content.cy) == (112.0, 63.5)
+    assert (letterbox.output.cx, letterbox.output.cy) == (112.0, 111.5)
+
+    source_hfov = 2.0 * math.degrees(math.atan(D435_DEPTH_848X480.width / (2.0 * D435_DEPTH_848X480.fx)))
+    content_hfov = 2.0 * math.degrees(math.atan(letterbox.content.width / (2.0 * letterbox.content.fx)))
+    assert content_hfov == pytest.approx(source_hfov)
+    assert content_hfov == pytest.approx(88.8, abs=0.1)
 
 
-@pytest.mark.parametrize(
-    "intrinsics",
-    [D435_DEPTH_848X480, PinholeIntrinsics(848, 480, fx=431.2, fy=431.2, cx=424.37, cy=239.62)],
-)
-def test_cropped_real_depth_matches_a_direct_render(intrinsics):
-    """Cropping and resizing a full frame reproduces what a camera with the output intrinsics renders."""
-    crop = square_crop(intrinsics, 224)
-    resized = crop_and_resize_depth(_render_tilted_plane(intrinsics), crop)
-    direct = _render_tilted_plane(crop.output)
-    # Nearest sampling picks a source pixel up to half a source pixel from the output ray.
-    assert resized.shape == (1, 1, 224, 224)
-    assert torch.allclose(resized[:, 0], direct, atol=1.0e-3)
+def test_letterboxed_real_depth_matches_the_simulated_content():
+    """Real-frame resize and simulated low-resolution rendering represent the same wide pinhole view."""
+    letterbox = fit_depth_letterbox(D435_DEPTH_848X480, 224)
+    output = resize_and_pad_depth(_render_tilted_plane(D435_DEPTH_848X480), letterbox)
+    content = output[
+        :,
+        :,
+        letterbox.pad_top : letterbox.pad_top + letterbox.content.height,
+        letterbox.pad_left : letterbox.pad_left + letterbox.content.width,
+    ]
+    direct = _render_tilted_plane(letterbox.content)
+
+    assert output.shape == (1, 1, 224, 224)
+    # Nearest sampling picks a source pixel up to half a source pixel from the output ray. The rounded
+    # 127-pixel height adds less than 0.2% aspect error relative to the exact 126.79-pixel fit.
+    assert torch.allclose(content[:, 0], direct, atol=1.5e-3)
+    assert torch.count_nonzero(output[:, :, : letterbox.pad_top]) == 0
+    assert torch.count_nonzero(output[:, :, -letterbox.pad_bottom :]) == 0
 
 
-def test_square_crop_rejects_non_square_pixels():
+def test_simulated_content_is_only_padded():
+    """The simulator already renders at the fitted resolution, so observation assembly must not resample it."""
+    letterbox = fit_depth_letterbox(D435_DEPTH_848X480, 224)
+    content = torch.rand(2, 1, letterbox.content.height, letterbox.content.width)
+    output = resize_and_pad_depth(content, letterbox)
+
+    assert torch.equal(output[:, :, letterbox.pad_top : letterbox.pad_top + letterbox.content.height], content)
+
+
+def test_depth_letterbox_rejects_non_square_pixels():
     with pytest.raises(ValueError, match="Square pixels"):
-        square_crop(PinholeIntrinsics(848, 480, fx=430.0, fy=440.0, cx=424.0, cy=240.0), 224)
+        fit_depth_letterbox(PinholeIntrinsics(848, 480, fx=430.0, fy=440.0, cx=424.0, cy=240.0), 224)
 
 
 def test_normalize_depth_keeps_missing_returns_at_zero():

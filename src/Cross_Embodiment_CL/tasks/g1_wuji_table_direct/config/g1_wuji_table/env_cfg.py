@@ -33,7 +33,7 @@ from isaaclab_physx.sim.spawners.materials.physics_materials_cfg import PhysxRig
 
 from isaaclab_tasks.utils import PresetCfg, preset
 
-from .depth_camera import D435_DEPTH_848X480, square_crop
+from .depth_camera import D435_DEPTH_848X480, fit_depth_letterbox
 
 _G1_CONFIG_PATH = Path(__file__).resolve().parents[6] / "assets/g1/g1.py"
 # TODO make a objects CFG file
@@ -200,8 +200,8 @@ class G1WujiTableDebugPresetCfg(PresetCfg):
 
 STUDENT_DEPTH_SIZE = 224
 """Side [px] of the student's square depth image."""
-STUDENT_DEPTH_CROP = square_crop(D435_DEPTH_848X480, STUDENT_DEPTH_SIZE)
-"""Square crop of the D435 depth stream that the simulated camera reproduces."""
+STUDENT_DEPTH_LETTERBOX = fit_depth_letterbox(D435_DEPTH_848X480, STUDENT_DEPTH_SIZE)
+"""Full-width D435 depth stream resized and padded to the student's square input."""
 _STUDENT_DEPTH_CAMERA_PRIM_PATH = "{ENV_REGEX_NS}/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
 """Prim path of the student's D435 depth imager."""
 _STUDENT_DEPTH_CAMERA_STREAM_PATTERN = "/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
@@ -222,13 +222,13 @@ class G1WujiTableDepthCameraPresetCfg(PresetCfg):
         update_latest_camera_pose=True,
         # Planar z-depth, as a RealSense reports, rather than distance along the ray.
         data_types=["distance_to_image_plane"],
-        width=STUDENT_DEPTH_SIZE,
-        height=STUDENT_DEPTH_SIZE,
-        # The Newton renderer draws square pixels about a centred principal point, which the crop guarantees.
+        width=STUDENT_DEPTH_LETTERBOX.content.width,
+        height=STUDENT_DEPTH_LETTERBOX.content.height,
+        # Render only the valid full-width content; the observation path pads it to 224x224.
         spawn=sim_utils.PinholeCameraCfg.from_intrinsic_matrix(
-            STUDENT_DEPTH_CROP.output.matrix(),
-            width=STUDENT_DEPTH_SIZE,
-            height=STUDENT_DEPTH_SIZE,
+            STUDENT_DEPTH_LETTERBOX.content.matrix(),
+            width=STUDENT_DEPTH_LETTERBOX.content.width,
+            height=STUDENT_DEPTH_LETTERBOX.content.height,
             clipping_range=(0.01, 10.0),
         ),
         offset=CameraCfg.OffsetCfg(convention="world"),

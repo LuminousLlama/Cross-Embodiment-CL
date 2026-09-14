@@ -34,8 +34,8 @@ from isaaclab.utils.math import (
 from Cross_Embodiment_CL.models import WujiLatentActionPipeline
 
 from .adr import AdaptiveDomainRandomization
-from .depth_camera import normalize_depth
-from .env_cfg import G1WujiTableEnvCfg
+from .depth_camera import normalize_depth, resize_and_pad_depth
+from .env_cfg import STUDENT_DEPTH_LETTERBOX, G1WujiTableEnvCfg
 
 
 def sample_spawn_offsets(
@@ -810,9 +810,10 @@ class G1WujiTableEnv(DirectRLEnv):
             "student": actor_proprioception,
         }
         if self.depth_camera is not None:
-            # (N, H, W, 1) planar depth [m] to (N, 1, H, W), the layout RSL-RL's CNN expects.
+            # (N, H, W, 1) full-width planar depth [m] to the padded (N, 1, 224, 224) student input.
             depth = self.depth_camera.data.output["distance_to_image_plane"].torch
-            observations["camera"] = normalize_depth(depth, self.cfg.student_depth_max_m).permute(0, 3, 1, 2)
+            depth = resize_and_pad_depth(depth.permute(0, 3, 1, 2), STUDENT_DEPTH_LETTERBOX)
+            observations["camera"] = normalize_depth(depth, self.cfg.student_depth_max_m)
         return observations
 
     def _get_rewards(self) -> torch.Tensor:

@@ -5,9 +5,9 @@
 
 """Pinhole geometry shared by the simulated student depth camera and real D435 preprocessing.
 
-The simulator renders the student's square depth image directly.  A real D435 frame is cropped to
-the largest square centred on its principal point and resized to the same size.  Both derive their
-geometry from one set of intrinsics, so each pixel is the same ray in either image.
+The simulator renders a reduced-resolution image with the D435's full aspect ratio.  Both that image
+and a real D435 frame are letterboxed into the student's square input, preserving the wide horizontal
+field of view instead of discarding the source image's sides.
 
 Pixel coordinates are continuous and edge-based: an image spans ``[0, W] x [0, H]`` and a centred
 principal point is ``(W / 2, H / 2)``, matching Isaac Lab's camera intrinsics.  librealsense and
@@ -56,66 +56,129 @@ calibrated: replace it with the measured intrinsics of that exact stream, unalig
 
 
 @dataclass(frozen=True)
-class SquareCrop:
-    """A square crop of a source image and the intrinsics of that crop after resizing."""
+class DepthLetterbox:
+    """Geometry for fitting one pinhole image inside a padded output canvas."""
 
-    left: int
-    top: int
-    size: int
-    """Side of the square in source pixels."""
-    output: PinholeIntrinsics
-    """Intrinsics of the cropped square once resized to ``output.width`` pixels."""
+    source: PinholeIntrinsics
+    """Intrinsics of the full-resolution input image."""
+    content: PinholeIntrinsics
+    """Intrinsics of the resized, unpadded image that the simulator renders directly."""
+    output_width: int
+    output_height: int
+    pad_left: int
+    pad_right: int
+    pad_top: int
+    pad_bottom: int
+
+    @property
+    def output(self) -> PinholeIntrinsics:
+        """Return the content intrinsics expressed in the padded output coordinates."""
+        return PinholeIntrinsics(
+            width=self.output_width,
+            height=self.output_height,
+            fx=self.content.fx,
+            fy=self.content.fy,
+            cx=self.content.cx + self.pad_left,
+            cy=self.content.cy + self.pad_top,
+        )
 
 
-def square_crop(intrinsics: PinholeIntrinsics, output_size: int) -> SquareCrop:
-    """Return the largest square centred on the principal point, resized to ``output_size`` pixels.
+def fit_depth_letterbox(intrinsics: PinholeIntrinsics, output_size: int) -> DepthLetterbox:
+    """Fit a full pinhole image within an ``output_size`` square without stretching or cropping.
 
-    Cropping keeps every kept pixel's ray and shifts the principal point by the crop origin; a uniform
-    resize scales all four intrinsics.  A stretch would make ``fx != fy``, which the Newton renderer
-    cannot represent, so the non-square sides are discarded instead.
+    The longer source dimension fills the output.  The shorter resized dimension is rounded to the
+    nearest pixel, so an odd number of padding pixels is placed with the extra pixel on the bottom or
+    right.  The focal length uses the uniform fit scale because Newton renders a centred square-pixel
+    pinhole; the at-most-half-pixel aspect-ratio rounding is handled by the fixed padding boundary.
 
     Raises:
-        ValueError: If the source pixels are not square.
+        ValueError: If ``output_size`` is invalid or the source pixels are not square.
     """
+    if output_size < 1:
+        raise ValueError(f"Output size must be positive, received {output_size}.")
     if not math.isclose(intrinsics.fx, intrinsics.fy, rel_tol=1.0e-3):
         raise ValueError(f"Square pixels are required, but fx={intrinsics.fx} and fy={intrinsics.fy}.")
-    half = math.floor(
-        min(intrinsics.cx, intrinsics.width - intrinsics.cx, intrinsics.cy, intrinsics.height - intrinsics.cy)
-    )
-    if half < 1:
-        raise ValueError(f"The principal point ({intrinsics.cx}, {intrinsics.cy}) leaves no square to crop.")
-    size = 2 * half
-    left = round(intrinsics.cx - half)
-    top = round(intrinsics.cy - half)
-    scale = output_size / size
-    output = PinholeIntrinsics(
-        width=output_size,
-        height=output_size,
+
+    scale = min(output_size / intrinsics.width, output_size / intrinsics.height)
+    content_width = max(1, round(intrinsics.width * scale))
+    content_height = max(1, round(intrinsics.height * scale))
+    pad_left = (output_size - content_width) // 2
+    pad_top = (output_size - content_height) // 2
+    content = PinholeIntrinsics(
+        width=content_width,
+        height=content_height,
         fx=intrinsics.fx * scale,
         fy=intrinsics.fy * scale,
-        cx=(intrinsics.cx - left) * scale,
-        cy=(intrinsics.cy - top) * scale,
+        cx=0.5 * content_width + (intrinsics.cx - 0.5 * intrinsics.width) * scale,
+        cy=0.5 * content_height + (intrinsics.cy - 0.5 * intrinsics.height) * scale,
     )
-    return SquareCrop(left=left, top=top, size=size, output=output)
+    return DepthLetterbox(
+        source=intrinsics,
+        content=content,
+        output_width=output_size,
+        output_height=output_size,
+        pad_left=pad_left,
+        pad_right=output_size - content_width - pad_left,
+        pad_top=pad_top,
+        pad_bottom=output_size - content_height - pad_top,
+    )
 
 
-def crop_and_resize_depth(depth_m: torch.Tensor, crop: SquareCrop) -> torch.Tensor:
-    """Crop a real metric depth image and resize it to the student resolution.
+def resize_and_pad_depth(depth_m: torch.Tensor, letterbox: DepthLetterbox) -> torch.Tensor:
+    """Resize full-frame metric depth if needed and pad it to the student input resolution.
 
-    Nearest-exact sampling never blends foreground and background depths across an edge, which would
-    invent surfaces that exist in neither the real scene nor the simulator.
+    Nearest sampling never blends foreground and background depths across an edge, which would invent
+    surfaces that exist in neither the real scene nor the simulator.  The real frame is sampled at the
+    exact rays of the simulated content camera instead of using independent rounded x/y resize scales.
+    Zero padding uses the same representation as a missing D435/Newton depth return.
 
     Args:
-        depth_m: Metric depth with shape ``(N, H, W)`` or ``(N, 1, H, W)``.
-        crop: The crop computed for this stream's intrinsics.
+        depth_m: Metric depth with shape ``(N, H, W)`` or ``(N, 1, H, W)``. Its spatial shape must
+            match either the source D435 frame or the simulator's resized content frame.
+        letterbox: Shared real/sim resize and padding geometry.
 
     Returns:
-        Depth with shape ``(N, 1, S, S)``, where ``S`` is the crop's output size.
+        Depth with shape ``(N, 1, output_height, output_width)``.
+
+    Raises:
+        ValueError: If the tensor rank, channel count, or spatial shape does not match the contract.
     """
     if depth_m.dim() == 3:
         depth_m = depth_m.unsqueeze(1)
-    window = depth_m[..., crop.top : crop.top + crop.size, crop.left : crop.left + crop.size]
-    return F.interpolate(window, size=(crop.output.height, crop.output.width), mode="nearest-exact")
+    if depth_m.dim() != 4 or depth_m.shape[1] != 1:
+        raise ValueError(f"Expected depth shaped (N,H,W) or (N,1,H,W), received {tuple(depth_m.shape)}.")
+
+    spatial_shape = tuple(depth_m.shape[-2:])
+    source_shape = (letterbox.source.height, letterbox.source.width)
+    content_shape = (letterbox.content.height, letterbox.content.width)
+    if spatial_shape == source_shape:
+        dtype = depth_m.dtype
+        columns = torch.arange(letterbox.content.width, device=depth_m.device, dtype=dtype) + 0.5
+        rows = torch.arange(letterbox.content.height, device=depth_m.device, dtype=dtype) + 0.5
+        source_columns = (
+            columns - letterbox.content.cx
+        ) / letterbox.content.fx * letterbox.source.fx + letterbox.source.cx
+        source_rows = (rows - letterbox.content.cy) / letterbox.content.fy * letterbox.source.fy + letterbox.source.cy
+        grid_x = 2.0 * source_columns / letterbox.source.width - 1.0
+        grid_y = 2.0 * source_rows / letterbox.source.height - 1.0
+        grid_rows, grid_columns = torch.meshgrid(grid_y, grid_x, indexing="ij")
+        grid = torch.stack((grid_columns, grid_rows), dim=-1)
+        depth_m = F.grid_sample(
+            depth_m,
+            grid.unsqueeze(0).expand(depth_m.shape[0], -1, -1, -1),
+            mode="nearest",
+            padding_mode="zeros",
+            align_corners=False,
+        )
+    elif spatial_shape != content_shape:
+        raise ValueError(f"Expected depth spatial shape {source_shape} or {content_shape}, received {spatial_shape}.")
+
+    return F.pad(
+        depth_m,
+        (letterbox.pad_left, letterbox.pad_right, letterbox.pad_top, letterbox.pad_bottom),
+        mode="constant",
+        value=0.0,
+    )
 
 
 def normalize_depth(depth_m: torch.Tensor, max_depth_m: float) -> torch.Tensor:

@@ -161,7 +161,7 @@ def main(env_cfg: DirectRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     frame_steps = sorted({int(step) for step in args_cli.frame_steps.split(",")})
     os.makedirs(args_cli.out_dir, exist_ok=True)
 
-    from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg import STUDENT_DEPTH_CROP
+    from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg import STUDENT_DEPTH_LETTERBOX
 
     with launch_simulation(env_cfg, args_cli):
         env = RslRlVecEnvWrapper(
@@ -174,7 +174,9 @@ def main(env_cfg: DirectRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
             runner.load(retrieve_file_path(args_cli.checkpoint))
             policy = runner.get_inference_policy(device=base_env.device)
 
-        expected_intrinsics = torch.tensor(STUDENT_DEPTH_CROP.output.matrix(), device=base_env.device).reshape(3, 3)
+        expected_intrinsics = torch.tensor(STUDENT_DEPTH_LETTERBOX.content.matrix(), device=base_env.device).reshape(
+            3, 3
+        )
         obs = env.get_observations()
         records, tiles = [], []
         for step in range(frame_steps[-1] + 1):

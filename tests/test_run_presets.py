@@ -103,7 +103,7 @@ def test_depth_camera_only_in_student_presets(overrides, has_camera):
     assert (env_cfg.depth_camera is not None) is has_camera
     if has_camera:
         assert env_cfg.depth_camera.data_types == ["distance_to_image_plane"]
-        assert (env_cfg.depth_camera.width, env_cfg.depth_camera.height) == (224, 224)
+        assert (env_cfg.depth_camera.width, env_cfg.depth_camera.height) == (224, 127)
         assert env_cfg.depth_camera.update_latest_camera_pose is True
 
 
