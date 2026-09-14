@@ -149,17 +149,19 @@ class G1WujiTableDebugCfg:
 
     keypoint_markers: bool = False
     """Whether to draw the goal (green) and current (red) object-pose keypoint markers."""
+    adr_spawn_area_marker: bool = False
+    """Whether to draw the configured full-strength ADR spawn area as a visual-only square."""
 
 
 @configclass
 class G1WujiTableDebugPresetCfg(PresetCfg):
     """Diagnostics per run preset: markers whenever a viewer is open, so off for headless ``train`` and ``eval``."""
 
-    default: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True)
+    default: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True, adr_spawn_area_marker=True)
     train: G1WujiTableDebugCfg = G1WujiTableDebugCfg()
     eval: G1WujiTableDebugCfg = train
     distill: G1WujiTableDebugCfg = train
-    depth_view: G1WujiTableDebugCfg = train
+    depth_view: G1WujiTableDebugCfg = G1WujiTableDebugCfg(adr_spawn_area_marker=True)
 
 
 STUDENT_DEPTH_SIZE = 224
@@ -261,7 +263,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adr_goal_alpha_end: float = 30.0
     """Goal-reward keypoint-error sharpness once the DR schedule reaches full strength."""
     adr_debug_spawn_area_vis: bool = False
-    """Whether to draw the full-strength apple spawn box as a translucent visual-only square."""
+    """Legacy opt-in alias for :attr:`debug.adr_spawn_area_marker`."""
     adr_extra_enabled: bool = False
     """Whether the extra ADR-scaled observation-noise, action-latency, hand-target-scale, friction, and
     mass terms in :class:`.env.G1WujiTableEnv` are active. Has no effect unless ``adr_enabled`` is also set."""
@@ -295,7 +297,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     instead of on every reset; the new episode runs on its previous physics parameters for at most
     N steps, negligible against 480-step episodes."""
     debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
-    """Diagnostics, e.g. ``env.debug.keypoint_markers=False``; headless ``train`` and ``eval`` turn them off."""
+    """Viewer diagnostics; headless ``train`` and ``eval`` turn them off."""
     contact_debug: bool = False
     """Whether to sample MJWarp contact and constraint demand for capacity sizing; off during normal runs."""
     contact_debug_interval: int = 1
@@ -327,6 +329,19 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         },
     )
     """Two-centimetre red spheres marking the current object-frame keypoints."""
+    adr_spawn_area_marker_cfg = VisualizationMarkersCfg(
+        prim_path="/Visuals/CrossEmbodiment/adr_spawn_area",
+        markers={
+            "area": sim_utils.CuboidCfg(
+                size=(1.0, 1.0, 0.001),
+                visual_material=sim_utils.PreviewSurfaceCfg(
+                    diffuse_color=(0.1, 0.6, 1.0),
+                    opacity=0.3,
+                ),
+            ),
+        },
+    )
+    """Unit-width blue square scaled to the configured ADR spawn area at runtime."""
     contact_sensor_cfg = ContactSensorCfg(
         prim_path="/World/envs/env_[^/]+/G1Wuji/wujihand/right_palm_link",
         update_period=0.0,

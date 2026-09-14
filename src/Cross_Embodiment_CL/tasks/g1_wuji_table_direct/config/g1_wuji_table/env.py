@@ -301,10 +301,32 @@ class G1WujiTableEnv(DirectRLEnv):
         self._init_penetration_probe()
         self.goal_keypoint_marker: VisualizationMarkers | None = None
         self.object_keypoint_marker: VisualizationMarkers | None = None
+        self.adr_spawn_area_marker: VisualizationMarkers | None = None
         if self.cfg.debug.keypoint_markers:
             self.goal_keypoint_marker = VisualizationMarkers(self.cfg.goal_keypoint_marker_cfg)
             self.object_keypoint_marker = VisualizationMarkers(self.cfg.object_keypoint_marker_cfg)
             self._update_keypoint_markers()
+        if self.cfg.debug.adr_spawn_area_marker or self.cfg.adr_debug_spawn_area_vis:
+            self.adr_spawn_area_marker = VisualizationMarkers(self.cfg.adr_spawn_area_marker_cfg)
+            marker_thickness = self.cfg.adr_spawn_area_marker_cfg.markers["area"].size[2]
+            apple_x, apple_y = self.cfg.apple_cfg.init_state.pos[:2]
+            marker_center = torch.tensor(
+                (
+                    apple_x - 0.5 * self.cfg.adr_spawn_box_x,
+                    apple_y - 0.5 * self.cfg.adr_spawn_box_y,
+                    self.table_top_height + 0.5 * marker_thickness,
+                ),
+                device=self.device,
+            )
+            marker_positions = self.scene.env_origins + marker_center
+            marker_scales = marker_positions.new_tensor(
+                (self.cfg.adr_spawn_box_x, self.cfg.adr_spawn_box_y, 1.0)
+            ).expand(self.num_envs, -1)
+            self.adr_spawn_area_marker.visualize(
+                translations=marker_positions,
+                scales=marker_scales,
+                environment_ids=torch.arange(self.num_envs, device=self.device),
+            )
 
     def _setup_scene(self) -> None:
         self.robot = Articulation(self.cfg.robot_cfg)
@@ -320,20 +342,6 @@ class G1WujiTableEnv(DirectRLEnv):
         self.torso_contact_sensor = ContactSensor(self.cfg.torso_contact_sensor_cfg)
         # The student's head depth camera exists only when a preset configures one (presets=distill).
         self.depth_camera = Camera(self.cfg.depth_camera) if self.cfg.depth_camera is not None else None
-
-        if self.cfg.adr_debug_spawn_area_vis:
-            # Visual-only (no collision, rigid body, or mass) square over the full-strength ADR spawn box,
-            # cloned per env below with the rest of "/World/envs/env_0".
-            box_x, box_y = self.cfg.adr_spawn_box_x, self.cfg.adr_spawn_box_y
-            debug_spawn_area_cfg = sim_utils.CuboidCfg(
-                size=(box_x, box_y, 0.001),
-                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.1, 0.6, 1.0), opacity=0.3),
-            )
-            debug_spawn_area_cfg.func(
-                "/World/envs/env_0/AdrSpawnArea",
-                debug_spawn_area_cfg,
-                translation=(0.35 - box_x / 2, -0.05 - box_y / 2, 0.0005),
-            )
 
         spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -1.0))
         source, destination = "/World/envs/env_0", "/World/envs/env_{}"

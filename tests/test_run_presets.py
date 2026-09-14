@@ -24,17 +24,17 @@ def _visualizer_types(env_cfg) -> list[str]:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("overrides", "num_envs", "visual_shapes", "visualizers", "keypoint_markers"),
+    ("overrides", "num_envs", "visual_shapes", "visualizers", "keypoint_markers", "spawn_area_marker"),
     [
-        ([], 1, True, ["newton_gl"], True),
-        (["presets=train"], 2048, False, [], False),
-        (["presets=debug"], 4, True, ["newton_gl"], True),
-        (["presets=eval"], 16, False, [], False),
-        (["presets=distill"], 1024, True, [], False),
-        (["presets=depth_view"], 1, True, ["newton_gl"], False),
+        ([], 1, True, ["newton_gl"], True, True),
+        (["presets=train"], 2048, False, [], False, False),
+        (["presets=debug"], 4, True, ["newton_gl"], True, True),
+        (["presets=eval"], 16, False, [], False, False),
+        (["presets=distill"], 1024, True, [], False, False),
+        (["presets=depth_view"], 1, True, ["newton_gl"], False, True),
     ],
 )
-def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, keypoint_markers):
+def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, keypoint_markers, spawn_area_marker):
     """The default and each run preset set physics, environment count, viewer, and diagnostics together."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=overrides)
 
@@ -46,6 +46,7 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
     assert env_cfg.scene.env_spacing == 3.0
     assert _visualizer_types(env_cfg) == visualizers
     assert env_cfg.debug.keypoint_markers is keypoint_markers
+    assert env_cfg.debug.adr_spawn_area_marker is spawn_area_marker
     assert env_cfg.apple_cfg.spawn.usd_path.endswith("assets/objects/YcbApple/textured_collision.usda")
 
 
@@ -96,12 +97,34 @@ def test_scalar_overrides_win_inside_run_presets():
             "env.sim.physics.load_visual_shapes=True",
             "env.scene.num_envs=2",
             "env.debug.keypoint_markers=True",
+            "env.debug.adr_spawn_area_marker=True",
         ],
     )
 
     assert env_cfg.sim.physics.load_visual_shapes is True
     assert env_cfg.scene.num_envs == 2
     assert env_cfg.debug.keypoint_markers is True
+    assert env_cfg.debug.adr_spawn_area_marker is True
+
+
+@pytest.mark.unit
+def test_adr_spawn_area_marker_has_no_physics_properties():
+    """The spawn-area square is display geometry, never a collider or rigid body."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
+    marker = env_cfg.adr_spawn_area_marker_cfg.markers["area"]
+
+    assert marker.collision_props is None
+    assert marker.rigid_props is None
+    assert marker.mass_props is None
+    assert marker.size == (1.0, 1.0, 0.001)
+
+
+@pytest.mark.unit
+def test_legacy_adr_spawn_area_marker_override_still_resolves():
+    """Existing launch commands using the original root-level switch remain valid."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["env.adr_debug_spawn_area_vis=True"])
+
+    assert env_cfg.adr_debug_spawn_area_vis is True
 
 
 @pytest.mark.unit

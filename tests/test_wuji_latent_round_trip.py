@@ -111,6 +111,8 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         assert torch.allclose(unwrapped.goal_position, torch.tensor([[0.35, -0.05, 0.24]], device=unwrapped.device))
         assert unwrapped.goal_keypoint_marker is not None
         assert unwrapped.object_keypoint_marker is not None
+        assert unwrapped.adr_spawn_area_marker is not None
+        assert unwrapped.cfg.adr_enabled is False
         assert unwrapped.cfg.episode_length_s == 8.0
         assert unwrapped.local_cube_keypoints.shape == (8, 3)
         assert unwrapped.cfg.object_max_horizontal_displacement == 0.20
