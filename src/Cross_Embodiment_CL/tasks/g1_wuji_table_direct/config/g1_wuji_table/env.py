@@ -616,15 +616,6 @@ class G1WujiTableEnv(DirectRLEnv):
                 + self._adr_joint_vel_obs_bias
                 + torch.randn_like(clean_joint_velocity_raw) * (self.cfg.adr.joint_vel_obs_noise * strength)
             )
-        if self.common_step_counter % 30 == 0:
-            wuji_means = clean_joint_position[:, self.wuji_joint_ids].mean(dim=0).tolist()
-            print(
-                "[wuji-joint-means]\n"
-                + "\n".join(
-                    f"  {name}={mean:+.5f}"
-                    for name, mean in zip(self._WUJI_JOINT_NAMES, wuji_means, strict=True)
-                )
-            )
         # Arm and hand speeds are scaled by the task caps rather than the looser solver limits.
         joint_velocity_limits = self.robot.data.soft_joint_vel_limits.torch.clone()
         joint_velocity_limits[:, self.arm_joint_ids] = self.cfg.arm_joint_velocity_limit
