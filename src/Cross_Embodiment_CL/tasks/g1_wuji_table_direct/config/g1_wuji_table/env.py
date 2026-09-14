@@ -646,6 +646,7 @@ class G1WujiTableEnv(DirectRLEnv):
         clean_object_position = self.apple.data.root_pos_w.torch
         actor_object_position = clean_object_position
         if self._adr_sensor_noise_active:
+            # Observation-only noise: reward and success computations use the true apple position.
             actor_object_position = (
                 clean_object_position
                 + self._adr_object_pos_obs_bias
@@ -1281,7 +1282,7 @@ class G1WujiTableEnv(DirectRLEnv):
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int]) -> None:
-        """Restore poses; the apple starts at the ADR-area center plus optional ADR perturbation."""
+        """Restore authored poses; ADR may perturb the robot root and apple spawn independently."""
         super()._reset_idx(env_ids)
 
         robot_pose = self.robot.data.default_root_pose.torch[env_ids].clone()
@@ -1338,8 +1339,7 @@ class G1WujiTableEnv(DirectRLEnv):
         apple_pose[:, 0] -= 0.5 * self.cfg.adr.spawn_box_x
         apple_pose[:, 1] -= 0.5 * self.cfg.adr.spawn_box_y
         if self._adr_spawn_active:
-            # Add a symmetric per-env perturbation around the rectangle center at the current DR
-            # strength; the goal xy tracks the same spawn xy.
+            # Add a symmetric per-env perturbation around the authored legacy corner.
             dx, dy = sample_spawn_offsets(
                 len(env_ids),
                 self.adr.strength,

@@ -313,7 +313,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     # Normalized full-range joint-position targets for the 7 right-arm joints, followed by
     # the frozen 18-D Wuji latent action. The waist remains internally held.
     action_space = 25
-    # The policy and critic deliberately receive the identical privileged state.
+    # Policy and critic have equal dimensions but distinct values when sensor-noise ADR is active:
+    # policy receives noisy measurements, while critic receives clean simulator-derived values.
     observation_space = 171
     state_space = 171
     log_control_metrics: bool = False

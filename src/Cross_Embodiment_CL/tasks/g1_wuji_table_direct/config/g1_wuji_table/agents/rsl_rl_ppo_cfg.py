@@ -18,8 +18,8 @@ class G1WujiTablePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 10_000
     save_interval = 250
     experiment_name = "g1_wuji_table_direct"
-    # The environment's policy and critic tensors are deliberately identical.
-    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    # The actor sees sensor-noisy policy observations; the critic uses the clean simulator view.
+    obs_groups = {"actor": ["policy"], "critic": ["critic"]}
     actor = RslRlMLPModelCfg(
         hidden_dims=[2048, 1024, 512],
         activation="elu",
