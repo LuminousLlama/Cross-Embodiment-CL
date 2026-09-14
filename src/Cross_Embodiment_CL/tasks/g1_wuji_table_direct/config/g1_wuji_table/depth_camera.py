@@ -190,7 +190,7 @@ def warp_depth_intrinsics(
 
     The input and output have the same resolution. ``focal_scale`` multiplies both focal lengths, while
     ``principal_point_offset_px`` shifts ``(cx, cy)`` from the image centre. Nearest sampling preserves
-    foreground/background discontinuities and rays outside the nominal image become missing returns.
+    foreground/background discontinuities and rays outside the nominal image are zero-filled.
 
     Args:
         depth_m: Metric depth shaped ``(N, 1, H, W)``.
@@ -232,23 +232,6 @@ def warp_depth_intrinsics(
     return F.grid_sample(depth_m, grid, mode="nearest", padding_mode="zeros", align_corners=False)
 
 
-def _depth_discontinuity_mask(depth_m: torch.Tensor, threshold_m: float) -> torch.Tensor:
-    """Return a one-pixel mask on both sides of 4-connected depth discontinuities."""
-    valid = depth_m > 0.0
-    edge = torch.zeros_like(valid)
-
-    horizontal_pair = valid[..., 1:] & valid[..., :-1]
-    horizontal_jump = horizontal_pair & (torch.abs(depth_m[..., 1:] - depth_m[..., :-1]) > threshold_m)
-    edge[..., 1:] |= horizontal_jump
-    edge[..., :-1] |= horizontal_jump
-
-    vertical_pair = valid[..., 1:, :] & valid[..., :-1, :]
-    vertical_jump = vertical_pair & (torch.abs(depth_m[..., 1:, :] - depth_m[..., :-1, :]) > threshold_m)
-    edge[..., 1:, :] |= vertical_jump
-    edge[..., :-1, :] |= vertical_jump
-    return edge
-
-
 def _shift_depth(depth_m: torch.Tensor, direction: int) -> torch.Tensor:
     """Shift depth by one pixel without wrapping; directions are left, right, up, down."""
     if direction == 0:
@@ -267,7 +250,6 @@ def randomize_depth_measurement(
     depth_scale: torch.Tensor,
     depth_bias_m: torch.Tensor,
     noise_std_at_1m_m: float,
-    missing_return_prob: float,
     boundary_corruption_prob: float,
     boundary_threshold_m: float,
     strength: float,
@@ -275,16 +257,14 @@ def randomize_depth_measurement(
     """Apply student-only D435-style measurement corruption to metric depth.
 
     Calibration scale/bias are fixed per episode by the caller. Gaussian noise is sampled per pixel
-    with standard deviation proportional to ``depth^2``. Random valid pixels become missing returns,
-    while selected depth discontinuities either become missing or copy a four-connected neighbor to
-    mimic one-pixel foreground/background silhouette errors.
+    with standard deviation proportional to ``depth^2``. Selected depth-discontinuity pixels copy a
+    valid four-connected neighbor to mimic one-pixel foreground/background silhouette errors.
 
     Args:
-        depth_m: Metric depth shaped ``(N, 1, H, W)``; zero denotes a missing return.
+        depth_m: Metric depth shaped ``(N, 1, H, W)``; zero denotes invalid input depth.
         depth_scale: Per-image multiplicative calibration shaped ``(N,)``.
         depth_bias_m: Per-image calibration bias [m], shaped ``(N,)``.
         noise_std_at_1m_m: Full-strength Gaussian standard deviation at 1 m [m].
-        missing_return_prob: Full-strength independent dropout probability for valid pixels.
         boundary_corruption_prob: Full-strength corruption probability for depth-edge pixels.
         boundary_threshold_m: Minimum neighboring depth jump [m] considered a boundary.
         strength: ADR strength in ``[0, 1]``.
@@ -302,12 +282,10 @@ def randomize_depth_measurement(
         )
     if not 0.0 <= strength <= 1.0:
         raise ValueError(f"strength must be in [0, 1], received {strength}.")
-    for name, probability in (
-        ("missing_return_prob", missing_return_prob),
-        ("boundary_corruption_prob", boundary_corruption_prob),
-    ):
-        if not 0.0 <= probability <= 1.0:
-            raise ValueError(f"{name} must be in [0, 1], received {probability}.")
+    if not 0.0 <= boundary_corruption_prob <= 1.0:
+        raise ValueError(
+            f"boundary_corruption_prob must be in [0, 1], received {boundary_corruption_prob}."
+        )
     if noise_std_at_1m_m < 0.0 or boundary_threshold_m < 0.0:
         raise ValueError("Depth-noise standard deviation and boundary threshold must be non-negative.")
 
@@ -327,30 +305,23 @@ def randomize_depth_measurement(
 
     boundary_prob = boundary_corruption_prob * strength
     if boundary_prob > 0.0:
-        edge = _depth_discontinuity_mask(clean, boundary_threshold_m)
-        choice = torch.rand_like(randomized)
-        selected = edge & (choice < boundary_prob)
-        # Split the selected interval equally between a missing return and four neighbor directions.
-        bucket_width = boundary_prob / 5.0
         boundary_source = randomized.clone()
-        randomized.masked_fill_(selected & (choice < bucket_width), 0.0)
-        for direction in range(4):
-            lower = bucket_width * (direction + 1)
-            upper = bucket_width * (direction + 2)
-            replace = selected & (choice >= lower) & (choice < upper)
-            randomized = torch.where(replace, _shift_depth(boundary_source, direction), randomized)
-
-    dropout_prob = missing_return_prob * strength
-    if dropout_prob > 0.0:
-        randomized.masked_fill_((randomized > 0.0) & (torch.rand_like(randomized) < dropout_prob), 0.0)
+        neighbors = torch.stack([_shift_depth(boundary_source, direction) for direction in range(4)])
+        eligible = (neighbors > 0.0) & (
+            torch.abs(neighbors - boundary_source.unsqueeze(0)) > boundary_threshold_m
+        )
+        selected = eligible.any(dim=0) & (torch.rand_like(randomized) < boundary_prob)
+        # Choose only across a real depth jump, never a same-surface or zero-depth neighbor.
+        scores = torch.rand_like(neighbors).masked_fill_(~eligible, -1.0)
+        chosen = neighbors.gather(0, scores.argmax(dim=0, keepdim=True)).squeeze(0)
+        randomized = torch.where(selected, chosen, randomized)
     return randomized
 
 
 def normalize_depth(depth_m: torch.Tensor, max_depth_m: float) -> torch.Tensor:
     """Clip metric depth to ``[0, max_depth_m]`` and scale it to ``[0, 1]``.
 
-    A missing return reads 0 on both the D435 and the Newton renderer, and stays 0; non-finite values
-    are treated the same way.
+    Zero and non-finite input depths remain zero.
     """
     depth = torch.nan_to_num(depth_m, nan=0.0, posinf=0.0, neginf=0.0)
     return depth.clamp(0.0, max_depth_m) / max_depth_m

@@ -50,6 +50,12 @@ _FRICTION = 0.5
 MJWarp resolves a contact's friction as the max of its two shapes and reads only dynamic friction, so friction
 is authored with static equal to dynamic and PhysX materials combine by max.
 """
+_TABLE_NEAR_EDGE_X = 0.15
+"""Table edge nearest the robot [m], retained from the original 0.5 m center and 0.7 m length."""
+_TABLE_LENGTH_X = 0.483
+"""Table length [m] along +X, looking away from the robot."""
+_TABLE_WIDTH_Y = 0.805
+"""Table width [m] across the robot."""
 
 
 def _mjwarp_physics_cfg(load_visual_shapes: bool) -> NewtonCfg:
@@ -294,22 +300,36 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adr_object_mass_scale: float = 0.20
     """Full-strength half-width of the apple's per-env mass scale relative to its default mass,
     ``U(1-m*s, 1+m*s)``."""
+    adr_camera_position_enabled: bool = False
+    """Whether per-episode camera translation DR is enabled."""
     adr_camera_position_range: float = 0.03
     """Full-strength per-episode camera translation half-width [m] along each camera-local axis."""
+    adr_camera_rotation_enabled: bool = False
+    """Whether per-episode camera roll/pitch/yaw DR is enabled."""
     adr_camera_rotation_range_deg: float = 3.0
     """Full-strength per-episode camera roll/pitch/yaw half-width [deg] about its nominal mounting pose."""
+    adr_camera_focal_enabled: bool = True
+    """Whether per-episode focal-length DR is enabled."""
     adr_camera_focal_scale: float = 0.01
     """Full-strength per-episode focal-length scale half-width around one."""
+    adr_camera_principal_point_enabled: bool = True
+    """Whether per-episode principal-point DR is enabled."""
     adr_camera_principal_point_offset: float = 2.0
     """Full-strength per-episode principal-point offset half-width [px] along each content-image axis."""
+    adr_depth_scale_enabled: bool = True
+    """Whether per-episode metric-depth scale DR is enabled."""
     adr_depth_scale: float = 0.01
     """Full-strength per-episode metric-depth scale half-width around one."""
+    adr_depth_bias_enabled: bool = True
+    """Whether per-episode additive metric-depth bias DR is enabled."""
     adr_depth_bias: float = 0.003
     """Full-strength per-episode metric-depth bias half-width [m]."""
+    adr_depth_pixel_noise_enabled: bool = True
+    """Whether independent per-pixel Gaussian depth noise is enabled."""
     adr_depth_noise_std_at_1m: float = 0.004
     """Full-strength per-pixel Gaussian depth-noise standard deviation at 1 m [m], scaling with depth squared."""
-    adr_depth_missing_return_prob: float = 0.02
-    """Full-strength per-pixel probability that a valid student depth return becomes zero."""
+    adr_depth_boundary_corruption_enabled: bool = True
+    """Whether depth-discontinuity boundary corruption is enabled."""
     adr_depth_boundary_corruption_prob: float = 0.25
     """Full-strength probability of corrupting a pixel on either side of a depth discontinuity."""
     adr_depth_boundary_threshold: float = 0.02
@@ -507,7 +527,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     table_cfg: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Table",
         spawn=sim_utils.CuboidCfg(
-            size=(0.7, 1.0, 0.04),
+            size=(_TABLE_LENGTH_X, _TABLE_WIDTH_Y, 0.04),
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             collision_props=sim_utils.CollisionPropertiesCfg(),
             # UNTESTED on PhysX: the max combine mode is only verified on Newton, which ignores it.
@@ -517,7 +537,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.32, 0.18, 0.08)),
         ),
         # The G1 asset's fixed pelvis is at z=0; the table top is therefore at pelvis height.
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.5, 0.0, -0.02)),
+        # Keep the near edge at x=0.15 m so the robot-to-table gap is unchanged.
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(_TABLE_NEAR_EDGE_X + 0.5 * _TABLE_LENGTH_X, 0.0, -0.02)),
     )
     apple_cfg: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Apple",
