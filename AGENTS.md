@@ -14,6 +14,12 @@
 - Do not add tests that merely mirror implementation literals or defaults, assert private structure or ownership without an observable consequence, or duplicate dimensions/defaults already exercised by a stronger test. For configuration changes, prefer resolver or runtime effects; for assets, compare against authored or official sources. If no meaningful failure mode exists, do not add a test.
 - Do not delete existing high-value tests merely because they include constants.
 
+## Commit policy
+
+- When working interactively with the user, keep changes as local unstaged and uncommitted diffs by default. Commit only when the user explicitly asks to commit; a prior commit request applies only to the changes current at that time and is not blanket permission for later commits.
+- When working autonomously on an explicitly delegated end-to-end task, incremental focused commits are allowed.
+- Before every commit, stage only the intended files, run the configured pre-commit hooks against the staged changes, resolve any failures, inspect the staged diff, and never bypass hooks with `--no-verify`.
+
 ## G1 + Wuji tabletop DirectRL environment
 
 - The active task is `CrossEmbodimentCl-G1-Wuji-Table-Direct`, implemented under `src/Cross_Embodiment_CL/tasks/g1_wuji_table_direct/`.  Keep it a small privileged-state Stage-1 task: one fixed-base G1/Wuji, one YCB apple, one table; do not import legacy curriculum, vision, IK, or domain-randomization machinery without an explicit request.
