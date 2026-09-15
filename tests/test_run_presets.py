@@ -134,6 +134,16 @@ def test_scalar_overrides_win_inside_run_presets():
 
 
 @pytest.mark.unit
+def test_lift_reward_toggle_defaults_on_and_accepts_cli_override():
+    """The global dense-lift ablation is on by default and scalar-overridable."""
+    default_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
+    disabled_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["env.lift_reward_enabled=False"])
+
+    assert default_cfg.lift_reward_enabled is True
+    assert disabled_cfg.lift_reward_enabled is False
+
+
+@pytest.mark.unit
 def test_train_and_dr_none_select_nominal_gravity_without_randomized_terms():
     """The no-DR preset keeps full gravity while disabling every stochastic ADR term."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=train,dr_none"])

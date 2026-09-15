@@ -791,7 +791,11 @@ class G1WujiTableEnv(DirectRLEnv):
                 )
                 goal_alpha_step = goal_alpha
             goal_reward = self.cfg.goal_reward_scale * torch.exp(-goal_alpha * keypoint_error) * contact_gate
-            lift_reward = self.cfg.lift_reward_scale * self._lift_fraction(object_position)
+            lift_reward = (
+                self.cfg.lift_reward_scale * self._lift_fraction(object_position)
+                if self.cfg.lift_reward_enabled
+                else torch.zeros_like(object_position[:, 2])
+            )
             contact_reward = self.cfg.contact_reward_scale * (
                 contact_force_stack > self.cfg.contact_force_threshold
             ).float().mean(dim=1)
@@ -818,7 +822,11 @@ class G1WujiTableEnv(DirectRLEnv):
             # Optional dense assist, off by default (adept_lift_reward_scale=0.0): reuses the
             # shaped mode's lift_fraction so a policy far from the goal -- where the alpha-sharpened,
             # gate-only goal term gives no gradient -- still has a signal toward lifting.
-            lift_reward = self.cfg.adept_lift_reward_scale * self._lift_fraction(object_position)
+            lift_reward = (
+                self.cfg.adept_lift_reward_scale * self._lift_fraction(object_position)
+                if self.cfg.lift_reward_enabled
+                else torch.zeros_like(object_position[:, 2])
+            )
             reward = reach_reward + goal_reward + contact_reward + lift_reward
         else:
             raise ValueError(f"Unknown reward_mode '{self.cfg.reward_mode}'; expected 'shaped' or 'adept'.")

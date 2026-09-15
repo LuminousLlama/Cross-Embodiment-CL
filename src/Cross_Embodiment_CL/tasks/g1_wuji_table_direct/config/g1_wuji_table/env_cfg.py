@@ -445,11 +445,13 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     Reuses the shaped mode's ``lift_fraction`` (see :meth:`G1WujiTableEnv._lift_fraction`). 0.0
     (default) adds nothing, so pure ADEPT behaviour is byte-identical; the gated, alpha-sharpened
     goal term alone gives no gradient toward lifting while far from the goal, which this term
-    supplies when set nonzero.
+    supplies when set nonzero. :attr:`lift_reward_enabled` globally disables this term too.
     """
     reach_reward_scale = 10.0
     goal_reward_scale = 5.0
     goal_reward_alpha = 15.0
+    lift_reward_enabled: bool = True
+    """Whether to include dense lift reward in either reward formulation."""
     lift_reward_scale = 3.0
     """Per-step reward for carrying the apple the full way from its rest height to the goal."""
     gravity_curriculum_start: float = 0.0
