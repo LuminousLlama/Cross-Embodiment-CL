@@ -340,6 +340,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Fixed apple goal position [m] in the environment frame."""
     object_rest_height = 0.04
     """Original tabletop apple root height [m], used as the lift-progress baseline."""
+    object_spawn_height_offset_cm = 10.0
+    """Vertical apple spawn offset [cm] above :attr:`object_rest_height`."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
     adr_debug_spawn_area_vis: bool = False
@@ -461,7 +463,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """
     contact_reward_scale = 0.5
     """Per-step scale of the binary per-contact-group grasp reward."""
-    success_keypoint_error_threshold = 0.10
+    success_keypoint_error_threshold = 0.05
     """Terminal mean virtual-keypoint error threshold [m] for the success metric."""
     object_max_horizontal_displacement = 0.20
     """Maximum horizontal displacement [m] from the authored apple reset pose."""
@@ -529,9 +531,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
                 )
             ),
         ),
-        # The apple mesh extends to z=-0.0367 m in its local frame. Start its root
-        # 0.10 m above the prior tabletop rest root, halfway to the 0.24 m goal.
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, -0.05, 0.14)),
+        # The reset path applies ``object_spawn_height_offset_cm`` to this rest baseline.
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, -0.05, object_rest_height)),
     )
 
     def __post_init__(self) -> None:

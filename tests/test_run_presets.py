@@ -13,6 +13,7 @@ from isaaclab_physx.physics import PhysxCfg
 from isaaclab_tasks.utils import resolve_task_config
 
 import Cross_Embodiment_CL.tasks  # noqa: F401
+from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import object_spawn_height
 
 TASK = "CrossEmbodimentCl-G1-Wuji-Table-Direct"
 AGENT = "rsl_rl_cfg_entry_point"
@@ -51,15 +52,28 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
 
 @pytest.mark.unit
 def test_default_apple_spawn_is_ten_centimeters_below_goal():
-    """The elevated spawn is halfway through the configured tabletop-to-goal lift."""
+    """The default spawn offset is 10 cm above rest and below the goal."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
 
-    spawn_z = env_cfg.object_cfg.init_state.pos[2]
     rest_z = env_cfg.object_rest_height
     goal_z = env_cfg.goal_position[2]
+    spawn_z = object_spawn_height(rest_z, env_cfg.object_spawn_height_offset_cm)
+    assert env_cfg.object_spawn_height_offset_cm == pytest.approx(10.0)
     assert spawn_z - rest_z == pytest.approx(0.10)
     assert spawn_z == pytest.approx(goal_z - 0.10)
     assert (spawn_z - rest_z) / (goal_z - rest_z) == pytest.approx(0.5)
+    assert env_cfg.success_keypoint_error_threshold == pytest.approx(0.05)
+
+
+@pytest.mark.unit
+def test_apple_spawn_height_offset_cli_override_resolves_and_is_applied():
+    """A Hydra centimeter override changes the reset spawn relationship."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["env.object_spawn_height_offset_cm=5"])
+
+    assert env_cfg.object_spawn_height_offset_cm == pytest.approx(5.0)
+    assert object_spawn_height(env_cfg.object_rest_height, env_cfg.object_spawn_height_offset_cm) == pytest.approx(
+        env_cfg.object_rest_height + 0.05
+    )
 
 
 @pytest.mark.unit

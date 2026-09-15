@@ -44,6 +44,11 @@ def sample_spawn_offsets(
     return dx, dy
 
 
+def object_spawn_height(object_rest_height: float, offset_cm: float) -> float:
+    """Calculate the apple root spawn height [m] from its rest height and offset [cm]."""
+    return object_rest_height + offset_cm / 100.0
+
+
 def scaled_uniform(
     size: int | tuple[int, ...],
     half_width: float,
@@ -1337,6 +1342,7 @@ class G1WujiTableEnv(DirectRLEnv):
             root_velocity=self.table.data.default_root_vel.torch[env_ids], env_ids=env_ids
         )
         apple_pose = self.apple.data.default_root_pose.torch[env_ids].clone()
+        apple_pose[:, 2] = object_spawn_height(self.cfg.object_rest_height, self.cfg.object_spawn_height_offset_cm)
         # The authored pose is the legacy corner.  The nominal pose is always the center of the
         # configured square, including when ADR is disabled; active spawn DR adds a symmetric offset.
         apple_pose[:, 0] -= 0.5 * self.cfg.adr.spawn_box_x
