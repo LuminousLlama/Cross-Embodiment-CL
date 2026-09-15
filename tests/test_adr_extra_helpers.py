@@ -13,6 +13,7 @@ from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env imp
     PendingPhysicsRandomization,
     sample_latency_steps,
     scaled_uniform,
+    shaped_goal_and_contact_rewards,
     thumb_and_other_finger_gate,
 )
 
@@ -49,6 +50,18 @@ def test_thumb_and_other_finger_gate_requires_strict_two_finger_contact(forces, 
     )
 
     assert result.tolist() == [expected]
+
+
+@pytest.mark.unit
+def test_shaped_goal_is_ungated_and_contact_bonus_is_flat():
+    """Contact changes only the binary bonus, not the goal reward."""
+    keypoint_error = torch.tensor([0.05, 0.05])
+    gate = torch.tensor([False, True])
+
+    goal_reward, contact_reward = shaped_goal_and_contact_rewards(keypoint_error, gate, 5.0, 15.0, 0.5)
+
+    assert torch.allclose(goal_reward, 5.0 * torch.exp(-15.0 * keypoint_error))
+    assert torch.equal(contact_reward, torch.tensor([0.0, 0.5]))
 
 
 @pytest.mark.unit

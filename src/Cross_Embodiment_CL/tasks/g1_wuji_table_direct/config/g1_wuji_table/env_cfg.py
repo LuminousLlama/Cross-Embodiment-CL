@@ -415,8 +415,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     reward_mode: str = "shaped"
     """Reward formulation used by :meth:`G1WujiTableEnv._get_rewards`.
 
-    ``"shaped"`` (default) is today's reach + thumb-and-finger contact-gated goal + lift + binary contact
-    reward. ``"adept"`` is the ADEPT-style minimal
+    ``"shaped"`` (default) is reach + ungated keypoint-goal reward + optional lift + a flat
+    thumb-and-finger contact bonus. ``"adept"`` is the ADEPT-style minimal
     reward: reach, plus a goal term gated on a two-body force threshold (thumb and any other
     finger, not the palm) whose keypoint-error sharpness ramps over training, plus a flat
     contact bonus under the same gate. It has no lift term and no press guard. Any other value
@@ -450,8 +450,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     reach_reward_scale = 10.0
     goal_reward_scale = 5.0
     goal_reward_alpha = 15.0
-    lift_reward_enabled: bool = True
-    """Whether to include dense lift reward in either reward formulation."""
+    lift_reward_enabled: bool = False
+    """Whether to include dense lift reward in either reward formulation; disabled by default."""
     lift_reward_scale = 3.0
     """Per-step reward for carrying the apple the full way from its rest height to the goal."""
     gravity_curriculum_start: float = 0.0
@@ -461,10 +461,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     contact_force_threshold = 0.3
     """Per-group normal force [N] counted as contact.
 
-    The shaped goal gate requires the thumb and at least one other finger to exceed this threshold.
+    The shaped contact bonus requires the thumb and at least one other finger to exceed this threshold.
     """
     contact_reward_scale = 0.5
-    """Per-step scale of the binary per-contact-group grasp reward."""
+    """Flat per-step bonus when the thumb and another finger both exceed the contact threshold."""
     success_keypoint_error_threshold = 0.05
     """Terminal mean virtual-keypoint error threshold [m] for the success metric."""
     object_max_horizontal_displacement = 0.20

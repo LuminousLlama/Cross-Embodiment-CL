@@ -87,6 +87,19 @@ def thumb_and_other_finger_gate(
     )
 
 
+def shaped_goal_and_contact_rewards(
+    keypoint_error: torch.Tensor,
+    contact_gate: torch.Tensor,
+    goal_scale: float,
+    goal_alpha: float,
+    contact_scale: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return ungated keypoint reward and a flat thresholded contact bonus."""
+    goal_reward = goal_scale * torch.exp(-goal_alpha * keypoint_error)
+    contact_reward = contact_scale * contact_gate.float()
+    return goal_reward, contact_reward
+
+
 class ActionDelayBuffer:
     """Ring buffer of the last ``capacity`` per-env actions, returning the action from ``delay`` steps ago."""
 
@@ -767,20 +780,13 @@ class G1WujiTableEnv(DirectRLEnv):
         rotation_error = torch.rad2deg(2.0 * torch.acos(rotation_dot))
 
         if self.cfg.reward_mode == "shaped":
-            # Require a thumb-and-finger pinch before paying the pose reward. Palm-only or
-            # single-finger contact is not sufficient to establish a grasp.
+            # A thumb-and-finger pinch earns the binary contact bonus; pose progress is ungated.
             contact_gate = thumb_and_other_finger_gate(
                 contact_force_stack,
                 tuple(self.contact_sensors),
                 self.cfg.contact_force_threshold,
                 self._THUMB_CONTACT_GROUP,
             )
-            # Gating the pose reward on contact is the original design and it is kept, because an
-            # ungated version is a trap: keypoint_error can only rise when the apple is disturbed,
-            # so touching it is net negative.  Measured ungated, the policy hovered with its
-            # nearest hand point 1.8 cm clear of the apple and touched in ~1% of steps.  Gated,
-            # experimenting with contact costs nothing and the lift only competes once the apple
-            # is held.  The gate itself had to be repaired first -- see contact_force_threshold.
             # adr.enabled ramps the sharpness with DR strength instead of the fixed constant.
             goal_alpha = self.cfg.goal_reward_alpha
             goal_alpha_step = 0.0
@@ -790,15 +796,14 @@ class G1WujiTableEnv(DirectRLEnv):
                     + (self.cfg.adr.goal_alpha_end - self.cfg.goal_reward_alpha) * self.adr.strength
                 )
                 goal_alpha_step = goal_alpha
-            goal_reward = self.cfg.goal_reward_scale * torch.exp(-goal_alpha * keypoint_error) * contact_gate
+            goal_reward, contact_reward = shaped_goal_and_contact_rewards(
+                keypoint_error, contact_gate, self.cfg.goal_reward_scale, goal_alpha, self.cfg.contact_reward_scale
+            )
             lift_reward = (
                 self.cfg.lift_reward_scale * self._lift_fraction(object_position)
                 if self.cfg.lift_reward_enabled
                 else torch.zeros_like(object_position[:, 2])
             )
-            contact_reward = self.cfg.contact_reward_scale * (
-                contact_force_stack > self.cfg.contact_force_threshold
-            ).float().mean(dim=1)
             reward = reach_reward + goal_reward + contact_reward + lift_reward
         elif self.cfg.reward_mode == "adept":
             # Grasp gate: the thumb and at least one other finger (never the palm) each past
