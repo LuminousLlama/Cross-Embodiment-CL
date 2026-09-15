@@ -94,8 +94,8 @@ def shaped_goal_and_contact_rewards(
     goal_alpha: float,
     contact_scale: float,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return ungated keypoint reward and a flat thresholded contact bonus."""
-    goal_reward = goal_scale * torch.exp(-goal_alpha * keypoint_error)
+    """Return contact-gated keypoint reward and a flat thresholded contact bonus."""
+    goal_reward = goal_scale * torch.exp(-goal_alpha * keypoint_error) * contact_gate
     contact_reward = contact_scale * contact_gate.float()
     return goal_reward, contact_reward
 
