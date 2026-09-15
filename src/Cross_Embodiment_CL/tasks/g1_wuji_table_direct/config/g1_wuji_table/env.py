@@ -66,6 +66,22 @@ def sample_latency_steps(n: int, max_steps: int, strength: float, device: torch.
     return delay.clamp_(0, cap).long()
 
 
+def thumb_and_other_finger_gate(
+    contact_forces: torch.Tensor,
+    contact_sensor_names: Sequence[str],
+    threshold: float,
+    thumb_sensor_name: str,
+) -> torch.Tensor:
+    """Return the strict thumb-plus-other-finger contact gate for each environment."""
+    thumb_index = contact_sensor_names.index(thumb_sensor_name)
+    other_finger_indices = [
+        index for index, name in enumerate(contact_sensor_names) if name != "palm" and name != thumb_sensor_name
+    ]
+    return (contact_forces[:, thumb_index] > threshold) & (contact_forces[:, other_finger_indices] > threshold).any(
+        dim=1
+    )
+
+
 class ActionDelayBuffer:
     """Ring buffer of the last ``capacity`` per-env actions, returning the action from ``delay`` steps ago."""
 
@@ -641,8 +657,7 @@ class G1WujiTableEnv(DirectRLEnv):
             actor_object_position = (
                 clean_object_position
                 + self._adr_object_pos_obs_bias
-                + torch.randn_like(clean_object_position)
-                * (self.cfg.adr.object_pos_obs_noise * self.adr.strength)
+                + torch.randn_like(clean_object_position) * (self.cfg.adr.object_pos_obs_noise * self.adr.strength)
             )
         object_rotation = self.apple.data.root_quat_w.torch
         object_rotation_6d = matrix_from_quat(object_rotation)[..., :, :2].reshape(self.num_envs, -1)
@@ -724,7 +739,7 @@ class G1WujiTableEnv(DirectRLEnv):
         """Reward reaching, thumb-opposed contact, and the upright object pose.
 
         ``reward_mode`` (see :attr:`G1WujiTableEnvCfg.reward_mode`) switches between today's
-        shaped reward and the ADEPT-style minimal reward; the shaped branch below is unchanged.
+        shaped reward and the ADEPT-style minimal reward.
         """
         self.extras.pop("log", None)
         hand_points = self.robot.data.body_pos_w.torch[:, self.hand_point_body_ids]
@@ -747,8 +762,14 @@ class G1WujiTableEnv(DirectRLEnv):
         rotation_error = torch.rad2deg(2.0 * torch.acos(rotation_dot))
 
         if self.cfg.reward_mode == "shaped":
-            contact_group_count = (contact_force_stack > self.cfg.contact_force_threshold).sum(dim=1)
-            contact_gate = contact_group_count >= self.cfg.contact_min_bodies
+            # Require a thumb-and-finger pinch before paying the pose reward. Palm-only or
+            # single-finger contact is not sufficient to establish a grasp.
+            contact_gate = thumb_and_other_finger_gate(
+                contact_force_stack,
+                tuple(self.contact_sensors),
+                self.cfg.contact_force_threshold,
+                self._THUMB_CONTACT_GROUP,
+            )
             # Gating the pose reward on contact is the original design and it is kept, because an
             # ungated version is a trap: keypoint_error can only rise when the apple is disturbed,
             # so touching it is net negative.  Measured ungated, the policy hovered with its
@@ -766,30 +787,20 @@ class G1WujiTableEnv(DirectRLEnv):
                 goal_alpha_step = goal_alpha
             goal_reward = self.cfg.goal_reward_scale * torch.exp(-goal_alpha * keypoint_error) * contact_gate
             lift_reward = self.cfg.lift_reward_scale * self._lift_fraction(object_position)
-            rest_height = self.object_start_position[:, 2] + self.scene.env_origins[:, 2]
-            # Pay binary contact only while the apple remains above the pressed-below-rest guard.
-            held = object_position[:, 2] > rest_height - self.cfg.press_tolerance
-            contact_reward = (
-                self.cfg.contact_reward_scale
-                * (contact_force_stack > self.cfg.contact_force_threshold).float().mean(dim=1)
-                * held
-            )
+            contact_reward = self.cfg.contact_reward_scale * (
+                contact_force_stack > self.cfg.contact_force_threshold
+            ).float().mean(dim=1)
             reward = reach_reward + goal_reward + contact_reward + lift_reward
         elif self.cfg.reward_mode == "adept":
             # Grasp gate: the thumb and at least one other finger (never the palm) each past
             # adept_gate_force, per the ADEPT paper's minimal reward. No shaped contact term, no
             # lift term, and no press guard -- the gate alone stands in for all three.
-            thumb_index = list(self.contact_sensors).index(self._THUMB_CONTACT_GROUP)
-            other_finger_indices = [
-                index
-                for index, name in enumerate(self.contact_sensors)
-                if name != "palm" and name != self._THUMB_CONTACT_GROUP
-            ]
-            thumb_force = contact_force_stack[:, thumb_index]
-            other_finger_force = contact_force_stack[:, other_finger_indices]
-            contact_gate = (thumb_force > self.cfg.adept_gate_force) & (
-                other_finger_force > self.cfg.adept_gate_force
-            ).any(dim=1)
+            contact_gate = thumb_and_other_finger_gate(
+                contact_force_stack,
+                tuple(self.contact_sensors),
+                self.cfg.adept_gate_force,
+                self._THUMB_CONTACT_GROUP,
+            )
             # Keypoint-error sharpness ramps so the goal term starts forgiving (easy to earn once
             # gated) and sharpens into a tighter pose requirement as training progresses.
             alpha_ramp = min(1.0, self.common_step_counter / self.cfg.adept_goal_alpha_steps)

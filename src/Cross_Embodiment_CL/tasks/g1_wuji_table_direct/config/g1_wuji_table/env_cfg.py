@@ -260,7 +260,7 @@ class G1WujiTableAdrCfg:
     """Full-strength maximum per-env action delay [policy steps]."""
     hand_target_scale: float = 0.10
     """Full-strength half-width of the per-env multiplicative Wuji hand-target scale."""
-    friction_range: tuple[float, float] = (0.2, 0.8)
+    friction_range: tuple[float, float] = (0.1, 0.4)
     """Full-strength friction range for the apple, table, and Wuji hand links."""
     object_mass_scale: float = 0.20
     """Full-strength half-width of the apple's per-env mass scale relative to its default mass."""
@@ -411,8 +411,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     reward_mode: str = "shaped"
     """Reward formulation used by :meth:`G1WujiTableEnv._get_rewards`.
 
-    ``"shaped"`` (default) is today's reach + contact-gated goal + lift + binary contact
-    reward, with the press guard on the contact term. ``"adept"`` is the ADEPT-style minimal
+    ``"shaped"`` (default) is today's reach + thumb-and-finger contact-gated goal + lift + binary contact
+    reward. ``"adept"`` is the ADEPT-style minimal
     reward: reach, plus a goal term gated on a two-body force threshold (thumb and any other
     finger, not the palm) whose keypoint-error sharpness ramps over training, plus a flat
     contact bonus under the same gate. It has no lift term and no press guard. Any other value
@@ -452,19 +452,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Fraction of configured scene gravity at the start of training; 1.0 disables the curriculum."""
     gravity_curriculum_steps: int = 19_200
     """Env steps for whole-scene gravity to ramp from :attr:`gravity_curriculum_start` to full gravity."""
-    press_tolerance = 0.005
-    """Depth [m] below rest height past which the apple counts as pressed, not held."""
-    contact_force_threshold = 0.1
+    contact_force_threshold = 0.3
     """Per-group normal force [N] counted as contact.
 
-    The apple weighs 0.667 N and its contacts have friction 0.5, so a two-sided pinch needs about
-    0.67 N per side.  The previous 1.0 N gate on two bodies was unreachable when friction was 2.0.
-    """
-    contact_min_bodies = 1
-    """Contact groups (the palm or a finger) that must be in contact for the grasp gate.
-
-    Deliberately not thumb-specific.  The thumb once read 0.0 N throughout, but only because its
-    sensor sat on the collider-less ``right_finger1_tip_link`` frame.
+    The shaped goal gate requires the thumb and at least one other finger to exceed this threshold.
     """
     contact_reward_scale = 0.5
     """Per-step scale of the binary per-contact-group grasp reward."""

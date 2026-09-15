@@ -138,6 +138,7 @@ def test_eval_and_dr_full_enable_all_randomized_terms_at_full_level():
     adr = env_cfg.adr
     assert adr.enabled is True
     assert adr.initial_level == adr.max_level == 50
+    assert adr.friction_range == (0.1, 0.4)
     assert all(
         (
             adr.spawn_enabled,
