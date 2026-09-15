@@ -75,6 +75,39 @@ def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset:
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("physics_preset", ["newton_mjwarp", "isaacsim_physx"])
+def test_virtual_force_packet_uses_common_contact_and_jacobian_apis(physics_preset: str) -> None:
+    """Catch backend-specific sensor wiring, body ordering, and packet-shape regressions."""
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    resolve_presets(env_cfg, selected=(physics_preset,))
+    env_cfg.scene.num_envs = 2
+    env_cfg.sim.visualizer_cfgs = []
+    env_cfg.debug.keypoint_markers = False
+    env_cfg.virtual_force.enabled = True
+    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    try:
+        observations, _ = env.reset(seed=42)
+        unwrapped = env.unwrapped
+        observations, _, _, _, _ = env.step(torch.zeros((2, unwrapped.cfg.action_space), device=unwrapped.device))
+        output = unwrapped.get_virtual_force_output()
+
+        assert output is not None
+        assert observations["student"].shape == (2, 141)
+        assert observations["force"].shape == (2, 20)
+        assert output.ideal_actuator_torque_nm.shape == (2, 20)
+        assert output.observed_actuator_torque_nm.shape == (2, 20)
+        assert output.valid.shape == (2,)
+        assert torch.isfinite(output.ideal_actuator_torque_nm).all()
+        assert torch.isfinite(output.observed_actuator_torque_nm).all()
+        assert sum(sensor.num_sensors for sensor in unwrapped.contact_sensors.values()) == 18
+        for sensor in unwrapped.contact_sensors.values():
+            assert sensor.data.contact_pos_w is not None
+            assert sensor.data.friction_force_matrix_w is not None
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
 def test_depth_view_publishes_the_exact_final_student_image() -> None:
     """The viewer-facing camera output is the finalized student tensor in NHWC layout."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")

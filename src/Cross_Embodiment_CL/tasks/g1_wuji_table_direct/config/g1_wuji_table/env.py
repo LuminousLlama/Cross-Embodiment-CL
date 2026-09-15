@@ -45,6 +45,12 @@ from .depth_camera import (
     warp_depth_intrinsics,
 )
 from .env_cfg import STUDENT_DEPTH_LETTERBOX, G1WujiTableEnvCfg
+from .virtual_force import (
+    VirtualForceOutput,
+    VirtualForcePipeline,
+    VirtualForcePipelineConfig,
+    WujiForceSystemIdModel,
+)
 
 
 def sample_spawn_offsets(
@@ -271,6 +277,37 @@ class G1WujiTableEnv(DirectRLEnv):
             f"finger{finger}": tuple(f"right_finger{finger}_link{link}" for link in (2, 3, 4)) for finger in range(2, 6)
         },
     }
+    # PhysX requires every filtered-contact expression to resolve to one body per environment.
+    # Keep this list explicit instead of using ``G1Wuji/.*`` so the same configuration also works
+    # with Newton's many-to-many contact implementation.  These are all active rigid bodies in the
+    # fixed-base G1 and Wuji layers, including non-colliding tip frames (which simply report zero).
+    _G1_BODY_NAMES = (
+        "pelvis",
+        "waist_yaw_link",
+        "waist_roll_link",
+        "torso_link",
+        "right_shoulder_pitch_link",
+        "right_shoulder_roll_link",
+        "right_shoulder_yaw_link",
+        "right_elbow_link",
+        "right_wrist_roll_link",
+        "right_wrist_pitch_link",
+        "right_wrist_yaw_link",
+    )
+    _WUJI_BODY_NAMES = (
+        "right_palm_link",
+        "right_finger1_link1",
+        "right_finger1_link2",
+        "right_finger1_link2_softbody",
+        "right_finger1_link3",
+        "right_finger1_link4",
+        "right_finger1_tip_link",
+        *tuple(
+            f"right_finger{finger}_{suffix}"
+            for finger in range(2, 6)
+            for suffix in ("link1", "link2", "link3", "link4", "tip_link")
+        ),
+    )
     _THUMB_CONTACT_GROUP = "finger1"
     _OBSERVATION_DIM = 171
     # The deployable proprioceptive prefix of the privileged observation: joint positions and
@@ -304,6 +341,19 @@ class G1WujiTableEnv(DirectRLEnv):
                     f"Contact group '{group_name}' expects bodies {self._CONTACT_BODY_GROUPS[group_name]}, "
                     f"but its sensor resolved {sensor.num_sensors}."
                 )
+        self._virtual_force_sensor_body_ids: dict[str, torch.Tensor] = {}
+        if self.cfg.virtual_force.enabled:
+            for group_name, sensor in self.contact_sensors.items():
+                sensor_names = getattr(sensor, "sensor_names", None)
+                if sensor_names is None:
+                    sensor_names = sensor.body_names
+                if sensor_names is None or len(sensor_names) != sensor.num_sensors:
+                    raise ValueError(f"Virtual force sensor '{group_name}' did not expose its sensing body names.")
+                self._virtual_force_sensor_body_ids[group_name] = torch.as_tensor(
+                    [self.robot.body_names.index(name) for name in sensor_names],
+                    dtype=torch.long,
+                    device=self.device,
+                )
         if self.cfg.action_space != len(self.arm_joint_ids) + WujiLatentActionPipeline.latent_dim:
             raise ValueError(
                 f"{type(self.cfg).__name__} declares action_space={self.cfg.action_space}, but the configured "
@@ -316,6 +366,10 @@ class G1WujiTableEnv(DirectRLEnv):
                 f"{self._OBSERVATION_DIM}."
             )
         self.wuji_action_pipeline = WujiLatentActionPipeline(self.device)
+        self.virtual_force_pipeline: VirtualForcePipeline | None = None
+        self.virtual_force_output: VirtualForceOutput | None = None
+        if self.cfg.virtual_force.enabled:
+            self._initialize_virtual_force_pipeline()
         if not 0.0 < self.cfg.arm_action_ema_alpha <= 1.0:
             raise ValueError("arm_action_ema_alpha must be in (0, 1].")
         if not 0.0 < self.cfg.wuji_action_ema_alpha <= 1.0:
@@ -473,8 +527,25 @@ class G1WujiTableEnv(DirectRLEnv):
         self.apple = RigidObject(self.cfg.object_cfg)
         # One multi-body sensor per group; its force matrix is (envs, bodies, 1 apple, 3).
         self.contact_sensors: dict[str, ContactSensor] = {}
+        contact_sensor_template = self.cfg.contact_sensor_cfg
+        if self.cfg.virtual_force.enabled:
+            if self.cfg.virtual_force.max_contact_data_count_per_prim < 1:
+                raise ValueError("virtual_force.max_contact_data_count_per_prim must be positive.")
+            # Keep the apple first: reward and termination logic retain filter index zero. The force
+            # pipeline sums all filters so that table and robot self-contact are observable too.
+            contact_sensor_template = contact_sensor_template.replace(
+                filter_prim_paths_expr=[
+                    "/World/envs/env_[^/]+/Apple",
+                    "/World/envs/env_[^/]+/Table",
+                    *(f"/World/envs/env_[^/]+/G1Wuji/g1_simplified/{name}" for name in self._G1_BODY_NAMES),
+                    *(f"/World/envs/env_[^/]+/G1Wuji/wujihand/{name}" for name in self._WUJI_BODY_NAMES),
+                ],
+                track_contact_points=True,
+                track_friction_forces=True,
+                max_contact_data_count_per_prim=self.cfg.virtual_force.max_contact_data_count_per_prim,
+            )
         for group_name, body_names in self._CONTACT_BODY_GROUPS.items():
-            sensor_cfg = self.cfg.contact_sensor_cfg.replace(
+            sensor_cfg = contact_sensor_template.replace(
                 prim_path=f"/World/envs/env_[^/]+/G1Wuji/wujihand/({'|'.join(body_names)})"
             )
             self.contact_sensors[group_name] = ContactSensor(sensor_cfg)
@@ -832,6 +903,113 @@ class G1WujiTableEnv(DirectRLEnv):
             joint_ids=self.waist_joint_ids,
         )
 
+    def _initialize_virtual_force_pipeline(self) -> None:
+        """Create the Wuji virtual force model after articulation ordering is known."""
+        cfg = self.cfg.virtual_force
+        pipeline_cfg = VirtualForcePipelineConfig(
+            torque_scale_range=cfg.torque_scale_range,
+            torque_bias_range_nm=cfg.torque_bias_range_nm,
+            torque_noise_std_nm=cfg.torque_noise_std_nm,
+            torque_lpf_alpha=cfg.torque_lpf_alpha,
+            latency_steps_range=cfg.latency_steps_range,
+            packet_dropout_probability=cfg.packet_dropout_probability,
+            torque_clip_abs_nm=cfg.torque_clip_abs_nm,
+            contact_force_sign=cfg.contact_force_sign,
+            updates_per_step=cfg.updates_per_step,
+        )
+        system_id_model = None
+        if cfg.system_id_model_path is not None:
+            system_id_model = WujiForceSystemIdModel(
+                cfg.system_id_model_path,
+                actuator_joint_names=list(self._WUJI_JOINT_NAMES),
+                num_envs=self.num_envs,
+                device=self.device,
+                sample_residual=cfg.system_id_sample_residual,
+                random_seed=cfg.system_id_seed,
+            )
+        self.virtual_force_pipeline = VirtualForcePipeline(
+            num_envs=self.num_envs,
+            config=pipeline_cfg,
+            device=self.device,
+            system_id_model=system_id_model,
+        )
+        self.virtual_force_output = self.virtual_force_pipeline.output
+
+    def _update_virtual_force_pipeline(self) -> None:
+        """Project the latest public contact-sensor data into the 20 Wuji actuators.
+
+        Isaac Lab 3.0 exposes per-counterpart total force and an average contact point on both
+        PhysX and Newton. A force applied at that average point preserves a single contact exactly;
+        for multiple non-collinear contacts on one body/counterpart pair it approximates their net
+        moment because the public API does not expose every application point.
+        """
+        pipeline = self.virtual_force_pipeline
+        if pipeline is None:
+            return
+
+        contact_forces: list[torch.Tensor] = []
+        contact_moments: list[torch.Tensor] = []
+        jacobian_rows: list[torch.Tensor] = []
+        body_link_positions = self.robot.data.body_link_pos_w.torch
+        body_link_jacobians = self.robot.data.body_link_jacobian_w.torch
+        for group_name, sensor in self.contact_sensors.items():
+            data = sensor.data
+            normal_force = data.normal_force_matrix_w
+            friction_force = data.friction_force_matrix_w
+            contact_position = data.contact_pos_w
+            if normal_force is None or friction_force is None or contact_position is None:
+                raise RuntimeError(
+                    f"Virtual force sensor '{group_name}' did not provide force, friction, and contact-point data."
+                )
+            normal_force_torch = normal_force.torch
+            friction_force_torch = friction_force.torch
+            contact_position_torch = contact_position.torch
+            if normal_force_torch.shape != friction_force_torch.shape:
+                raise RuntimeError(
+                    f"Virtual force sensor '{group_name}' normal/friction shapes differ: "
+                    f"{normal_force_torch.shape} and {friction_force_torch.shape}."
+                )
+            if contact_position_torch.shape != normal_force_torch.shape:
+                raise RuntimeError(
+                    f"Virtual force sensor '{group_name}' contact-point shape {contact_position_torch.shape} "
+                    f"does not match force shape {normal_force_torch.shape}."
+                )
+
+            body_ids = self._virtual_force_sensor_body_ids[group_name]
+            if normal_force_torch.shape[1] != len(body_ids):
+                raise RuntimeError(
+                    f"Virtual force sensor '{group_name}' returned {normal_force_torch.shape[1]} bodies, "
+                    f"expected {len(body_ids)}."
+                )
+            force_by_partner = normal_force_torch + friction_force_torch
+            body_origins = body_link_positions[:, body_ids].unsqueeze(2)
+            moment_arms = torch.nan_to_num(contact_position_torch - body_origins)
+            moment_by_partner = torch.linalg.cross(moment_arms, force_by_partner, dim=-1)
+            contact_forces.append(force_by_partner.sum(dim=2))
+            contact_moments.append(moment_by_partner.sum(dim=2))
+
+            jacobian_body_ids = body_ids - 1
+            if bool((jacobian_body_ids < 0).any()):
+                raise RuntimeError("Virtual force sensing cannot use the fixed articulation root body.")
+            jacobian_rows.append(body_link_jacobians[:, jacobian_body_ids, :, :][:, :, :, self.wuji_joint_ids])
+
+        forces_w = torch.cat(contact_forces, dim=1)
+        moments_w = torch.cat(contact_moments, dim=1)
+        jacobians_w = torch.cat(jacobian_rows, dim=1)
+        self.virtual_force_output = pipeline.step(
+            contact_forces_w=forces_w,
+            contact_linear_jacobians_w=jacobians_w[:, :, :3],
+            contact_moments_w=moments_w,
+            contact_angular_jacobians_w=jacobians_w[:, :, 3:],
+            joint_position=self.robot.data.joint_pos.torch[:, self.wuji_joint_ids],
+            joint_velocity=self.robot.data.joint_vel.torch[:, self.wuji_joint_ids],
+            joint_command=self.wuji_joint_targets,
+        )
+
+    def get_virtual_force_output(self) -> VirtualForceOutput | None:
+        """Return the latest diagnostic force packet without changing student inputs."""
+        return self.virtual_force_output
+
     def _get_observations(self) -> dict[str, torch.Tensor]:
         """Return noisy actor, clean critic, and deployable student observations.
 
@@ -965,6 +1143,8 @@ class G1WujiTableEnv(DirectRLEnv):
             observations["camera"] = student_depth
             if self.cfg.debug.student_depth_preview:
                 self._publish_student_depth_preview(student_depth)
+        if self.virtual_force_output is not None:
+            observations["force"] = self.virtual_force_output.observed_actuator_torque_nm
         return observations
 
     def _publish_student_depth_preview(self, student_depth: torch.Tensor) -> None:
@@ -1487,6 +1667,7 @@ class G1WujiTableEnv(DirectRLEnv):
         RSL-RL's ``check_nan``.  Resetting the offending environments here is what actually cleans the
         state; nothing upstream is allowed to paper over it with ``nan_to_num``.
         """
+        self._update_virtual_force_pipeline()
         torso_contact = (
             torch.linalg.vector_norm(self.torso_contact_sensor.data.normal_force_matrix_w.torch[:, 0, 0], dim=-1) > 0.0
         )
@@ -1552,6 +1733,9 @@ class G1WujiTableEnv(DirectRLEnv):
     def _reset_idx(self, env_ids: Sequence[int]) -> None:
         """Restore authored poses; ADR may perturb the robot root and apple spawn independently."""
         super()._reset_idx(env_ids)
+        if getattr(self, "virtual_force_pipeline", None) is not None:
+            self.virtual_force_pipeline.reset(torch.as_tensor(env_ids, dtype=torch.long, device=self.device))
+            self.virtual_force_output = self.virtual_force_pipeline.output
 
         robot_pose = self.robot.data.default_root_pose.torch[env_ids].clone()
         if self._adr_robot_position_active:

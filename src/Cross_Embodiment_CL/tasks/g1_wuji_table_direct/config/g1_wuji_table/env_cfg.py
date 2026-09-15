@@ -247,6 +247,48 @@ class G1WujiTableDepthCameraPresetCfg(PresetCfg):
 
 
 @configclass
+class G1WujiTableVirtualForceCfg:
+    """Virtual Wuji actuator-torque packet used for diagnostics before student integration."""
+
+    enabled: bool = False
+    """Whether to collect hand contact wrenches and update the virtual torque model."""
+    torque_scale_range: tuple[float, float] = (1.0, 1.0)
+    """Episode-constant multiplicative range applied to ideal contact torque."""
+    torque_bias_range_nm: tuple[float, float] = (0.0, 0.0)
+    """Episode-constant additive actuator-torque bias range [N m]."""
+    torque_noise_std_nm: float = 0.0
+    """Per-sensor-update actuator-torque noise standard deviation [N m]."""
+    torque_lpf_alpha: float = 0.2
+    """EMA weight of the current torque sample, matching the deployed estimator."""
+    latency_steps_range: tuple[int, int] = (0, 0)
+    """Episode-constant packet latency range in virtual 120 Hz sensor updates."""
+    packet_dropout_probability: float = 0.0
+    """Probability that the latest virtual sensor packet is invalid."""
+    torque_clip_abs_nm: float | None = None
+    """Optional symmetric actuator-torque clipping magnitude [N m]."""
+    contact_force_sign: float = 1.0
+    """Sign converting the common contact-sensor force convention to generalized torque."""
+    updates_per_step: int = 2
+    """Virtual 120 Hz updates per 60 Hz policy step."""
+    max_contact_data_count_per_prim: int = 16
+    """Detailed contact capacity per sensing body and environment."""
+    system_id_model_path: str | None = None
+    """Optional ``wuji_force_model_v1`` NPZ mapping simulated contact torque to real estimator output."""
+    system_id_sample_residual: bool = True
+    """Whether the fitted system-ID model samples its correlated AR(1) residual."""
+    system_id_seed: int = 0
+    """Random seed for the system-ID residual process."""
+
+
+@configclass
+class G1WujiTableVirtualForcePresetCfg(PresetCfg):
+    """Keep virtual force disabled unless a force-student preset explicitly enables it."""
+
+    default: G1WujiTableVirtualForceCfg = G1WujiTableVirtualForceCfg()
+    distill: G1WujiTableVirtualForceCfg = default.replace(enabled=True)
+
+
+@configclass
 class G1WujiTableAdrCfg:
     """Adaptive domain-randomization schedule and term configuration."""
 
@@ -450,6 +492,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Task-reset controls; unlike ADR, these apply at every reset."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
+    virtual_force: G1WujiTableVirtualForceCfg = G1WujiTableVirtualForcePresetCfg()
+    """Virtual Wuji actuator-torque sensing, enabled only by its matching student preset."""
     adr_debug_spawn_area_vis: bool = False
     """Legacy opt-in alias for :attr:`debug.adr_spawn_area_marker`."""
     debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
