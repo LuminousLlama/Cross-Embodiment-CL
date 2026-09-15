@@ -135,7 +135,7 @@ G1_WUJI_CFG.init_state = ArticulationCfg.InitialStateCfg(
     # The thumb-base lower limit is 0.047 rad; this is its valid neutral pose.
     joint_pos={
         "right_shoulder_roll_joint": -math.pi / 4,
-        "right_finger1_joint1": 0.05,
+        "right_finger1_joint1": math.pi / 2,
     },
     joint_vel={},
 )
