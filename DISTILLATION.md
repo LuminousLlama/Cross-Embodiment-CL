@@ -4,8 +4,9 @@
 
 The privileged PPO teacher R007 was behavior-cloned into a depth student with RSL-RL DAgger. The
 student received the former 87-D proprioception and one normalized 224x224 D435 depth image; the teacher
-used the former 117-D privileged observation. The current environment uses 141-D proprioception and a
-171-D privileged observation, so that checkpoint predates and is incompatible with the current observation contract.
+used the former 117-D privileged observation. The current student uses 141-D proprioception, 20-D virtual
+force, and depth alongside the teacher's 171-D privileged observation, so that checkpoint predates and is
+incompatible with the current observation contract.
 
 New distillation runs retain the D435's full-width view: the 848x480 source is resized to 224x127 and
 padded with 48 zero rows above and 49 below. The simulator renders the same 224x127 pinhole content
@@ -35,8 +36,9 @@ Isaac Sim PhysX.
 `presets=distill` enables the pipeline. Other presets leave it disabled, so PPO training and ordinary
 evaluation do not pay for detailed contact reporting. When enabled, observations contain a separate
 `force` tensor with shape `(num_envs, 20)` in `right_finger1_joint1` through
-`right_finger5_joint4` order. The existing 141-D `student` group remains unchanged until a new student
-architecture explicitly consumes force. Code that needs the diagnostic packet can call
+`right_finger5_joint4` order. The depth-distillation student consumes this tensor alongside its unchanged
+141-D proprioceptive `student` group and camera image, giving it 161 low-dimensional inputs. Code that
+needs the diagnostic packet can call
 `env.unwrapped.get_virtual_force_output()` to obtain ideal contact torque, observed/modelled torque,
 and packet validity.
 

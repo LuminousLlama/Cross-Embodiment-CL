@@ -20,6 +20,7 @@ from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents.
 
 _OBSERVATION_DIM = 171
 _STUDENT_OBSERVATION_DIM = 141
+_FORCE_OBSERVATION_DIM = 20
 _DEPTH_SIZE = 224
 _ACTION_DIM = 25
 _DISTILLATION_CFGS = [G1WujiTableStateDistillationRunnerCfg, G1WujiTableDepthDistillationRunnerCfg]
@@ -30,6 +31,7 @@ def _observations(batch: int = 1) -> TensorDict:
         {
             "policy": torch.zeros(batch, _OBSERVATION_DIM),
             "student": torch.zeros(batch, _STUDENT_OBSERVATION_DIM),
+            "force": torch.zeros(batch, _FORCE_OBSERVATION_DIM),
             "camera": torch.zeros(batch, 1, _DEPTH_SIZE, _DEPTH_SIZE),
         },
         batch_size=[batch],
@@ -68,9 +70,12 @@ def test_student_mlp_matches_teacher(cfg_class):
 
 
 def test_depth_student_reads_only_deployable_observations():
-    """The depth student encodes proprioception and the depth image, never the privileged state."""
+    """The depth student encodes proprioception, virtual force, and depth, never privileged state."""
     distillation_cfg = G1WujiTableDepthDistillationRunnerCfg()
-    assert distillation_cfg.obs_groups == {"teacher": ["policy"], "student": ["student", "camera"]}
+    assert distillation_cfg.obs_groups == {
+        "teacher": ["policy"],
+        "student": ["student", "force", "camera"],
+    }
 
     student_cfg = distillation_cfg.student
     student = CNNModel(
@@ -84,6 +89,6 @@ def test_depth_student_reads_only_deployable_observations():
         distribution_cfg=student_cfg.distribution_cfg.to_dict(),
         cnn_cfg=student_cfg.cnn_cfg.to_dict(),
     )
-    # 224 -> 55 -> 26 -> 12 px through the encoder, flattened, then the 141-D proprioception.
-    assert student.mlp[0].in_features == 64 * 12 * 12 + _STUDENT_OBSERVATION_DIM
+    # 224 -> 55 -> 26 -> 12 px through the encoder, flattened, then 141-D proprioception + 20-D force.
+    assert student.mlp[0].in_features == 64 * 12 * 12 + _STUDENT_OBSERVATION_DIM + _FORCE_OBSERVATION_DIM
     assert student(_observations(batch=2)).shape == (2, _ACTION_DIM)

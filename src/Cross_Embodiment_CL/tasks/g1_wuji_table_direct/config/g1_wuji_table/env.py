@@ -929,7 +929,7 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
     def get_virtual_force_output(self) -> VirtualForceOutput | None:
-        """Return the latest diagnostic force packet without changing student inputs."""
+        """Return the latest virtual force packet and its diagnostic fields."""
         return self.virtual_force_output
 
     def _get_observations(self) -> dict[str, torch.Tensor]:
