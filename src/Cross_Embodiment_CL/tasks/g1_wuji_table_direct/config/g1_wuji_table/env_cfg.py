@@ -340,7 +340,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Fixed apple goal position [m] in the environment frame."""
     object_rest_height = 0.04
     """Original tabletop apple root height [m], used as the lift-progress baseline."""
-    object_spawn_height_offset_cm = 5.0
+    object_spawn_height_offset_cm = 15.0
     """Vertical apple spawn offset [cm] above :attr:`object_rest_height`."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
