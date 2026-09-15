@@ -865,11 +865,12 @@ class G1WujiTableEnv(DirectRLEnv):
     def _lift_fraction(self, object_position: torch.Tensor) -> torch.Tensor:
         """Return the apple's height progress from rest to goal, clamped to ``[0, 1]``.
 
-        Rest height is the authored spawn height; the apple settles a touch below it, so the
-        clamp makes "sitting untouched" score exactly zero. Shared by the shaped mode's dense
-        lift term and the optional ``adept_lift_reward_scale`` term.
+        Rest height is the original tabletop root height, while the default episode spawn is
+        elevated halfway to the goal. The clamp makes a settled tabletop apple score exactly
+        zero. Shared by the shaped mode's dense lift term and the optional
+        ``adept_lift_reward_scale`` term.
         """
-        rest_height = self.object_start_position[:, 2] + self.scene.env_origins[:, 2]
+        rest_height = self.cfg.object_rest_height + self.scene.env_origins[:, 2]
         goal_height = self.goal_position[:, 2] + self.scene.env_origins[:, 2]
         return torch.clamp((object_position[:, 2] - rest_height) / (goal_height - rest_height), 0.0, 1.0)
 

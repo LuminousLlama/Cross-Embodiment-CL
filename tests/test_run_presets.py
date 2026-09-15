@@ -50,6 +50,19 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
 
 
 @pytest.mark.unit
+def test_default_apple_spawn_is_ten_centimeters_below_goal():
+    """The elevated spawn is halfway through the configured tabletop-to-goal lift."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
+
+    spawn_z = env_cfg.object_cfg.init_state.pos[2]
+    rest_z = env_cfg.object_rest_height
+    goal_z = env_cfg.goal_position[2]
+    assert spawn_z - rest_z == pytest.approx(0.10)
+    assert spawn_z == pytest.approx(goal_z - 0.10)
+    assert (spawn_z - rest_z) / (goal_z - rest_z) == pytest.approx(0.5)
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("overrides", "has_camera"),
     [
@@ -132,12 +145,14 @@ def test_train_and_dr_none_select_nominal_gravity_without_randomized_terms():
 
 @pytest.mark.unit
 def test_eval_and_dr_full_enable_all_randomized_terms_at_full_level():
-    """The full-DR preset composes with eval and starts at its full-strength endpoint."""
+    """The full-DR preset ramps gravity from zero at level zero to full strength."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=eval,dr_full"])
 
     adr = env_cfg.adr
     assert adr.enabled is True
     assert adr.initial_level == adr.max_level == 50
+    assert adr.gravity_start == 0.0
+    assert adr.gravity_start + (1.0 - adr.gravity_start) * 0 / adr.max_level == 0.0
     assert adr.friction_range == (0.1, 0.4)
     assert all(
         (

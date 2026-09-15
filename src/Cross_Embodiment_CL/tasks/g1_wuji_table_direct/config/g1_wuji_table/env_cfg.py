@@ -208,7 +208,7 @@ class G1WujiTableAdrCfg:
     """Whether the success-gated adaptive domain-randomization schedule is active."""
     drives_gravity: bool = True
     """Whether ADR strength drives whole-scene gravity from ``gravity_start`` to full strength."""
-    gravity_start: float = 0.1
+    gravity_start: float = 0.0
     """Whole-scene gravity fraction at ADR strength zero when :attr:`drives_gravity` is enabled."""
     max_level: int = 50
     """Number of levels the adaptive schedule can advance through."""
@@ -338,6 +338,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Maximum Wuji finger joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
     goal_position = (0.35, -0.05, 0.24)
     """Fixed apple goal position [m] in the environment frame."""
+    object_rest_height = 0.04
+    """Original tabletop apple root height [m], used as the lift-progress baseline."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
     adr_debug_spawn_area_vis: bool = False
@@ -527,9 +529,9 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
                 )
             ),
         ),
-        # The apple mesh extends to z=-0.0367 m in its local frame. Start its
-        # root just above the z=0 tabletop and let normal contact settle it.
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, -0.05, 0.04)),
+        # The apple mesh extends to z=-0.0367 m in its local frame. Start its root
+        # 0.10 m above the prior tabletop rest root, halfway to the 0.24 m goal.
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, -0.05, 0.14)),
     )
 
     def __post_init__(self) -> None:
