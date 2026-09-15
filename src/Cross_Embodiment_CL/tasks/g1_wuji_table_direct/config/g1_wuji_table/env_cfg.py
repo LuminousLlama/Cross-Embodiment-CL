@@ -334,7 +334,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     lead the measured position only as far as the drive's cfg gains and effort limit make useful.  This cap
     is the arm joint-velocity observation scale.
     """
-    hand_joint_velocity_limit = 0.5
+    hand_joint_velocity_limit = 1.5
     """Maximum Wuji finger joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
     goal_position = (0.35, -0.05, 0.24)
     """Fixed apple goal position [m] in the environment frame."""
