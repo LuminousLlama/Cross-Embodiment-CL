@@ -1250,10 +1250,13 @@ class G1WujiTableEnv(DirectRLEnv):
         table_top_height = self.scene.env_origins[:, 2] + self.table_top_height
         object_below_table = object_position[:, 2] < table_top_height
         object_start_position = self.object_start_position + self.scene.env_origins
-        object_too_far = (
-            torch.linalg.vector_norm(object_position[:, :2] - object_start_position[:, :2], dim=-1)
-            > self.cfg.object_max_horizontal_displacement
-        )
+        if self.cfg.workspace_termination_enabled:
+            object_too_far = (
+                torch.linalg.vector_norm(object_position[:, :2] - object_start_position[:, :2], dim=-1)
+                > self.cfg.object_max_horizontal_displacement
+            )
+        else:
+            object_too_far = torch.zeros_like(object_below_table)
 
         joint_pos = self.robot.data.joint_pos.torch
         joint_vel = self.robot.data.joint_vel.torch

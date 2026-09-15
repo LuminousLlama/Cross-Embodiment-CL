@@ -340,7 +340,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Fixed apple goal position [m] in the environment frame."""
     object_rest_height = 0.04
     """Original tabletop apple root height [m], used as the lift-progress baseline."""
-    object_spawn_height_offset_cm = 10.0
+    object_spawn_height_offset_cm = 5.0
     """Vertical apple spawn offset [cm] above :attr:`object_rest_height`."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
@@ -412,7 +412,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Filtered torso-to-apple sensor for the collision termination."""
     keypoint_extent = 0.15
     """Half-side length [m] of the virtual object-frame cube used for pose reward."""
-    reward_mode: str = "shaped"
+    reward_mode: str = "adept"
     """Reward formulation used by :meth:`G1WujiTableEnv._get_rewards`.
 
     ``"shaped"`` (default) is reach + ungated keypoint-goal reward + optional lift + a flat
@@ -467,6 +467,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Flat per-step bonus when the thumb and another finger both exceed the contact threshold."""
     success_keypoint_error_threshold = 0.05
     """Terminal mean virtual-keypoint error threshold [m] for the success metric."""
+    workspace_termination_enabled: bool = False
+    """Whether to terminate when the apple leaves its horizontal reset workspace."""
     object_max_horizontal_displacement = 0.20
     """Maximum horizontal displacement [m] from the authored apple reset pose."""
 
