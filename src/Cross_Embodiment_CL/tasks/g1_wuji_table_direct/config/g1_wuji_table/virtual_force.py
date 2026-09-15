@@ -32,6 +32,7 @@ class VirtualForcePipelineConfig:
     latency_steps_range: tuple[int, int] = (0, 0)
     packet_dropout_probability: float = 0.0
     torque_clip_abs_nm: float | None = None
+    torque_deadband_nm: float = 0.1
     contact_force_sign: float = 1.0
     updates_per_step: int = 1
 
@@ -56,6 +57,8 @@ class VirtualForcePipelineConfig:
             raise ValueError("packet_dropout_probability must be in [0, 1].")
         if self.torque_clip_abs_nm is not None and self.torque_clip_abs_nm <= 0.0:
             raise ValueError("torque_clip_abs_nm must be positive when supplied.")
+        if self.torque_deadband_nm < 0.0:
+            raise ValueError("torque_deadband_nm cannot be negative.")
         if self.contact_force_sign not in (-1.0, 1.0):
             raise ValueError("contact_force_sign must be either -1 or +1.")
         if self.updates_per_step < 1:
@@ -340,5 +343,10 @@ class VirtualForcePipeline:
                     command_actuator_order=joint_command,
                 )
 
+        observed_torque = torch.where(
+            observed_torque.abs() <= self.config.torque_deadband_nm,
+            torch.zeros_like(observed_torque),
+            observed_torque,
+        )
         self.output = VirtualForceOutput(ideal_torque, observed_torque, valid)
         return self.output

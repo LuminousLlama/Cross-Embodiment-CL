@@ -65,6 +65,32 @@ def test_pipeline_applies_120hz_updates_before_packet_latency() -> None:
 
 
 @pytest.mark.unit
+def test_pipeline_zeros_observed_torque_inside_inclusive_deadband() -> None:
+    """The student force packet must suppress values from -0.1 through +0.1 N m."""
+    pipeline = VirtualForcePipeline(
+        num_envs=1,
+        config=VirtualForcePipelineConfig(torque_lpf_alpha=1.0, torque_deadband_nm=0.1),
+        device="cpu",
+    )
+    torque_values = torch.tensor([-0.1001, -0.1, -0.0999, 0.0, 0.0999, 0.1, 0.1001])
+    jacobian = torch.zeros(1, 1, 3, 20)
+    jacobian[0, 0, 0, : torque_values.numel()] = torque_values
+    output = pipeline.step(
+        contact_forces_w=torch.tensor([[[1.0, 0.0, 0.0]]]),
+        contact_linear_jacobians_w=jacobian,
+        contact_moments_w=torch.zeros(1, 1, 3),
+        contact_angular_jacobians_w=torch.zeros_like(jacobian),
+        joint_position=torch.zeros(1, 20),
+        joint_velocity=torch.zeros(1, 20),
+        joint_command=torch.zeros(1, 20),
+    )
+
+    expected = torch.tensor([-0.1001, 0.0, 0.0, 0.0, 0.0, 0.0, 0.1001])
+    torch.testing.assert_close(output.observed_actuator_torque_nm[0, : expected.numel()], expected)
+    torch.testing.assert_close(output.ideal_actuator_torque_nm[0, : torque_values.numel()], torque_values)
+
+
+@pytest.mark.unit
 def test_wuji_system_id_applies_baseline_coupling_and_residual_mean(tmp_path) -> None:
     """Validate the checked-in NPZ schema and actuator/model order conversion."""
     names = [f"right_finger{finger}_joint{joint}" for finger in range(1, 6) for joint in range(1, 5)]
