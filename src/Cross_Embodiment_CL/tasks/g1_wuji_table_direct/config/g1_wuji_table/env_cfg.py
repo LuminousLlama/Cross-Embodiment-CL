@@ -231,6 +231,8 @@ class G1WujiTableVirtualForceCfg:
     """Probability that the latest virtual sensor packet is invalid."""
     torque_clip_abs_nm: float | None = None
     """Optional symmetric actuator-torque clipping magnitude [N m]."""
+    torque_deadband_nm: float = 0.1
+    """Observed actuator torques at or below this magnitude are reported as zero [N m]."""
     contact_force_sign: float = 1.0
     """Sign converting the common contact-sensor force convention to generalized torque."""
     updates_per_step: int = 2

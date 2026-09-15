@@ -836,6 +836,7 @@ class G1WujiTableEnv(DirectRLEnv):
             latency_steps_range=cfg.latency_steps_range,
             packet_dropout_probability=cfg.packet_dropout_probability,
             torque_clip_abs_nm=cfg.torque_clip_abs_nm,
+            torque_deadband_nm=cfg.torque_deadband_nm,
             contact_force_sign=cfg.contact_force_sign,
             updates_per_step=cfg.updates_per_step,
         )
