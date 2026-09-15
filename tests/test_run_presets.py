@@ -84,6 +84,24 @@ def test_depth_camera_only_in_student_presets(overrides, has_camera):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    ("overrides", "enabled"),
+    [
+        ([], False),
+        (["presets=train"], False),
+        (["presets=eval"], False),
+        (["presets=distill"], True),
+        (["presets=distill", "env.virtual_force.enabled=False"], False),
+    ],
+)
+def test_virtual_force_only_in_student_preset(overrides, enabled):
+    """Force diagnostics should cost nothing in PPO/eval runs and remain explicitly overridable."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=overrides)
+
+    assert env_cfg.virtual_force.enabled is enabled
+
+
+@pytest.mark.unit
 def test_depth_view_preset_colorizes_the_final_student_observation():
     """The manual viewer streams the normalized, letterboxed student image rather than the render buffer."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=depth_view"])
