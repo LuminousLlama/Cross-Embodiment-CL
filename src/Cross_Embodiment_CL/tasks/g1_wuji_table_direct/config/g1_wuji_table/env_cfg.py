@@ -15,7 +15,7 @@ from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
 import isaaclab.sim as sim_utils
 from isaaclab.assets import RigidObjectCfg
 from isaaclab.envs import DirectRLEnvCfg
-from isaaclab.markers import VisualizationMarkersCfg
+from isaaclab.markers import FRAME_MARKER_CFG, VisualizationMarkersCfg
 from isaaclab.physics import PhysxAutoCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import CameraCfg, ContactSensorCfg
@@ -337,11 +337,29 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     hand_joint_velocity_limit = 0.5
     """Maximum Wuji finger joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
     goal_position = (0.35, -0.05, 0.24)
-    """Fixed apple goal position [m] in the environment frame."""
+    """Legacy nominal apple goal position [m] in the environment frame."""
+    object_spawn_x_range = (0.20, 0.35)
+    """Uniform apple reset x-coordinate range [m] in the environment frame."""
+    object_spawn_y_range = (-0.30, -0.10)
+    """Uniform apple reset y-coordinate range [m] in the environment frame."""
+    object_spawn_z = 0.33
+    """Fixed apple reset z-coordinate [m] in the environment/world frame."""
+    goal_spawn_x_range = (0.20, 0.35)
+    """Uniform target-frame x-coordinate range [m] in the environment frame."""
+    goal_spawn_y_range = (-0.30, -0.10)
+    """Uniform target-frame y-coordinate range [m] in the environment frame."""
+    goal_spawn_z_range = (0.10, 0.33)
+    """Uniform target-frame z-coordinate range [m] in the environment frame."""
+    goal_roll_range = (-3.141592653589793, 3.141592653589793)
+    """Uniform target-frame roll range [rad]."""
+    goal_pitch_range = (-3.141592653589793, 3.141592653589793)
+    """Uniform target-frame pitch range [rad]."""
+    goal_yaw_range = (-3.141592653589793, 3.141592653589793)
+    """Uniform target-frame yaw range [rad]."""
     object_rest_height = 0.04
     """Original tabletop apple root height [m], used as the lift-progress baseline."""
     object_spawn_height_offset_cm = 5.0
-    """Vertical apple spawn offset [cm] above :attr:`object_rest_height`."""
+    """Legacy vertical apple spawn offset [cm]; randomized reset uses :attr:`object_spawn_z`."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
     adr_debug_spawn_area_vis: bool = False
@@ -379,6 +397,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         },
     )
     """Two-centimetre red spheres marking the current object-frame keypoints."""
+    goal_frame_marker_cfg = FRAME_MARKER_CFG.replace(prim_path="/Visuals/CrossEmbodiment/goal_frame")
+    """Axis-frame marker for the randomized target orientation."""
     adr_spawn_area_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/CrossEmbodiment/adr_spawn_area",
         markers={
@@ -422,7 +442,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     contact bonus under the same gate. It has no lift term and no press guard. Any other value
     raises ``ValueError``. ``"shaped"`` stays the default until ``"adept"`` is shown to train.
     """
-    adept_gate_force: float = 1.0
+    adept_gate_force: float = 0.3
     """``reward_mode="adept"`` per-body contact-force threshold [N] for the grasp gate.
 
     The gate requires the thumb (:attr:`G1WujiTableEnv._THUMB_CONTACT_GROUP`) and at least one

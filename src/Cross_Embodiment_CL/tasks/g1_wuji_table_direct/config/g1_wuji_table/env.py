@@ -21,7 +21,15 @@ from isaaclab.managers import EventTermCfg, SceneEntityCfg
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.sensors import Camera, ContactSensor
 from isaaclab.sim.spawners.from_files import GroundPlaneCfg, spawn_ground_plane
-from isaaclab.utils.math import matrix_from_quat, quat_apply, quat_inv, quat_mul, scale_transform, unscale_transform
+from isaaclab.utils.math import (
+    matrix_from_quat,
+    quat_apply,
+    quat_from_euler_xyz,
+    quat_inv,
+    quat_mul,
+    scale_transform,
+    unscale_transform,
+)
 
 from Cross_Embodiment_CL.models import WujiLatentActionPipeline
 
@@ -318,10 +326,12 @@ class G1WujiTableEnv(DirectRLEnv):
         self._init_penetration_probe()
         self.goal_keypoint_marker: VisualizationMarkers | None = None
         self.object_keypoint_marker: VisualizationMarkers | None = None
+        self.goal_frame_marker: VisualizationMarkers | None = None
         self.adr_spawn_area_marker: VisualizationMarkers | None = None
         if self.cfg.debug.keypoint_markers:
             self.goal_keypoint_marker = VisualizationMarkers(self.cfg.goal_keypoint_marker_cfg)
             self.object_keypoint_marker = VisualizationMarkers(self.cfg.object_keypoint_marker_cfg)
+            self.goal_frame_marker = VisualizationMarkers(self.cfg.goal_frame_marker_cfg)
             self._update_keypoint_markers()
         if self.cfg.debug.adr_spawn_area_marker or self.cfg.adr_debug_spawn_area_vis:
             self.adr_spawn_area_marker = VisualizationMarkers(self.cfg.adr_spawn_area_marker_cfg)
@@ -1234,6 +1244,11 @@ class G1WujiTableEnv(DirectRLEnv):
             goal_keypoints = self._transform_keypoints(self.goal_position + self.scene.env_origins, self.goal_rotation)
         self.goal_keypoint_marker.visualize(translations=goal_keypoints.reshape(-1, 3))
         self.object_keypoint_marker.visualize(translations=current_keypoints.reshape(-1, 3))
+        if self.goal_frame_marker is not None:
+            self.goal_frame_marker.visualize(
+                translations=self.goal_position + self.scene.env_origins,
+                orientations=self.goal_rotation,
+            )
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
         """Terminate on torso-to-apple contact, workspace exit, or a non-finite simulation state.
@@ -1358,24 +1373,25 @@ class G1WujiTableEnv(DirectRLEnv):
             root_velocity=self.table.data.default_root_vel.torch[env_ids], env_ids=env_ids
         )
         apple_pose = self.apple.data.default_root_pose.torch[env_ids].clone()
-        apple_pose[:, 2] = object_spawn_height(self.cfg.object_rest_height, self.cfg.object_spawn_height_offset_cm)
-        # The authored pose is the legacy corner.  The nominal pose is always the center of the
-        # configured square, including when ADR is disabled; active spawn DR adds a symmetric offset.
-        apple_pose[:, 0] -= 0.5 * self.cfg.adr.spawn_box_x
-        apple_pose[:, 1] -= 0.5 * self.cfg.adr.spawn_box_y
-        if self._adr_spawn_active:
-            # Add a symmetric per-env perturbation around the authored legacy corner.
-            dx, dy = sample_spawn_offsets(
-                len(env_ids),
-                self.adr.strength,
-                self.cfg.adr.spawn_box_x,
-                self.cfg.adr.spawn_box_y,
-                device=self.device,
-            )
-            apple_pose[:, 0] += dx
-            apple_pose[:, 1] += dy
-        self.object_start_position[env_ids, :2] = apple_pose[:, :2]
-        self.goal_position[env_ids, :2] = apple_pose[:, :2]
+        # Task reset sampling is deliberately independent of ADR: every episode sees a fresh
+        # object and target pose even when all ADR terms are disabled.
+        apple_pose[:, 0] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_x_range)
+        apple_pose[:, 1] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_y_range)
+        apple_pose[:, 2] = self.cfg.object_spawn_z
+        self.object_start_position[env_ids, :3] = apple_pose[:, :3]
+        self.goal_position[env_ids, 0] = torch.empty(len(env_ids), device=self.device).uniform_(
+            *self.cfg.goal_spawn_x_range
+        )
+        self.goal_position[env_ids, 1] = torch.empty(len(env_ids), device=self.device).uniform_(
+            *self.cfg.goal_spawn_y_range
+        )
+        self.goal_position[env_ids, 2] = torch.empty(len(env_ids), device=self.device).uniform_(
+            *self.cfg.goal_spawn_z_range
+        )
+        goal_roll = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.goal_roll_range)
+        goal_pitch = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.goal_pitch_range)
+        goal_yaw = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.goal_yaw_range)
+        self.goal_rotation[env_ids] = quat_from_euler_xyz(goal_roll, goal_pitch, goal_yaw)
         apple_pose[:, :3] += self.scene.env_origins[env_ids]
         self.apple.write_root_pose_to_sim_index(root_pose=apple_pose, env_ids=env_ids)
         self.apple.write_root_velocity_to_sim_index(

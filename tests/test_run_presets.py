@@ -6,6 +6,7 @@
 """Tests for the G1-Wuji run presets, resolved the way ``isaaclab train``/``play`` resolve them."""
 
 import pytest
+import torch
 
 from isaaclab_newton.physics import NewtonCfg
 from isaaclab_physx.physics import PhysxCfg
@@ -13,7 +14,6 @@ from isaaclab_physx.physics import PhysxCfg
 from isaaclab_tasks.utils import resolve_task_config
 
 import Cross_Embodiment_CL.tasks  # noqa: F401
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import object_spawn_height
 
 TASK = "CrossEmbodimentCl-G1-Wuji-Table-Direct"
 AGENT = "rsl_rl_cfg_entry_point"
@@ -51,29 +51,23 @@ def test_run_preset_bundles(overrides, num_envs, visual_shapes, visualizers, key
 
 
 @pytest.mark.unit
-def test_default_apple_spawn_is_ten_centimeters_below_goal():
-    """The default spawn offset is 10 cm above rest and below the goal."""
-    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
+def test_default_reset_pose_sampling_is_task_randomization_not_adr():
+    """The apple and target ranges are fixed task settings, independent of ADR."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=train,dr_none"])
 
-    rest_z = env_cfg.object_rest_height
-    goal_z = env_cfg.goal_position[2]
-    spawn_z = object_spawn_height(rest_z, env_cfg.object_spawn_height_offset_cm)
-    assert env_cfg.object_spawn_height_offset_cm == pytest.approx(10.0)
-    assert spawn_z - rest_z == pytest.approx(0.10)
-    assert spawn_z == pytest.approx(goal_z - 0.10)
-    assert (spawn_z - rest_z) / (goal_z - rest_z) == pytest.approx(0.5)
-    assert env_cfg.success_keypoint_error_threshold == pytest.approx(0.05)
+    assert env_cfg.object_spawn_x_range == pytest.approx((0.20, 0.35))
+    assert env_cfg.object_spawn_y_range == pytest.approx((-0.30, -0.10))
+    assert env_cfg.object_spawn_z == pytest.approx(0.33)
+    assert env_cfg.goal_spawn_x_range == pytest.approx((0.20, 0.35))
+    assert env_cfg.goal_spawn_y_range == pytest.approx((-0.30, -0.10))
+    assert env_cfg.goal_spawn_z_range == pytest.approx((0.10, 0.33))
+    assert env_cfg.goal_roll_range == pytest.approx((-torch.pi, torch.pi))
+    assert env_cfg.goal_pitch_range == pytest.approx((-torch.pi, torch.pi))
+    assert env_cfg.goal_yaw_range == pytest.approx((-torch.pi, torch.pi))
+    assert env_cfg.adr.spawn_enabled is False
+    assert env_cfg.adept_gate_force == pytest.approx(0.3)
 
 
-@pytest.mark.unit
-def test_apple_spawn_height_offset_cli_override_resolves_and_is_applied():
-    """A Hydra centimeter override changes the reset spawn relationship."""
-    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["env.object_spawn_height_offset_cm=5"])
-
-    assert env_cfg.object_spawn_height_offset_cm == pytest.approx(5.0)
-    assert object_spawn_height(env_cfg.object_rest_height, env_cfg.object_spawn_height_offset_cm) == pytest.approx(
-        env_cfg.object_rest_height + 0.05
-    )
 
 
 @pytest.mark.unit
