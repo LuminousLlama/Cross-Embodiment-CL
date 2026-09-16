@@ -341,7 +341,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Legacy nominal apple goal position [m] in the environment frame."""
     object_rest_height = 0.04
     """Original tabletop apple root height [m], used as the lift-progress baseline."""
-    object_spawn_x_range = (0.20, 0.35)
+    object_spawn_x_range = (0.25, 0.35)
     """Uniform apple reset x-coordinate range [m] in the environment frame."""
     object_spawn_y_range = (-0.30, -0.10)
     """Uniform apple reset y-coordinate range [m] in the environment frame."""
@@ -349,7 +349,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Apple and target-region ceiling above the normal tabletop apple root height [m]."""
     object_spawn_z = object_rest_height + object_spawn_height_above_table
     """Fixed apple reset z-coordinate [m] in the environment/world frame."""
-    goal_spawn_x_range = (0.20, 0.35)
+    goal_spawn_x_range = (0.25, 0.35)
     """Uniform target-frame x-coordinate range [m] in the environment frame."""
     goal_spawn_y_range = (-0.30, -0.10)
     """Uniform target-frame y-coordinate range [m] in the environment frame."""

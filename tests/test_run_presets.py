@@ -55,11 +55,11 @@ def test_default_reset_pose_sampling_is_task_randomization_not_adr():
     """The apple and target ranges are fixed task settings, independent of ADR."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=train,dr_none"])
 
-    assert env_cfg.object_spawn_x_range == pytest.approx((0.20, 0.35))
+    assert env_cfg.object_spawn_x_range == pytest.approx((0.25, 0.35))
     assert env_cfg.object_spawn_y_range == pytest.approx((-0.30, -0.10))
     assert env_cfg.object_spawn_height_above_table == pytest.approx(0.20)
     assert env_cfg.object_spawn_z == pytest.approx(env_cfg.object_rest_height + 0.20)
-    assert env_cfg.goal_spawn_x_range == pytest.approx((0.20, 0.35))
+    assert env_cfg.goal_spawn_x_range == pytest.approx((0.25, 0.35))
     assert env_cfg.goal_spawn_y_range == pytest.approx((-0.30, -0.10))
     assert env_cfg.goal_spawn_z_range == pytest.approx((0.10, env_cfg.object_spawn_z))
     assert env_cfg.goal_roll_range == pytest.approx((-torch.pi / 6, torch.pi / 6))
