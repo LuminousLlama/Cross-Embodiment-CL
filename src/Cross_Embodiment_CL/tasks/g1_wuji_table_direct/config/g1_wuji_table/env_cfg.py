@@ -338,17 +338,21 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Maximum Wuji finger joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
     goal_position = (0.35, -0.05, 0.24)
     """Legacy nominal apple goal position [m] in the environment frame."""
+    object_rest_height = 0.04
+    """Original tabletop apple root height [m], used as the lift-progress baseline."""
     object_spawn_x_range = (0.20, 0.35)
     """Uniform apple reset x-coordinate range [m] in the environment frame."""
     object_spawn_y_range = (-0.30, -0.10)
     """Uniform apple reset y-coordinate range [m] in the environment frame."""
-    object_spawn_z = 0.33
+    object_spawn_height_above_table = 0.20
+    """Apple and target-region ceiling above the normal tabletop apple root height [m]."""
+    object_spawn_z = object_rest_height + object_spawn_height_above_table
     """Fixed apple reset z-coordinate [m] in the environment/world frame."""
     goal_spawn_x_range = (0.20, 0.35)
     """Uniform target-frame x-coordinate range [m] in the environment frame."""
     goal_spawn_y_range = (-0.30, -0.10)
     """Uniform target-frame y-coordinate range [m] in the environment frame."""
-    goal_spawn_z_range = (0.10, 0.33)
+    goal_spawn_z_range = (0.10, object_spawn_z)
     """Uniform target-frame z-coordinate range [m] in the environment frame."""
     goal_roll_range = (-3.141592653589793, 3.141592653589793)
     """Uniform target-frame roll range [rad]."""
@@ -356,8 +360,6 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Uniform target-frame pitch range [rad]."""
     goal_yaw_range = (-3.141592653589793, 3.141592653589793)
     """Uniform target-frame yaw range [rad]."""
-    object_rest_height = 0.04
-    """Original tabletop apple root height [m], used as the lift-progress baseline."""
     object_spawn_height_offset_cm = 5.0
     """Legacy vertical apple spawn offset [cm]; randomized reset uses :attr:`object_spawn_z`."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
