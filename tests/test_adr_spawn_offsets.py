@@ -9,6 +9,7 @@ import pytest
 import torch
 
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (
+    latch_first_success_steps,
     sample_goal_poses_outside_success_threshold,
     sample_spawn_offsets,
 )
@@ -57,3 +58,14 @@ def test_goal_sampler_rejects_initially_successful_target_poses():
 
     assert torch.all(keypoint_error > 0.10)
     assert torch.allclose(rotations, object_rotations)
+
+
+@pytest.mark.unit
+def test_first_success_latch_records_once_and_keeps_unsuccessful_sentinel():
+    first_steps = torch.tensor((-1, 3, -1))
+    errors = torch.tensor((0.09, 0.01, 0.11))
+    result = latch_first_success_steps(
+        first_steps, errors, success_threshold=0.10, episode_steps=torch.tensor((7, 7, 7))
+    )
+
+    assert torch.equal(result, torch.tensor((7, 3, -1)))

@@ -98,6 +98,17 @@ def sample_goal_poses_outside_success_threshold(
     return goal_positions, goal_rotations
 
 
+def latch_first_success_steps(
+    first_success_steps: torch.Tensor,
+    keypoint_error: torch.Tensor,
+    success_threshold: float,
+    episode_steps: torch.Tensor,
+) -> torch.Tensor:
+    """Record the one-based first successful policy step while retaining -1 for no success."""
+    newly_successful = (first_success_steps < 0) & (keypoint_error < success_threshold)
+    return torch.where(newly_successful, episode_steps, first_success_steps)
+
+
 def scaled_uniform(
     size: int | tuple[int, ...],
     half_width: float,
@@ -1098,6 +1109,8 @@ class G1WujiTableEnv(DirectRLEnv):
         self._episode_min_hand_distance = torch.full((self.num_envs,), torch.inf, device=self.device)
         self._episode_min_keypoint_error = torch.full((self.num_envs,), torch.inf, device=self.device)
         self._episode_max_object_height = torch.full((self.num_envs,), -torch.inf, device=self.device)
+        # -1 marks an episode that has not yet entered the success region.
+        self._episode_first_success_step = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
         self._episode_max_hand_penetration = torch.zeros(self.num_envs, device=self.device)
         self._episode_max_self_penetration = torch.zeros(self.num_envs, device=self.device)
         self._episode_max_elbow_torso_penetration = torch.zeros(self.num_envs, device=self.device)
@@ -1151,6 +1164,12 @@ class G1WujiTableEnv(DirectRLEnv):
         self._episode_min_hand_distance = torch.minimum(self._episode_min_hand_distance, hand_distance_farthest)
         self._episode_min_keypoint_error = torch.minimum(self._episode_min_keypoint_error, keypoint_error)
         self._episode_max_object_height = torch.maximum(self._episode_max_object_height, object_height)
+        self._episode_first_success_step = latch_first_success_steps(
+            self._episode_first_success_step,
+            keypoint_error,
+            self.cfg.success_keypoint_error_threshold,
+            self.episode_length_buf,
+        )
 
         log = {
             "Task/keypoint_error_step": keypoint_error.mean(),
@@ -1221,12 +1240,15 @@ class G1WujiTableEnv(DirectRLEnv):
                 }
             )
             episode_success = keypoint_error[reset_ids] < self.cfg.success_keypoint_error_threshold
+            first_success_steps = self._episode_first_success_step[reset_ids]
+            first_successful = first_success_steps >= 0
             if self.cfg.adr.enabled:
                 self._adr_successful_episodes += int(episode_success.sum().item())
                 self._adr_completed_episodes += len(reset_ids)
             log.update(
                 {
                     "Task/success": episode_success.float().mean(),
+                    "Task/first_success_frac_ep": first_successful.float().mean(),
                     "Task/keypoint_error_ep_final": keypoint_error[reset_ids].mean(),
                     "Task/position_error_ep_final": position_error[reset_ids].mean(),
                     "Task/rotation_error_ep_final": rotation_error[reset_ids].mean(),
@@ -1241,6 +1263,9 @@ class G1WujiTableEnv(DirectRLEnv):
                     "Terminations/timeout": self.reset_time_outs[reset_ids].float().mean(),
                 }
             )
+            if first_successful.any():
+                # Failed episodes use the internal -1 sentinel and are excluded from this mean.
+                log["Task/first_success_step_ep"] = first_success_steps[first_successful].float().mean()
             if self.cfg.log_control_metrics:
                 log.update(
                     {
@@ -1399,6 +1424,7 @@ class G1WujiTableEnv(DirectRLEnv):
             self._episode_min_hand_distance[env_ids] = torch.inf
             self._episode_min_keypoint_error[env_ids] = torch.inf
             self._episode_max_object_height[env_ids] = -torch.inf
+            self._episode_first_success_step[env_ids] = -1
             self._episode_max_hand_penetration[env_ids] = 0.0
             self._episode_max_self_penetration[env_ids] = 0.0
             self._episode_max_elbow_torso_penetration[env_ids] = 0.0
