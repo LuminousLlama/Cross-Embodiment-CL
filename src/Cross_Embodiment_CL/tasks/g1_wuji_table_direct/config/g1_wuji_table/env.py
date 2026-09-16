@@ -866,12 +866,12 @@ class G1WujiTableEnv(DirectRLEnv):
                 self.cfg.adept_gate_force,
                 self._THUMB_CONTACT_GROUP,
             )
-            # Keypoint-error sharpness ramps so the goal term starts forgiving (easy to earn once
-            # gated) and sharpens into a tighter pose requirement as training progresses.
-            alpha_ramp = min(1.0, self.common_step_counter / self.cfg.adept_goal_alpha_steps)
+            # Keep goal sharpness synchronized with the success-gated gravity curriculum.
+            # With ADR disabled, it stays at the level-zero value.
+            adr_strength = self.adr.strength if self.cfg.adr.enabled else 0.0
             goal_alpha_step = (
                 self.cfg.adept_goal_alpha_start
-                + (self.cfg.adept_goal_alpha_end - self.cfg.adept_goal_alpha_start) * alpha_ramp
+                + (self.cfg.adept_goal_alpha_end - self.cfg.adept_goal_alpha_start) * adr_strength
             )
             goal_reward = self.cfg.goal_reward_scale * torch.exp(-goal_alpha_step * keypoint_error) * contact_gate
             contact_reward = self.cfg.adept_contact_reward_scale * contact_gate.float()
@@ -1418,7 +1418,7 @@ class G1WujiTableEnv(DirectRLEnv):
         # object and target pose even when all ADR terms are disabled.
         apple_pose[:, 0] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_x_range)
         apple_pose[:, 1] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_y_range)
-        apple_pose[:, 2] = self.cfg.object_spawn_z
+        apple_pose[:, 2] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_z_range)
         self.object_start_position[env_ids, :3] = apple_pose[:, :3]
         goal_positions, goal_rotations = sample_goal_poses_outside_success_threshold(
             object_positions=apple_pose[:, :3],

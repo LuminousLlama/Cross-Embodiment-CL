@@ -347,13 +347,13 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Uniform apple reset y-coordinate range [m] in the environment frame."""
     object_spawn_height_above_table = 0.20
     """Apple and target-region ceiling above the normal tabletop apple root height [m]."""
-    object_spawn_z = object_rest_height + object_spawn_height_above_table
-    """Fixed apple reset z-coordinate [m] in the environment/world frame."""
+    object_spawn_z_range = (object_rest_height, object_rest_height + object_spawn_height_above_table)
+    """Uniform apple reset z-coordinate range [m] in the environment/world frame."""
     goal_spawn_x_range = (0.25, 0.35)
     """Uniform target-frame x-coordinate range [m] in the environment frame."""
     goal_spawn_y_range = (-0.30, -0.10)
     """Uniform target-frame y-coordinate range [m] in the environment frame."""
-    goal_spawn_z_range = (0.10, object_spawn_z)
+    goal_spawn_z_range = (0.10, object_spawn_z_range[1])
     """Uniform target-frame z-coordinate range [m] in the environment frame."""
     goal_roll_range = (-math.radians(30.0), math.radians(30.0))
     """Uniform target-frame roll range [rad] about the nominal world frame."""
@@ -362,7 +362,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     goal_yaw_range = (-math.radians(30.0), math.radians(30.0))
     """Uniform target-frame yaw range [rad] about the nominal world frame."""
     object_spawn_height_offset_cm = 5.0
-    """Legacy vertical apple spawn offset [cm]; randomized reset uses :attr:`object_spawn_z`."""
+    """Legacy vertical apple spawn offset [cm]; randomized reset uses :attr:`object_spawn_z_range`."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
     adr_debug_spawn_area_vis: bool = False
@@ -454,14 +454,9 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adept_contact_reward_scale: float = 0.01
     """``reward_mode="adept"`` flat per-step reward while the grasp gate holds."""
     adept_goal_alpha_start: float = 15.0
-    """``reward_mode="adept"`` goal-reward keypoint-error sharpness at ``common_step_counter=0``."""
+    """``reward_mode="adept"`` goal-reward keypoint-error sharpness at ADR level zero."""
     adept_goal_alpha_end: float = 30.0
-    """``reward_mode="adept"`` goal-reward keypoint-error sharpness once the ramp completes."""
-    adept_goal_alpha_steps: int = 32_000
-    """Env steps over which the ``adept`` goal-reward sharpness ramps from start to end.
-
-    PPO runs 32 steps per iteration, so 32 000 steps is iteration 1000.
-    """
+    """``reward_mode="adept"`` goal-reward keypoint-error sharpness at full ADR strength."""
     adept_lift_reward_scale: float = 0.0
     """``reward_mode="adept"`` optional dense per-step reward for height progress toward the goal.
 
