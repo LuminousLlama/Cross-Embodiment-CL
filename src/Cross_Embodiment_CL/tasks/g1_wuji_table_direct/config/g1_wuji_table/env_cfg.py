@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
+from collections.abc import Mapping
 from pathlib import Path
 
 from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
@@ -51,6 +52,33 @@ _FRICTION = 0.5
 MJWarp resolves a contact's friction as the max of its two shapes and reads only dynamic friction, so friction
 is authored with static equal to dynamic and PhysX materials combine by max.
 """
+
+
+def _find_undeclared_config_fields(obj: object, path: str = "env", seen: set[int] | None = None) -> list[str]:
+    """Return paths dynamically attached to config dataclasses."""
+    if seen is None:
+        seen = set()
+    if id(obj) in seen:
+        return []
+    seen.add(id(obj))
+
+    if hasattr(obj, "__dataclass_fields__"):
+        declared = set(obj.__dataclass_fields__)
+        unknown = [f"{path}.{name}" for name in vars(obj) if name not in declared]
+        for name in declared:
+            unknown.extend(_find_undeclared_config_fields(getattr(obj, name), f"{path}.{name}", seen))
+        return unknown
+    if isinstance(obj, Mapping):
+        unknown = []
+        for name, value in obj.items():
+            unknown.extend(_find_undeclared_config_fields(value, f"{path}.{name}", seen))
+        return unknown
+    if isinstance(obj, (list, tuple)):
+        unknown = []
+        for index, value in enumerate(obj):
+            unknown.extend(_find_undeclared_config_fields(value, f"{path}[{index}]", seen))
+        return unknown
+    return []
 
 
 def _mjwarp_physics_cfg(load_visual_shapes: bool) -> NewtonCfg:
@@ -572,3 +600,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     def __post_init__(self) -> None:
         """Set a useful default camera for visual scene inspection."""
         self.sim.default_visualizer_cfg = VisualizerCfg(eye=(2.2, -2.2, 1.5), lookat=(0.3, 0.0, 0.15))
+
+    def validate_config(self) -> None:
+        """Reject undeclared CLI overrides before the environment is created."""
+        unknown = _find_undeclared_config_fields(self)
+        if unknown:
+            paths = "\n".join(f"  - {path}" for path in unknown)
+            raise ValueError(f"Undeclared environment config field(s):\n{paths}")

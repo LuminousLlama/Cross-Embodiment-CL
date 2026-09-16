@@ -150,6 +150,25 @@ def test_lift_reward_toggle_defaults_off_and_accepts_cli_override():
 
     assert default_cfg.lift_reward_enabled is False
     assert enabled_cfg.lift_reward_enabled is True
+    disabled_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["env.lift_reward_enabled=False"])
+    assert disabled_cfg.lift_reward_enabled is False
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "override",
+    [
+        "env.definitely_fake_flag=False",
+        "env.adr.definitely_fake_flag=False",
+        "env.sim.definitely_fake_flag=False",
+    ],
+)
+def test_undeclared_nested_override_fails_loudly(override):
+    """Environment validation must reject fields Hydra attached dynamically."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[override])
+
+    with pytest.raises(ValueError, match=override.removeprefix("env.").removesuffix("=False")):
+        env_cfg.validate()
 
 
 @pytest.mark.unit
