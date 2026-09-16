@@ -1444,7 +1444,10 @@ class G1WujiTableEnv(DirectRLEnv):
         # object and target pose even when all ADR terms are disabled.
         apple_pose[:, 0] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_x_range)
         apple_pose[:, 1] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_y_range)
-        apple_pose[:, 2] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_z_range)
+        if self.cfg.reset.object_on_table:
+            apple_pose[:, 2] = self.cfg.object_rest_height
+        else:
+            apple_pose[:, 2] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_z_range)
         self.object_start_position[env_ids, :3] = apple_pose[:, :3]
         goal_positions, goal_rotations = sample_goal_poses_outside_success_threshold(
             object_positions=apple_pose[:, :3],

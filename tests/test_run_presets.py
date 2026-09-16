@@ -58,6 +58,7 @@ def test_default_reset_pose_sampling_is_task_randomization_not_adr():
     assert env_cfg.object_spawn_x_range == pytest.approx((0.25, 0.35))
     assert env_cfg.object_spawn_y_range == pytest.approx((-0.30, -0.10))
     assert env_cfg.object_spawn_height_above_table == pytest.approx(0.20)
+    assert env_cfg.reset.object_on_table is False
     assert env_cfg.object_spawn_z_range == pytest.approx(
         (env_cfg.object_rest_height, env_cfg.object_rest_height + 0.20)
     )
@@ -71,6 +72,17 @@ def test_default_reset_pose_sampling_is_task_randomization_not_adr():
     assert env_cfg.adr.spawn_enabled is False
     assert env_cfg.adept_gate_force == pytest.approx(0.3)
     assert env_cfg.goal_frame_marker_cfg.markers["frame"].scale == (0.1, 0.1, 0.1)
+
+
+@pytest.mark.unit
+def test_tabletop_object_reset_override_preserves_the_normal_spawn_range():
+    """The convenience flag fixes only the apple height; task randomization remains configured."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=debug,dr_none", "env.reset.object_on_table=True"])
+
+    assert env_cfg.reset.object_on_table is True
+    assert env_cfg.object_spawn_z_range == pytest.approx(
+        (env_cfg.object_rest_height, env_cfg.object_rest_height + env_cfg.object_spawn_height_above_table)
+    )
 
 
 @pytest.mark.unit

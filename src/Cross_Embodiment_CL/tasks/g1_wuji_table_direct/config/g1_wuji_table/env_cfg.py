@@ -143,6 +143,14 @@ class G1WujiTableSceneCfg(PresetCfg):
 
 
 @configclass
+class G1WujiTableResetCfg:
+    """Task-reset controls independent of ADR."""
+
+    object_on_table: bool = False
+    """When true, fix the apple root at :attr:`G1WujiTableEnvCfg.object_rest_height` on every reset."""
+
+
+@configclass
 class G1WujiTableDebugCfg:
     """Diagnostic drawing, off for training."""
 
@@ -363,6 +371,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Uniform target-frame yaw range [rad] about the nominal world frame."""
     object_spawn_height_offset_cm = 5.0
     """Legacy vertical apple spawn offset [cm]; randomized reset uses :attr:`object_spawn_z_range`."""
+    reset: G1WujiTableResetCfg = G1WujiTableResetCfg()
+    """Task-reset controls; unlike ADR, these apply at every reset."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
     adr_debug_spawn_area_vis: bool = False
