@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 from pathlib import Path
 
 from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
@@ -354,12 +355,12 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Uniform target-frame y-coordinate range [m] in the environment frame."""
     goal_spawn_z_range = (0.10, object_spawn_z)
     """Uniform target-frame z-coordinate range [m] in the environment frame."""
-    goal_roll_range = (-3.141592653589793, 3.141592653589793)
-    """Uniform target-frame roll range [rad]."""
-    goal_pitch_range = (-3.141592653589793, 3.141592653589793)
-    """Uniform target-frame pitch range [rad]."""
-    goal_yaw_range = (-3.141592653589793, 3.141592653589793)
-    """Uniform target-frame yaw range [rad]."""
+    goal_roll_range = (-math.radians(30.0), math.radians(30.0))
+    """Uniform target-frame roll range [rad] about the nominal world frame."""
+    goal_pitch_range = (-math.radians(30.0), math.radians(30.0))
+    """Uniform target-frame pitch range [rad] about the nominal world frame."""
+    goal_yaw_range = (-math.radians(30.0), math.radians(30.0))
+    """Uniform target-frame yaw range [rad] about the nominal world frame."""
     object_spawn_height_offset_cm = 5.0
     """Legacy vertical apple spawn offset [cm]; randomized reset uses :attr:`object_spawn_z`."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
@@ -488,7 +489,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     contact_reward_scale = 0.5
     """Flat per-step bonus when the thumb and another finger both exceed the contact threshold."""
     success_keypoint_error_threshold = 0.05
-    """Terminal mean virtual-keypoint error threshold [m] for the success metric."""
+    """Terminal mean virtual-keypoint error threshold [m] (5 cm) for the success metric."""
     workspace_termination_enabled: bool = False
     """Whether to terminate when the apple leaves its horizontal reset workspace."""
     object_max_horizontal_displacement = 0.20

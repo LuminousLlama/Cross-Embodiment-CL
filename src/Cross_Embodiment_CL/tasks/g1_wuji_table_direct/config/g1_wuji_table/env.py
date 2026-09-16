@@ -57,6 +57,47 @@ def object_spawn_height(object_rest_height: float, offset_cm: float) -> float:
     return object_rest_height + offset_cm / 100.0
 
 
+def sample_goal_poses_outside_success_threshold(
+    object_positions: torch.Tensor,
+    object_rotations: torch.Tensor,
+    local_keypoints: torch.Tensor,
+    position_ranges: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
+    euler_ranges: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
+    success_threshold: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sample target poses until each is outside the mean-keypoint success radius.
+
+    This task reset sampler is intentionally independent of ADR.  It samples each target against
+    its already-sampled apple pose, rejecting only targets that would begin successfully solved.
+    """
+    num_envs = object_positions.shape[0]
+    device = object_positions.device
+    goal_positions = torch.empty_like(object_positions)
+    goal_rotations = torch.empty_like(object_rotations)
+    object_keypoints = quat_apply(
+        object_rotations.unsqueeze(1).expand(-1, local_keypoints.shape[0], -1),
+        local_keypoints.unsqueeze(0).expand(num_envs, -1, -1),
+    ) + object_positions.unsqueeze(1)
+    pending = torch.arange(num_envs, device=device)
+    while pending.numel() > 0:
+        candidate_positions = torch.stack(
+            [torch.empty(len(pending), device=device).uniform_(*bounds) for bounds in position_ranges], dim=-1
+        )
+        candidate_euler = [torch.empty(len(pending), device=device).uniform_(*bounds) for bounds in euler_ranges]
+        candidate_rotations = quat_from_euler_xyz(*candidate_euler)
+        candidate_keypoints = quat_apply(
+            candidate_rotations.unsqueeze(1).expand(-1, local_keypoints.shape[0], -1),
+            local_keypoints.unsqueeze(0).expand(len(pending), -1, -1),
+        ) + candidate_positions.unsqueeze(1)
+        keypoint_error = torch.linalg.vector_norm(object_keypoints[pending] - candidate_keypoints, dim=-1).mean(dim=1)
+        accepted = keypoint_error > success_threshold
+        accepted_ids = pending[accepted]
+        goal_positions[accepted_ids] = candidate_positions[accepted]
+        goal_rotations[accepted_ids] = candidate_rotations[accepted]
+        pending = pending[~accepted]
+    return goal_positions, goal_rotations
+
+
 def scaled_uniform(
     size: int | tuple[int, ...],
     half_width: float,
@@ -1379,19 +1420,20 @@ class G1WujiTableEnv(DirectRLEnv):
         apple_pose[:, 1] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_y_range)
         apple_pose[:, 2] = self.cfg.object_spawn_z
         self.object_start_position[env_ids, :3] = apple_pose[:, :3]
-        self.goal_position[env_ids, 0] = torch.empty(len(env_ids), device=self.device).uniform_(
-            *self.cfg.goal_spawn_x_range
+        goal_positions, goal_rotations = sample_goal_poses_outside_success_threshold(
+            object_positions=apple_pose[:, :3],
+            object_rotations=apple_pose[:, 3:7],
+            local_keypoints=self.local_cube_keypoints,
+            position_ranges=(
+                self.cfg.goal_spawn_x_range,
+                self.cfg.goal_spawn_y_range,
+                self.cfg.goal_spawn_z_range,
+            ),
+            euler_ranges=(self.cfg.goal_roll_range, self.cfg.goal_pitch_range, self.cfg.goal_yaw_range),
+            success_threshold=self.cfg.success_keypoint_error_threshold,
         )
-        self.goal_position[env_ids, 1] = torch.empty(len(env_ids), device=self.device).uniform_(
-            *self.cfg.goal_spawn_y_range
-        )
-        self.goal_position[env_ids, 2] = torch.empty(len(env_ids), device=self.device).uniform_(
-            *self.cfg.goal_spawn_z_range
-        )
-        goal_roll = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.goal_roll_range)
-        goal_pitch = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.goal_pitch_range)
-        goal_yaw = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.goal_yaw_range)
-        self.goal_rotation[env_ids] = quat_from_euler_xyz(goal_roll, goal_pitch, goal_yaw)
+        self.goal_position[env_ids] = goal_positions
+        self.goal_rotation[env_ids] = goal_rotations
         apple_pose[:, :3] += self.scene.env_origins[env_ids]
         self.apple.write_root_pose_to_sim_index(root_pose=apple_pose, env_ids=env_ids)
         self.apple.write_root_velocity_to_sim_index(

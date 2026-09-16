@@ -8,7 +8,10 @@
 import pytest
 import torch
 
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import sample_spawn_offsets
+from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (
+    sample_goal_poses_outside_success_threshold,
+    sample_spawn_offsets,
+)
 
 
 @pytest.mark.unit
@@ -33,3 +36,24 @@ def test_sample_spawn_offsets_reaches_the_full_strength_box():
 
     assert torch.all(dx <= 0.11 / 2) and torch.all(dx >= -0.11 / 2)
     assert torch.all(dy <= 0.20 / 2) and torch.all(dy >= -0.20 / 2)
+
+
+@pytest.mark.unit
+def test_goal_sampler_rejects_initially_successful_target_poses():
+    object_positions = torch.zeros((128, 3))
+    object_rotations = torch.tensor((0.0, 0.0, 0.0, 1.0)).repeat(128, 1)
+    local_keypoints = torch.cartesian_prod(*(3 * [torch.tensor((-0.15, 0.15))]))
+    goals, rotations = sample_goal_poses_outside_success_threshold(
+        object_positions,
+        object_rotations,
+        local_keypoints,
+        position_ranges=((0.0, 0.10), (0.0, 0.10), (0.0, 0.10)),
+        euler_ranges=((0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+        success_threshold=0.05,
+    )
+    keypoint_error = torch.linalg.vector_norm(
+        goals.unsqueeze(1) - local_keypoints.unsqueeze(0) + local_keypoints.unsqueeze(0), dim=-1
+    ).mean(dim=1)
+
+    assert torch.all(keypoint_error > 0.05)
+    assert torch.allclose(rotations, object_rotations)
