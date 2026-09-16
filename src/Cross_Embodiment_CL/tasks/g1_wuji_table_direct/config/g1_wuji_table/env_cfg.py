@@ -400,8 +400,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         },
     )
     """Two-centimetre red spheres marking the current object-frame keypoints."""
-    goal_frame_marker_cfg = FRAME_MARKER_CFG.replace(prim_path="/Visuals/CrossEmbodiment/goal_frame")
-    """Axis-frame marker for the randomized target orientation."""
+    goal_frame_marker_cfg = FRAME_MARKER_CFG.copy()
+    goal_frame_marker_cfg.prim_path = "/Visuals/CrossEmbodiment/goal_frame"
+    goal_frame_marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
+    """Uniformly scaled axis-frame marker for the randomized target orientation."""
     adr_spawn_area_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/CrossEmbodiment/adr_spawn_area",
         markers={

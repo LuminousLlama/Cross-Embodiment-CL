@@ -70,6 +70,7 @@ def test_default_reset_pose_sampling_is_task_randomization_not_adr():
     assert env_cfg.success_keypoint_error_threshold == pytest.approx(0.10)
     assert env_cfg.adr.spawn_enabled is False
     assert env_cfg.adept_gate_force == pytest.approx(0.3)
+    assert env_cfg.goal_frame_marker_cfg.markers["frame"].scale == (0.1, 0.1, 0.1)
 
 
 @pytest.mark.unit
