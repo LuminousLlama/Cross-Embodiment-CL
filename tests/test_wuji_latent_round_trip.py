@@ -44,7 +44,7 @@ def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset:
 
         shoulder_roll_joint_id = unwrapped.arm_joint_ids[1]
         expected_shoulder_roll = torch.full_like(
-            robot.data.default_joint_pos.torch[:, shoulder_roll_joint_id], -torch.pi / 2
+            robot.data.default_joint_pos.torch[:, shoulder_roll_joint_id], -torch.deg2rad(torch.tensor(110.0))
         )
         assert torch.allclose(robot.data.default_joint_pos.torch[:, shoulder_roll_joint_id], expected_shoulder_roll)
         assert torch.allclose(robot.data.joint_pos.torch[:, shoulder_roll_joint_id], expected_shoulder_roll)
