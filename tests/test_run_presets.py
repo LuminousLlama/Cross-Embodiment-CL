@@ -68,8 +68,6 @@ def test_default_reset_pose_sampling_is_task_randomization_not_adr():
     assert env_cfg.adept_gate_force == pytest.approx(0.3)
 
 
-
-
 @pytest.mark.unit
 @pytest.mark.parametrize(
     ("overrides", "has_camera"),
