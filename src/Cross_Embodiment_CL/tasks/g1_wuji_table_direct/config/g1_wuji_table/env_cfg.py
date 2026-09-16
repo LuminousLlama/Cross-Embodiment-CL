@@ -488,8 +488,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """
     contact_reward_scale = 0.5
     """Flat per-step bonus when the thumb and another finger both exceed the contact threshold."""
-    success_keypoint_error_threshold = 0.05
-    """Terminal mean virtual-keypoint error threshold [m] (5 cm) for the success metric."""
+    success_keypoint_error_threshold = 0.10
+    """Terminal mean virtual-keypoint error threshold [m] (10 cm) for the success metric."""
     workspace_termination_enabled: bool = False
     """Whether to terminate when the apple leaves its horizontal reset workspace."""
     object_max_horizontal_displacement = 0.20

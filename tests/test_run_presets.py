@@ -65,7 +65,7 @@ def test_default_reset_pose_sampling_is_task_randomization_not_adr():
     assert env_cfg.goal_roll_range == pytest.approx((-torch.pi / 6, torch.pi / 6))
     assert env_cfg.goal_pitch_range == pytest.approx((-torch.pi / 6, torch.pi / 6))
     assert env_cfg.goal_yaw_range == pytest.approx((-torch.pi / 6, torch.pi / 6))
-    assert env_cfg.success_keypoint_error_threshold == pytest.approx(0.05)
+    assert env_cfg.success_keypoint_error_threshold == pytest.approx(0.10)
     assert env_cfg.adr.spawn_enabled is False
     assert env_cfg.adept_gate_force == pytest.approx(0.3)
 

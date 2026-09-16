@@ -49,11 +49,11 @@ def test_goal_sampler_rejects_initially_successful_target_poses():
         local_keypoints,
         position_ranges=((0.0, 0.10), (0.0, 0.10), (0.0, 0.10)),
         euler_ranges=((0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
-        success_threshold=0.05,
+        success_threshold=0.10,
     )
     keypoint_error = torch.linalg.vector_norm(
         goals.unsqueeze(1) - local_keypoints.unsqueeze(0) + local_keypoints.unsqueeze(0), dim=-1
     ).mean(dim=1)
 
-    assert torch.all(keypoint_error > 0.05)
+    assert torch.all(keypoint_error > 0.10)
     assert torch.allclose(rotations, object_rotations)
