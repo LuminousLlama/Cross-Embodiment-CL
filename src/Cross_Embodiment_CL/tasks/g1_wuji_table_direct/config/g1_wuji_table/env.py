@@ -44,7 +44,7 @@ from .depth_camera import (
     resize_and_pad_depth,
     warp_depth_intrinsics,
 )
-from .env_cfg import STUDENT_DEPTH_LETTERBOX, G1WujiTableEnvCfg
+from .env_cfg import _FRICTION, STUDENT_DEPTH_LETTERBOX, G1WujiTableEnvCfg
 from .virtual_force import (
     VirtualForceOutput,
     VirtualForcePipeline,
@@ -317,6 +317,11 @@ class G1WujiTableEnv(DirectRLEnv):
     )
     _THUMB_CONTACT_GROUP = "finger1"
     _OBSERVATION_DIM = 171
+    # gravity, ADR strength, goal alpha, robot offset, hand target scale, action delay,
+    # joint position/velocity biases, object-position bias, three effective friction values,
+    # and object mass/inertia scales.  There is no observation delay or actuator DR in this task.
+    _CRITIC_PRIVILEGED_DIM = 76
+    _CRITIC_OBSERVATION_DIM = _OBSERVATION_DIM + _CRITIC_PRIVILEGED_DIM
     # The deployable proprioceptive prefix of the privileged observation: joint positions and
     # velocities, commanded arm and hand targets, and their position limits.
     _STUDENT_OBSERVATION_DIM = 141
@@ -367,10 +372,10 @@ class G1WujiTableEnv(DirectRLEnv):
                 "right arm plus Wuji latent action require "
                 f"{len(self.arm_joint_ids) + WujiLatentActionPipeline.latent_dim}."
             )
-        if self.cfg.observation_space != self._OBSERVATION_DIM or self.cfg.state_space != self._OBSERVATION_DIM:
+        if self.cfg.observation_space != self._OBSERVATION_DIM or self.cfg.state_space != self._CRITIC_OBSERVATION_DIM:
             raise ValueError(
-                f"{type(self.cfg).__name__} must declare matching policy and critic observation spaces of "
-                f"{self._OBSERVATION_DIM}."
+                f"{type(self.cfg).__name__} must declare policy observation space {self._OBSERVATION_DIM} and "
+                f"critic observation space {self._CRITIC_OBSERVATION_DIM}."
             )
         self.wuji_action_pipeline = WujiLatentActionPipeline(self.device)
         self.virtual_force_pipeline: VirtualForcePipeline | None = None
@@ -423,6 +428,16 @@ class G1WujiTableEnv(DirectRLEnv):
         self._gravity_frac = 1.0
         self._last_applied_gravity_frac: float | None = None
         self._apply_gravity_curriculum(force=True)
+        self._adr_robot_position_offset = torch.zeros((self.num_envs, 3), device=self.device)
+        self._adr_hand_target_scale = torch.ones(self.num_envs, device=self.device)
+        self._adr_action_delay_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        num_joints = self.robot.data.joint_pos.torch.shape[-1]
+        self._adr_joint_pos_obs_bias = torch.zeros((self.num_envs, num_joints), device=self.device)
+        self._adr_joint_vel_obs_bias = torch.zeros_like(self._adr_joint_pos_obs_bias)
+        self._adr_object_pos_obs_bias = torch.zeros((self.num_envs, 3), device=self.device)
+        self._adr_friction_values = torch.full((self.num_envs, 3), _FRICTION, device=self.device)
+        self._adr_object_mass_scale = torch.ones(self.num_envs, device=self.device)
+        self._adr_object_inertia_scale = torch.ones(self.num_envs, device=self.device)
         self._adr_extra_active = bool(self.cfg.adr.enabled and self.cfg.adr.extra_enabled)
         self._adr_spawn_active = bool(self.cfg.adr.enabled and self.cfg.adr.spawn_enabled)
         self._adr_robot_position_active = bool(self.cfg.adr.enabled and self.cfg.adr.robot_position_enabled)
@@ -432,15 +447,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._adr_hand_target_scale_active = bool(self._adr_extra_active and self.cfg.adr.hand_target_scale_enabled)
         self._adr_friction_active = bool(self._adr_extra_active and self.cfg.adr.friction_enabled)
         self._adr_mass_active = bool(self._adr_extra_active and self.cfg.adr.mass_enabled)
-        if self._adr_sensor_noise_active:
-            num_joints = self.robot.data.joint_pos.torch.shape[-1]
-            self._adr_joint_pos_obs_bias = torch.zeros((self.num_envs, num_joints), device=self.device)
-            self._adr_joint_vel_obs_bias = torch.zeros_like(self._adr_joint_pos_obs_bias)
-            self._adr_object_pos_obs_bias = torch.zeros((self.num_envs, 3), device=self.device)
-        if self._adr_hand_target_scale_active:
-            self._adr_hand_target_scale = torch.ones(self.num_envs, device=self.device)
         if self._adr_action_latency_active:
-            self._adr_action_delay_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
             self._adr_action_buffer = ActionDelayBuffer(
                 capacity=self.cfg.adr.action_latency_max_steps + 1,
                 num_envs=self.num_envs,
@@ -449,6 +456,8 @@ class G1WujiTableEnv(DirectRLEnv):
             )
         if self._adr_friction_active:
             self._adr_friction_terms = self._make_adr_friction_terms()
+            for index, (_, nominal) in enumerate(self._adr_friction_terms.values()):
+                self._adr_friction_values[:, index] = nominal
         if self._adr_mass_active:
             self._adr_mass_asset_cfg = SceneEntityCfg("apple")
             self._adr_mass_term = randomize_rigid_body_mass(
@@ -610,12 +619,17 @@ class G1WujiTableEnv(DirectRLEnv):
         Newton's ``shape_material_mu`` is a single coefficient.
         """
         low, high = self.cfg.adr.friction_range
-        for term, nominal in self._adr_friction_terms.values():
+        for index, (term, nominal) in enumerate(self._adr_friction_terms.values()):
             impl = term._impl
             friction_view = wp.to_torch(impl._friction_binding)
             shape_idx = impl._shape_indices.to(self.device)
             sample = torch.rand(len(env_ids), len(shape_idx), device=self.device) * (high - low) + low
-            friction_view[env_ids[:, None], shape_idx] = nominal + strength * (sample - nominal)
+            effective_friction = nominal + strength * (sample - nominal)
+            friction_view[env_ids[:, None], shape_idx] = effective_friction
+            # Newton samples each shape independently. Keep the exact per-asset effective mean as the
+            # fixed-width state supplied to the critic; there is no separate static/dynamic coefficient
+            # in this backend, so one value represents both.
+            self._adr_friction_values[env_ids, index] = effective_friction.mean(dim=-1)
             impl._newton_manager.add_model_change(impl._notify_shape_properties)
 
     def _apply_adr_mass(self, env_ids: torch.Tensor, strength: float) -> None:
@@ -629,6 +643,9 @@ class G1WujiTableEnv(DirectRLEnv):
             operation="scale",
             recompute_inertia=True,
         )
+        default_mass = self._adr_mass_term.default_mass[env_ids, 0]
+        self._adr_object_mass_scale[env_ids] = self.apple.data.body_mass.torch[env_ids, 0] / default_mass
+        self._adr_object_inertia_scale[env_ids] = self._adr_object_mass_scale[env_ids]
 
     def _randomize_depth_camera(self, env_ids: torch.Tensor, strength: float) -> None:
         """Sample fixed-per-episode student-camera extrinsics, intrinsics, and calibration."""
@@ -1125,6 +1142,7 @@ class G1WujiTableEnv(DirectRLEnv):
             clean_joint_velocity,
             clean_object_position,
         )
+        critic_observation = torch.cat((critic_observation, self._get_critic_privileged_state()), dim=-1)
         actor_observation, actor_proprioception = make_observation(
             actor_joint_position,
             actor_joint_velocity,
@@ -1138,6 +1156,11 @@ class G1WujiTableEnv(DirectRLEnv):
             raise RuntimeError(
                 f"Expected {self._STUDENT_OBSERVATION_DIM}-D student observation, received "
                 f"{actor_proprioception.shape[-1]}."
+            )
+        if critic_observation.shape[-1] != self._CRITIC_OBSERVATION_DIM:
+            raise RuntimeError(
+                f"Expected {self._CRITIC_OBSERVATION_DIM}-D critic observation, received "
+                f"{critic_observation.shape[-1]} ."
             )
         observations = {
             "policy": actor_observation,
@@ -1171,6 +1194,47 @@ class G1WujiTableEnv(DirectRLEnv):
             )
             self.depth_camera.data.output["rgb"] = ProxyArray(wp.from_torch(self._student_depth_preview))
         self._student_depth_preview.copy_(preview)
+
+    def _get_critic_privileged_state(self) -> torch.Tensor:
+        """Return clean, per-environment DR state for the asymmetric value function.
+
+        Only randomizations implemented by this environment are represented.  In particular, there are no
+        actuator stiffness/damping, joint-friction, armature, torque-limit, or observation-delay randomizers
+        to expose.  Newton has one friction coefficient rather than independent static/dynamic coefficients;
+        the three entries are the effective means for apple, table, and hand shapes.
+        """
+        adr_strength = self.adr.strength if self.cfg.adr.enabled else 0.0
+        if self.cfg.reward_mode == "adept":
+            goal_alpha = (
+                self.cfg.adept_goal_alpha_start
+                + (self.cfg.adept_goal_alpha_end - self.cfg.adept_goal_alpha_start) * adr_strength
+            )
+        else:
+            goal_alpha = (
+                self.cfg.goal_reward_alpha + (self.cfg.adr.goal_alpha_end - self.cfg.goal_reward_alpha) * adr_strength
+            )
+        scalar = torch.empty((self.num_envs, 1), device=self.device)
+        scalar[:, 0] = self._gravity_frac
+        strength_column = scalar.new_full((self.num_envs, 1), adr_strength)
+        goal_alpha_column = scalar.new_full((self.num_envs, 1), goal_alpha)
+        action_delay = self._adr_action_delay_steps.to(dtype=scalar.dtype).unsqueeze(-1)
+        return torch.cat(
+            (
+                scalar,
+                strength_column,
+                goal_alpha_column,
+                self._adr_robot_position_offset,
+                self._adr_hand_target_scale.unsqueeze(-1),
+                action_delay,
+                self._adr_joint_pos_obs_bias,
+                self._adr_joint_vel_obs_bias,
+                self._adr_object_pos_obs_bias,
+                self._adr_friction_values,
+                self._adr_object_mass_scale.unsqueeze(-1),
+                self._adr_object_inertia_scale.unsqueeze(-1),
+            ),
+            dim=-1,
+        )
 
     def _get_rewards(self) -> torch.Tensor:
         """Reward reaching, thumb-opposed contact, and the upright object pose.
@@ -1758,10 +1822,12 @@ class G1WujiTableEnv(DirectRLEnv):
             self.virtual_force_output = self.virtual_force_pipeline.output
 
         robot_pose = self.robot.data.default_root_pose.torch[env_ids].clone()
+        self._adr_robot_position_offset[env_ids] = 0.0
         if self._adr_robot_position_active:
-            robot_pose[:, :3] += scaled_uniform(
+            self._adr_robot_position_offset[env_ids] = scaled_uniform(
                 (len(env_ids), 3), self.cfg.adr.robot_position_range, self.adr.strength, device=self.device
             )
+            robot_pose[:, :3] += self._adr_robot_position_offset[env_ids]
         robot_pose[:, :3] += self.scene.env_origins[env_ids]
         self.robot.write_root_pose_to_sim_index(root_pose=robot_pose, env_ids=env_ids)
         self.robot.write_root_velocity_to_sim_index(
@@ -1837,6 +1903,11 @@ class G1WujiTableEnv(DirectRLEnv):
         self.apple.write_root_velocity_to_sim_index(
             root_velocity=self.apple.data.default_root_vel.torch[env_ids], env_ids=env_ids
         )
+        self._adr_joint_pos_obs_bias[env_ids] = 0.0
+        self._adr_joint_vel_obs_bias[env_ids] = 0.0
+        self._adr_object_pos_obs_bias[env_ids] = 0.0
+        self._adr_hand_target_scale[env_ids] = 1.0
+        self._adr_action_delay_steps[env_ids] = 0
         if (
             self._adr_sensor_noise_active
             or self._adr_hand_target_scale_active

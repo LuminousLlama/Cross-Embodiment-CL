@@ -131,8 +131,8 @@ def test_depth_view_publishes_the_exact_final_student_image() -> None:
 
 
 @pytest.mark.integration
-def test_sensor_noise_is_actor_only_and_critic_stays_clean() -> None:
-    """Sensor-noise ADR changes actor/student values, never the critic's simulator view."""
+def test_sensor_noise_is_actor_only_and_critic_gets_dr_state() -> None:
+    """Sensor noise stays actor-only while the critic receives clean state plus DR metadata."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
     resolve_presets(env_cfg, selected=("newton_mjwarp",))
     env_cfg.scene.num_envs = 2
@@ -151,6 +151,9 @@ def test_sensor_noise_is_actor_only_and_critic_stays_clean() -> None:
             observations["critic"][:, : unwrapped.robot.num_joints],
             unwrapped.robot.data.joint_pos.torch,
         )
+        assert observations["policy"].shape == (2, 171)
+        assert observations["critic"].shape == (2, 247)
+        assert torch.allclose(observations["critic"][:, 171], torch.ones(2, device=unwrapped.device))
         assert torch.equal(observations["policy"][:, :141], observations["student"])
         assert not torch.equal(observations["policy"], observations["critic"])
     finally:
@@ -203,7 +206,8 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         assert observations["policy"].shape == (1, 171)
         assert observations["student"].shape == (1, 141)
         assert torch.isfinite(observations["policy"]).all()
-        assert torch.equal(observations["policy"], observations["critic"])
+        assert observations["critic"].shape == (1, 247)
+        assert torch.equal(observations["critic"][:, :171], observations["policy"])
         assert unwrapped.torso_contact_sensor.data.normal_force_matrix_w.torch.shape == (1, 1, 1, 3)
         terminated, timed_out = unwrapped._get_dones()
         assert terminated.shape == (1,)

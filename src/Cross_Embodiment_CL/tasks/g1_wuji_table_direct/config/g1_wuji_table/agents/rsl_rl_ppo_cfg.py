@@ -18,14 +18,9 @@ class G1WujiTablePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 10_000
     save_interval = 250
     experiment_name = "g1_wuji_table_direct"
-    # env.py still computes a genuinely clean "critic" observation group (see _get_observations) for future
-    # use, but the critic is pointed at the shared "policy" key by default: isolation testing (2026-09-14)
-    # found that splitting the critic onto its own key collapses lift learning even with sensor-noise DR
-    # off (so "critic" and "policy" are numerically identical) — RSL-RL keeps a separate, cold-started
-    # running normalizer per obs-group key, and the critic's independent one destabilizes early value
-    # estimates. Only switch the critic to ["critic"] once sensor-noise DR is enabled (so the asymmetry
-    # is real) and re-validate lift under that condition first.
-    obs_groups = {"actor": ["policy"], "critic": ["policy"]}
+    # The actor retains the deployable policy tensor. The critic gets the clean simulator tensor with the
+    # exact per-environment DR state appended by the environment.
+    obs_groups = {"actor": ["policy"], "critic": ["critic"]}
     actor = RslRlMLPModelCfg(
         hidden_dims=[2048, 1024, 512],
         activation="elu",

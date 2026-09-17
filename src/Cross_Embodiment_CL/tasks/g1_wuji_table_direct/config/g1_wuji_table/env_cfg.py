@@ -458,10 +458,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     # Normalized full-range joint-position targets for the 7 right-arm joints, followed by
     # the frozen 18-D Wuji latent action. The waist remains internally held.
     action_space = 25
-    # Policy and critic have equal dimensions but distinct values when sensor-noise ADR is active:
-    # policy receives noisy measurements, while critic receives clean simulator-derived values.
+    # The actor receives the deployable 171-D policy tensor. The asymmetric critic receives the 171-D clean
+    # simulator tensor plus the fixed-width DR state appended by ``_get_critic_privileged_state``.
     observation_space = 171
-    state_space = 171
+    state_space = 247
     log_control_metrics: bool = False
     """Whether to emit all ``Control/*`` TensorBoard/extras topics."""
     contact_force_observation_max = 20.0
