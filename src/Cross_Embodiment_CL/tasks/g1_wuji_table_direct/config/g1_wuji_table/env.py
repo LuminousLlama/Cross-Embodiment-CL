@@ -175,6 +175,13 @@ def shaped_goal_and_contact_rewards(
     return goal_reward, contact_reward
 
 
+def action_delta_regularization(
+    applied_actions: torch.Tensor, previous_actions: torch.Tensor, scale: float
+) -> torch.Tensor:
+    """Return the per-env negative squared L2 penalty for consecutive applied actions."""
+    return -scale * (applied_actions - previous_actions).square().mean(dim=-1)
+
+
 class ActionDelayBuffer:
     """Ring buffer of the last ``capacity`` per-env actions, returning the action from ``delay`` steps ago."""
 
@@ -386,7 +393,11 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError("gravity_curriculum_steps must be positive.")
         if self.cfg.contact_debug_interval <= 0:
             raise ValueError("contact_debug_interval must be positive.")
+        if self.cfg.action_delta_reward_scale < 0.0:
+            raise ValueError("action_delta_reward_scale must be nonnegative.")
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
+        self._previous_applied_actions = torch.zeros_like(self.actions)
+        self._action_delta_reward = torch.zeros(self.num_envs, device=self.device)
         self.arm_joint_targets = torch.zeros((self.num_envs, len(self.arm_joint_ids)), device=self.device)
         self.wuji_joint_targets = torch.zeros((self.num_envs, len(self.wuji_joint_ids)), device=self.device)
         # Targets at the start of the current policy step, which _apply_action interpolates from.
@@ -709,6 +720,10 @@ class G1WujiTableEnv(DirectRLEnv):
             # self.actions (e.g. the saturation-fraction log) keep reading the undelayed action.
             self._adr_action_buffer.push(self.actions)
             applied_actions = self._adr_action_buffer.get(self._adr_action_delay_steps)
+        self._action_delta_reward = action_delta_regularization(
+            applied_actions, self._previous_applied_actions, self.cfg.action_delta_reward_scale
+        )
+        self._previous_applied_actions.copy_(applied_actions)
         self._arm_joint_targets_start.copy_(self.arm_joint_targets)
         self._wuji_joint_targets_start.copy_(self.wuji_joint_targets)
         self._action_substep = 0
@@ -1242,6 +1257,7 @@ class G1WujiTableEnv(DirectRLEnv):
 
         # DirectRLEnv computes dones before rewards, so the termination mask already identifies any
         # environment whose non-finite simulator state would otherwise produce a non-finite reward.
+        reward = reward + self._action_delta_reward
         reward = torch.where(self._termination_nonfinite, torch.zeros_like(reward), reward)
 
         arm_tracking_error = torch.abs(
@@ -1255,6 +1271,7 @@ class G1WujiTableEnv(DirectRLEnv):
             goal_reward,
             contact_reward,
             lift_reward,
+            self._action_delta_reward,
             hand_dist,
             keypoint_error,
             position_error,
@@ -1443,7 +1460,8 @@ class G1WujiTableEnv(DirectRLEnv):
     def _init_episode_metrics(self) -> None:
         """Allocate per-environment buffers for completed-episode diagnostics."""
         self._episode_reward_sums = {
-            name: torch.zeros(self.num_envs, device=self.device) for name in ("reach", "goal", "contact", "lift")
+            name: torch.zeros(self.num_envs, device=self.device)
+            for name in ("reach", "goal", "contact", "lift", "action_delta")
         }
         self._episode_contact_gate_steps = torch.zeros(self.num_envs, device=self.device)
         self._episode_arm_tracking_error_sum = torch.zeros(self.num_envs, device=self.device)
@@ -1472,6 +1490,7 @@ class G1WujiTableEnv(DirectRLEnv):
         goal_reward: torch.Tensor,
         contact_reward: torch.Tensor,
         lift_reward: torch.Tensor,
+        action_delta_reward: torch.Tensor,
         hand_distance_farthest: torch.Tensor,
         keypoint_error: torch.Tensor,
         position_error: torch.Tensor,
@@ -1500,6 +1519,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._episode_reward_sums["goal"] += goal_reward
         self._episode_reward_sums["contact"] += contact_reward
         self._episode_reward_sums["lift"] += lift_reward
+        self._episode_reward_sums["action_delta"] += action_delta_reward
         self._episode_contact_gate_steps += contact_gate
         self._episode_arm_tracking_error_sum += arm_tracking_error
         self._episode_wuji_tracking_error_sum += wuji_tracking_error
@@ -1533,6 +1553,7 @@ class G1WujiTableEnv(DirectRLEnv):
             "Reward/goal_step": goal_reward.mean(),
             "Reward/contact_step": contact_reward.mean(),
             "Reward/lift_step": lift_reward.mean(),
+            "Reward/action_delta_step": action_delta_reward.mean(),
             "Curriculum/gravity_frac_step": self._gravity_frac,
             "Curriculum/goal_alpha_step": goal_alpha_step,
         }
@@ -1771,6 +1792,8 @@ class G1WujiTableEnv(DirectRLEnv):
             self._episode_min_keypoint_error[env_ids] = torch.inf
             self._episode_max_object_height[env_ids] = -torch.inf
             self._episode_first_success_step[env_ids] = -1
+            self._previous_applied_actions[env_ids] = 0.0
+            self._action_delta_reward[env_ids] = 0.0
             self._episode_max_hand_penetration[env_ids] = 0.0
             self._episode_max_self_penetration[env_ids] = 0.0
             self._episode_max_elbow_torso_penetration[env_ids] = 0.0

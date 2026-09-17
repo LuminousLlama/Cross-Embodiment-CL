@@ -203,6 +203,16 @@ def test_undeclared_nested_override_fails_loudly(override):
 
 
 @pytest.mark.unit
+def test_action_delta_regularizer_defaults_off_and_accepts_experiment_scale():
+    """The experiment can opt in without changing the default reward configuration."""
+    default_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
+    experiment_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["env.action_delta_reward_scale=0.0001"])
+
+    assert default_cfg.action_delta_reward_scale == 0.0
+    assert experiment_cfg.action_delta_reward_scale == pytest.approx(0.0001)
+
+
+@pytest.mark.unit
 def test_train_and_dr_none_select_nominal_gravity_without_randomized_terms():
     """The no-DR preset keeps full gravity while disabling every stochastic ADR term."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=train,dr_none"])

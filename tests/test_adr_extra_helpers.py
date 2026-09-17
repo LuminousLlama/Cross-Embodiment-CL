@@ -11,6 +11,7 @@ import torch
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (
     ActionDelayBuffer,
     PendingPhysicsRandomization,
+    action_delta_regularization,
     sample_latency_steps,
     scaled_uniform,
     shaped_goal_and_contact_rewards,
@@ -62,6 +63,17 @@ def test_shaped_goal_is_ungated_and_contact_bonus_is_flat():
 
     assert torch.allclose(goal_reward, 5.0 * torch.exp(-15.0 * keypoint_error))
     assert torch.equal(contact_reward, torch.tensor([0.0, 0.5]))
+
+
+@pytest.mark.unit
+def test_action_delta_regularization_uses_applied_actions_and_is_disabled_at_zero_scale():
+    """The penalty compares consecutive clipped/applied actions, with zero preserving the reward."""
+    applied = torch.tensor([[1.0, -1.0, 0.5], [0.0, 0.25, -0.5]])
+    previous = torch.tensor([[0.5, -0.5, 0.5], [0.0, 0.0, -1.0]])
+
+    penalty = action_delta_regularization(applied, previous, 0.0001)
+    assert torch.allclose(penalty, -0.0001 * torch.tensor([0.5 / 3.0, 0.3125 / 3.0]))
+    assert torch.equal(action_delta_regularization(applied, previous, 0.0), torch.zeros(2))
 
 
 @pytest.mark.unit

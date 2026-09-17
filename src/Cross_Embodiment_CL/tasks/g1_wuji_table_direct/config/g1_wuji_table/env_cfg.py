@@ -481,6 +481,13 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """
     hand_joint_velocity_limit = 0.5
     """Maximum Wuji finger joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
+    action_delta_reward_scale = 0.0
+    """Penalty scale for consecutive applied normalized-action changes.
+
+    The regularizer is ``-scale * mean((a_t - a_{t-1})^2)`` after policy-action clipping and
+    any configured action latency. It is disabled by default; the action-delta experiment uses
+    ``env.action_delta_reward_scale=0.0001``.
+    """
     goal_position = (0.35, -0.05, 0.24)
     """Legacy nominal apple goal position [m] in the environment frame."""
     object_rest_height = 0.04
