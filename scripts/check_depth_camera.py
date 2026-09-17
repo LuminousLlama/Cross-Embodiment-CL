@@ -131,8 +131,10 @@ def _inspect_frame(env, step: int, max_depth_m: float) -> tuple[dict, Image.Imag
     }
 
     image = (depth.clamp(0.0, max_depth_m) / max_depth_m * 255.0).byte().cpu().numpy()
-    tile = Image.fromarray(image, mode="L").convert("RGB").resize(
-        (width * _TILE_SCALE, height * _TILE_SCALE), Image.NEAREST
+    tile = (
+        Image.fromarray(image, mode="L")
+        .convert("RGB")
+        .resize((width * _TILE_SCALE, height * _TILE_SCALE), Image.NEAREST)
     )
     draw = ImageDraw.Draw(tile)
     for index in range(table_uvz.shape[0]):
