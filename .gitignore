@@ -17,3 +17,7 @@ wandb/
 pyrightconfig.json
 
 imgui.ini
+
+# Machine-local remote execution profiles. Track only the portable template.
+/.local_untracked/*
+!/.local_untracked/remote-servers.md.template

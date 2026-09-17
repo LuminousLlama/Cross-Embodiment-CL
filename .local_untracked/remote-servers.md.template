@@ -1,0 +1,16 @@
+# Remote server profiles
+# Copy this file to `.local_untracked/remote-servers.md` and fill only host-specific facts.
+# Do not put passwords, private keys, or tokens here; SSH configuration owns authentication.
+# Repository paths are host paths. For Docker launches, the skill maps them to a
+# container path with `docker inspect`; do not add guessed container paths here.
+
+## server-name
+- SSH: `ssh-alias`
+- GPUs: `0,1`
+- Repository paths:
+  - `repository-name`: `/absolute/path/to/repository`
+  - `another-repository`: `/absolute/path/to/another-repository`
+- Docker containers: # omit this section when the server runs repositories natively
+  - `container-name`
+- Notes: host-specific restrictions or nonstandard paths only. Record missing
+  mounts or unusable container dependencies here after verifying them.
