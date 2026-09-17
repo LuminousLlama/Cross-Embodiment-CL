@@ -330,8 +330,12 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Full-strength per-pixel Gaussian depth-noise standard deviation at 1 m [m], scaling with depth squared."""
     adr_depth_boundary_corruption_enabled: bool = True
     """Whether depth-discontinuity boundary corruption is enabled."""
-    adr_depth_boundary_corruption_prob: float = 0.25
+    adr_depth_boundary_corruption_prob: float = 0.05
     """Full-strength probability of corrupting a pixel on either side of a depth discontinuity."""
+    adr_depth_edge_dropout_enabled: bool = True
+    """Whether a thin zero-depth outline is sampled on the foreground side of depth discontinuities."""
+    adr_depth_edge_dropout_prob: float = 0.85
+    """Full-strength probability that each pixel in the thin depth-edge outline is invalid."""
     adr_depth_boundary_threshold: float = 0.02
     """Neighboring metric-depth difference [m] that marks a silhouette boundary for corruption."""
     adr_physics_update_every_steps: int = 32
@@ -351,8 +355,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
 
     Adds the ``camera`` observation; ``distill`` and ``depth_view`` enable it.
     """
+    student_depth_min_m: float = 0.01
+    """Depths [m] below this usable range become invalid zero-depth pixels."""
     student_depth_max_m: float = 1.2
-    """Depth [m] that the student's normalized depth image saturates at."""
+    """Depths [m] at or beyond this usable range become invalid zero-depth pixels."""
     goal_keypoint_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/CrossEmbodiment/goal_keypoints",
         markers={
@@ -511,12 +517,10 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
                 NewtonGLVisualizerCfg(
                     streaming_view=True,
                     streaming_sensor_prim_path=_STUDENT_DEPTH_CAMERA_STREAM_PATTERN,
-                    streaming_gt_types=("depth",),
-                    # The task publishes the exact normalized student tensor under the preferred
-                    # ``depth`` output key. The native metric render remains available under
+                    streaming_gt_types=("rgb",),
+                    # The task publishes a grayscale rendering of the exact normalized student tensor
+                    # under ``rgb``. The native metric render remains available under
                     # ``distance_to_image_plane`` for observation assembly and diagnostics.
-                    streaming_depth_min=0.0,
-                    streaming_depth_max=1.0,
                 )
             ],
         ),

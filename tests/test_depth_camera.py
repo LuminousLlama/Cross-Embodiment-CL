@@ -15,6 +15,7 @@ from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.depth_c
     PinholeIntrinsics,
     fit_depth_letterbox,
     normalize_depth,
+    normalized_depth_to_grayscale,
     randomize_depth_measurement,
     resize_and_pad_depth,
     warp_depth_intrinsics,
@@ -80,9 +81,18 @@ def test_depth_letterbox_rejects_non_square_pixels():
         fit_depth_letterbox(PinholeIntrinsics(848, 480, fx=430.0, fy=440.0, cx=424.0, cy=240.0), 224)
 
 
-def test_normalize_depth_keeps_invalid_depth_at_zero():
-    depth = torch.tensor([0.0, 0.6, 2.0, float("nan"), float("inf")])
-    assert torch.equal(normalize_depth(depth, 1.2), torch.tensor([0.0, 0.5, 1.0, 0.0, 0.0]))
+def test_normalize_depth_masks_invalid_near_and_far_ranges():
+    depth = torch.tensor([0.0, 0.005, 0.01, 0.6, 1.199, 1.2, 2.0, float("nan"), float("inf")])
+    normalized = normalize_depth(depth, min_depth_m=0.01, max_depth_m=1.2)
+    expected = torch.tensor([0.0, 0.0, 0.01 / 1.2, 0.5, 1.199 / 1.2, 0.0, 0.0, 0.0, 0.0])
+    torch.testing.assert_close(normalized, expected)
+
+
+def test_grayscale_is_white_near_fades_with_distance_and_keeps_invalid_black():
+    normalized = torch.tensor([0.0, 0.1, 0.5, 0.9])
+    grayscale = normalized_depth_to_grayscale(normalized)
+
+    assert torch.equal(grayscale, torch.tensor([0, 230, 128, 26], dtype=torch.uint8))
 
 
 def test_intrinsic_warp_identity_and_principal_point_shift():
@@ -105,6 +115,7 @@ def test_depth_calibration_preserves_invalid_depth():
         depth_bias_m=torch.tensor([0.01]),
         noise_std_at_1m_m=0.0,
         boundary_corruption_prob=0.0,
+        edge_dropout_prob=0.0,
         boundary_threshold_m=0.02,
         strength=1.0,
     )
@@ -123,6 +134,7 @@ def test_depth_noise_is_per_pixel_depth_dependent_and_never_revives_invalid_dept
         depth_bias_m=torch.zeros(1),
         noise_std_at_1m_m=0.004,
         boundary_corruption_prob=0.0,
+        edge_dropout_prob=0.0,
         boundary_threshold_m=0.02,
         strength=1.0,
     )
@@ -140,6 +152,7 @@ def test_boundary_corruption_is_confined_to_depth_discontinuities():
         depth_bias_m=torch.zeros(1),
         noise_std_at_1m_m=0.0,
         boundary_corruption_prob=1.0,
+        edge_dropout_prob=0.0,
         boundary_threshold_m=0.02,
         strength=1.0,
     )
@@ -148,3 +161,44 @@ def test_boundary_corruption_is_confined_to_depth_discontinuities():
     assert torch.equal(randomized[..., 3], depth[..., 3])
     assert set(randomized.flatten().tolist()) <= {0.5, 1.0}
     assert not torch.equal(randomized[..., 1:3], depth[..., 1:3])
+
+
+def test_edge_dropout_forms_a_thin_foreground_outline_at_depth_discontinuities():
+    """Full dropout invalidates only the one-pixel foreground side of a depth transition."""
+    depth = torch.tensor([[[[0.5] * 5 + [1.0] * 5] * 5]])
+    randomized = randomize_depth_measurement(
+        depth,
+        depth_scale=torch.ones(1),
+        depth_bias_m=torch.zeros(1),
+        noise_std_at_1m_m=0.0,
+        boundary_corruption_prob=0.0,
+        edge_dropout_prob=1.0,
+        boundary_threshold_m=0.02,
+        strength=1.0,
+    )
+
+    expected = depth.clone()
+    expected[..., 4] = 0.0
+    assert torch.equal(randomized, expected)
+
+
+def test_edge_dropout_treats_invalid_returns_as_edges_but_not_the_image_border():
+    """A valid pixel bordering an invalid return may drop out; ordinary frame-border pixels may not."""
+    depth = torch.ones((1, 1, 5, 5))
+    depth[..., 2, 2] = 0.0
+    randomized = randomize_depth_measurement(
+        depth,
+        depth_scale=torch.ones(1),
+        depth_bias_m=torch.zeros(1),
+        noise_std_at_1m_m=0.0,
+        boundary_corruption_prob=0.0,
+        edge_dropout_prob=1.0,
+        boundary_threshold_m=0.02,
+        strength=1.0,
+    )
+
+    expected = depth.clone()
+    expected[..., 1, 2] = 0.0
+    expected[..., 2, 1:4] = 0.0
+    expected[..., 3, 2] = 0.0
+    assert torch.equal(randomized, expected)

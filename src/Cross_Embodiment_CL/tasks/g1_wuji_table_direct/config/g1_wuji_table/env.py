@@ -37,7 +37,13 @@ from isaaclab.utils.warp import ProxyArray
 from Cross_Embodiment_CL.models import WujiLatentActionPipeline
 
 from .adr import AdaptiveDomainRandomization
-from .depth_camera import normalize_depth, randomize_depth_measurement, resize_and_pad_depth, warp_depth_intrinsics
+from .depth_camera import (
+    normalize_depth,
+    normalized_depth_to_grayscale,
+    randomize_depth_measurement,
+    resize_and_pad_depth,
+    warp_depth_intrinsics,
+)
 from .env_cfg import STUDENT_DEPTH_LETTERBOX, G1WujiTableEnvCfg
 
 
@@ -93,9 +99,7 @@ def scaled_uniform(
     return (torch.rand(size, device=device) * 2.0 - 1.0) * width
 
 
-def sample_latency_steps(
-    n: int, max_steps: int, strength: float, device: torch.device | str = "cpu"
-) -> torch.Tensor:
+def sample_latency_steps(n: int, max_steps: int, strength: float, device: torch.device | str = "cpu") -> torch.Tensor:
     """Sample per-env action-delay steps [policy steps].
 
     ``floor(U(0, max_steps * strength + 1))``, clamped to ``[0, round(max_steps * strength)]``, so
@@ -205,8 +209,7 @@ class G1WujiTableEnv(DirectRLEnv):
             "right_finger1_link4",
         ),
         **{
-            f"finger{finger}": tuple(f"right_finger{finger}_link{link}" for link in (2, 3, 4))
-            for finger in range(2, 6)
+            f"finger{finger}": tuple(f"right_finger{finger}_link{link}" for link in (2, 3, 4)) for finger in range(2, 6)
         },
     }
     _THUMB_CONTACT_GROUP = "finger1"
@@ -267,9 +270,7 @@ class G1WujiTableEnv(DirectRLEnv):
         if self.cfg.contact_debug_interval <= 0:
             raise ValueError("contact_debug_interval must be positive.")
         if self.cfg.contact_reward_mode not in ("force", "binary"):
-            raise ValueError(
-                f"contact_reward_mode must be 'force' or 'binary', got '{self.cfg.contact_reward_mode}'."
-            )
+            raise ValueError(f"contact_reward_mode must be 'force' or 'binary', got '{self.cfg.contact_reward_mode}'.")
         self.actions = torch.zeros((self.num_envs, self.cfg.action_space), device=self.device)
         self.arm_joint_targets = torch.zeros((self.num_envs, len(self.arm_joint_ids)), device=self.device)
         self.wuji_joint_targets = torch.zeros((self.num_envs, len(self.wuji_joint_ids)), device=self.device)
@@ -336,11 +337,12 @@ class G1WujiTableEnv(DirectRLEnv):
             invalid = {name: value for name, value in nonnegative_camera_cfg.items() if value < 0.0}
             if invalid:
                 raise ValueError(f"Camera ADR ranges must be non-negative, received {invalid}.")
-            if not 0.0 <= self.cfg.adr_depth_boundary_corruption_prob <= 1.0:
-                raise ValueError(
-                    "adr_depth_boundary_corruption_prob must be in [0, 1], received "
-                    f"{self.cfg.adr_depth_boundary_corruption_prob}."
-                )
+            for name, probability in (
+                ("adr_depth_boundary_corruption_prob", self.cfg.adr_depth_boundary_corruption_prob),
+                ("adr_depth_edge_dropout_prob", self.cfg.adr_depth_edge_dropout_prob),
+            ):
+                if not 0.0 <= probability <= 1.0:
+                    raise ValueError(f"{name} must be in [0, 1], received {probability}.")
             for name, half_width in (
                 ("adr_camera_focal_scale", self.cfg.adr_camera_focal_scale),
                 ("adr_depth_scale", self.cfg.adr_depth_scale),
@@ -476,9 +478,7 @@ class G1WujiTableEnv(DirectRLEnv):
         if self.cfg.adr_camera_position_enabled or self.cfg.adr_camera_rotation_enabled:
             position_range = self.cfg.adr_camera_position_range if self.cfg.adr_camera_position_enabled else 0.0
             rotation_range = (
-                math.radians(self.cfg.adr_camera_rotation_range_deg)
-                if self.cfg.adr_camera_rotation_enabled
-                else 0.0
+                math.radians(self.cfg.adr_camera_rotation_range_deg) if self.cfg.adr_camera_rotation_enabled else 0.0
             )
             translation = scaled_uniform((count, 3), position_range, strength, device=self.device)
             rotation = scaled_uniform((count, 3), rotation_range, strength, device=self.device)
@@ -534,6 +534,7 @@ class G1WujiTableEnv(DirectRLEnv):
             or self.cfg.adr_depth_bias_enabled
             or self.cfg.adr_depth_pixel_noise_enabled
             or self.cfg.adr_depth_boundary_corruption_enabled
+            or self.cfg.adr_depth_edge_dropout_enabled
         )
         if not measurement_enabled:
             return depth
@@ -541,13 +542,12 @@ class G1WujiTableEnv(DirectRLEnv):
             depth,
             self._adr_depth_scale,
             self._adr_depth_bias,
-            noise_std_at_1m_m=(
-                self.cfg.adr_depth_noise_std_at_1m if self.cfg.adr_depth_pixel_noise_enabled else 0.0
-            ),
+            noise_std_at_1m_m=(self.cfg.adr_depth_noise_std_at_1m if self.cfg.adr_depth_pixel_noise_enabled else 0.0),
             boundary_corruption_prob=(
-                self.cfg.adr_depth_boundary_corruption_prob
-                if self.cfg.adr_depth_boundary_corruption_enabled
-                else 0.0
+                self.cfg.adr_depth_boundary_corruption_prob if self.cfg.adr_depth_boundary_corruption_enabled else 0.0
+            ),
+            edge_dropout_prob=(
+                self.cfg.adr_depth_edge_dropout_prob if self.cfg.adr_depth_edge_dropout_enabled else 0.0
             ),
             boundary_threshold_m=self.cfg.adr_depth_boundary_threshold,
             strength=self.adr.strength,
@@ -786,9 +786,7 @@ class G1WujiTableEnv(DirectRLEnv):
 
         arm_limits = joint_limits[:, self.arm_joint_ids]
         wuji_limits = joint_limits[:, self.wuji_joint_ids]
-        wuji_command_limits = torch.stack(
-            (self._wuji_command_lower_limits(wuji_limits), wuji_limits[..., 1]), dim=-1
-        )
+        wuji_command_limits = torch.stack((self._wuji_command_lower_limits(wuji_limits), wuji_limits[..., 1]), dim=-1)
         arm_target = torch.clamp(
             scale_transform(self.arm_joint_targets, arm_limits[..., 0], arm_limits[..., 1]), -1.0, 1.0
         )
@@ -845,9 +843,7 @@ class G1WujiTableEnv(DirectRLEnv):
             dim=-1,
         )
         if observation.shape[-1] != self._OBSERVATION_DIM:
-            raise RuntimeError(
-                f"Expected {self._OBSERVATION_DIM}-D observation, received {observation.shape[-1]}."
-            )
+            raise RuntimeError(f"Expected {self._OBSERVATION_DIM}-D observation, received {observation.shape[-1]}.")
         if proprioception.shape[-1] != self._STUDENT_OBSERVATION_DIM:
             raise RuntimeError(
                 f"Expected {self._STUDENT_OBSERVATION_DIM}-D student observation, received {proprioception.shape[-1]}."
@@ -858,18 +854,25 @@ class G1WujiTableEnv(DirectRLEnv):
             depth = self.depth_camera.data.output["distance_to_image_plane"].torch
             depth = depth.permute(0, 3, 1, 2)
             depth = resize_and_pad_depth(depth, STUDENT_DEPTH_LETTERBOX)
-            student_depth = normalize_depth(depth, self.cfg.student_depth_max_m)
+            student_depth = normalize_depth(
+                depth,
+                min_depth_m=self.cfg.student_depth_min_m,
+                max_depth_m=self.cfg.student_depth_max_m,
+            )
             observations["camera"] = student_depth
             if self.cfg.debug.student_depth_preview:
                 self._publish_student_depth_preview(student_depth)
         return observations
 
     def _publish_student_depth_preview(self, student_depth: torch.Tensor) -> None:
-        """Expose the exact normalized student image through the camera panel's preferred depth key."""
-        preview = student_depth.permute(0, 2, 3, 1)
+        """Expose the normalized student image as grayscale through the camera panel's RGB key."""
+        grayscale = normalized_depth_to_grayscale(student_depth.permute(0, 2, 3, 1))
+        preview = grayscale.expand(-1, -1, -1, 3)
         if self._student_depth_preview is None:
-            self._student_depth_preview = torch.empty_like(preview, memory_format=torch.contiguous_format)
-            self.depth_camera.data.output["depth"] = ProxyArray(wp.from_torch(self._student_depth_preview))
+            self._student_depth_preview = torch.empty(
+                preview.shape, dtype=torch.uint8, device=preview.device, memory_format=torch.contiguous_format
+            )
+            self.depth_camera.data.output["rgb"] = ProxyArray(wp.from_torch(self._student_depth_preview))
         self._student_depth_preview.copy_(preview)
 
     def _get_rewards(self) -> torch.Tensor:
@@ -889,9 +892,7 @@ class G1WujiTableEnv(DirectRLEnv):
         contact_force_stack = self._contact_group_forces()
 
         current_keypoints = self._transform_keypoints(object_position, self.apple.data.root_quat_w.torch)
-        goal_keypoints = self._transform_keypoints(
-            self.goal_position + self.scene.env_origins, self.goal_rotation
-        )
+        goal_keypoints = self._transform_keypoints(self.goal_position + self.scene.env_origins, self.goal_rotation)
         keypoint_error = torch.linalg.vector_norm(current_keypoints - goal_keypoints, dim=-1).mean(dim=1)
         position_error = torch.linalg.vector_norm(
             object_position - (self.goal_position + self.scene.env_origins), dim=-1
@@ -913,9 +914,10 @@ class G1WujiTableEnv(DirectRLEnv):
             goal_alpha = self.cfg.goal_reward_alpha
             goal_alpha_step = 0.0
             if self.cfg.adr_enabled:
-                goal_alpha = self.cfg.goal_reward_alpha + (
-                    self.cfg.adr_goal_alpha_end - self.cfg.goal_reward_alpha
-                ) * self.adr.strength
+                goal_alpha = (
+                    self.cfg.goal_reward_alpha
+                    + (self.cfg.adr_goal_alpha_end - self.cfg.goal_reward_alpha) * self.adr.strength
+                )
                 goal_alpha_step = goal_alpha
             goal_reward = self.cfg.goal_reward_scale * torch.exp(-goal_alpha * keypoint_error) * contact_gate
             # Graded in force rather than gated.  Paying contact_reward_scale * contact_gate is
@@ -956,9 +958,10 @@ class G1WujiTableEnv(DirectRLEnv):
             # Keypoint-error sharpness ramps so the goal term starts forgiving (easy to earn once
             # gated) and sharpens into a tighter pose requirement as training progresses.
             alpha_ramp = min(1.0, self.common_step_counter / self.cfg.adept_goal_alpha_steps)
-            goal_alpha_step = self.cfg.adept_goal_alpha_start + (
-                self.cfg.adept_goal_alpha_end - self.cfg.adept_goal_alpha_start
-            ) * alpha_ramp
+            goal_alpha_step = (
+                self.cfg.adept_goal_alpha_start
+                + (self.cfg.adept_goal_alpha_end - self.cfg.adept_goal_alpha_start) * alpha_ramp
+            )
             goal_reward = self.cfg.goal_reward_scale * torch.exp(-goal_alpha_step * keypoint_error) * contact_gate
             contact_reward = self.cfg.adept_contact_reward_scale * contact_gate.float()
             # Optional dense assist, off by default (adept_lift_reward_scale=0.0): reuses the
@@ -1167,8 +1170,7 @@ class G1WujiTableEnv(DirectRLEnv):
     def _init_episode_metrics(self) -> None:
         """Allocate per-environment buffers for completed-episode diagnostics."""
         self._episode_reward_sums = {
-            name: torch.zeros(self.num_envs, device=self.device)
-            for name in ("reach", "goal", "contact", "lift")
+            name: torch.zeros(self.num_envs, device=self.device) for name in ("reach", "goal", "contact", "lift")
         }
         self._episode_contact_gate_steps = torch.zeros(self.num_envs, device=self.device)
         self._episode_arm_tracking_error_sum = torch.zeros(self.num_envs, device=self.device)
@@ -1241,9 +1243,10 @@ class G1WujiTableEnv(DirectRLEnv):
                 :, list(self.contact_sensors).index(self._THUMB_CONTACT_GROUP)
             ].mean(),
             "Contact/gate_frac_step": contact_gate.float().mean(),
-            "Contact/groups_over_threshold_step": (
-                contact_force_stack > self.cfg.contact_force_threshold
-            ).float().sum(dim=1).mean(),
+            "Contact/groups_over_threshold_step": (contact_force_stack > self.cfg.contact_force_threshold)
+            .float()
+            .sum(dim=1)
+            .mean(),
             "Contact/touch_frac_any_step": (contact_force_stack > 0.0).any(dim=1).float().mean(),
             "Reward/reach_step": reach_reward.mean(),
             "Reward/goal_step": goal_reward.mean(),
@@ -1268,9 +1271,7 @@ class G1WujiTableEnv(DirectRLEnv):
         log.update(self._arm_control_metrics())
         if self._mjw_data is not None:
             # Deepest contact per environment [m], averaged over environments.
-            hand_penetration, table_penetration, self_penetration, elbow_torso_penetration = (
-                self._contact_penetration()
-            )
+            hand_penetration, table_penetration, self_penetration, elbow_torso_penetration = self._contact_penetration()
             self._episode_max_hand_penetration = torch.maximum(self._episode_max_hand_penetration, hand_penetration)
             self._episode_max_self_penetration = torch.maximum(self._episode_max_self_penetration, self_penetration)
             self._episode_max_elbow_torso_penetration = torch.maximum(
@@ -1281,9 +1282,7 @@ class G1WujiTableEnv(DirectRLEnv):
             log["Contact/penetration_self_step"] = self_penetration.mean()
             log["Contact/self_penetrating_frac_step"] = (self_penetration > 0.0005).float().mean()
             log["Contact/penetration_elbow_torso_step"] = elbow_torso_penetration.mean()
-            log["Contact/elbow_torso_penetrating_frac_step"] = (
-                elbow_torso_penetration > 0.0005
-            ).float().mean()
+            log["Contact/elbow_torso_penetrating_frac_step"] = (elbow_torso_penetration > 0.0005).float().mean()
         log.update(self._contact_demand_metrics())
 
         reset_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -1365,8 +1364,7 @@ class G1WujiTableEnv(DirectRLEnv):
         state; nothing upstream is allowed to paper over it with ``nan_to_num``.
         """
         torso_contact = (
-            torch.linalg.vector_norm(self.torso_contact_sensor.data.normal_force_matrix_w.torch[:, 0, 0], dim=-1)
-            > 0.0
+            torch.linalg.vector_norm(self.torso_contact_sensor.data.normal_force_matrix_w.torch[:, 0, 0], dim=-1) > 0.0
         )
         object_position = self.apple.data.root_pos_w.torch
         table_top_height = self.scene.env_origins[:, 2] + self.table_top_height
@@ -1386,9 +1384,7 @@ class G1WujiTableEnv(DirectRLEnv):
         apple_pose_nonfinite = ~torch.isfinite(object_position).all(dim=-1) | ~torch.isfinite(object_rotation).all(
             dim=-1
         )
-        apple_vel_nonfinite = ~torch.isfinite(object_lin_vel).all(dim=-1) | ~torch.isfinite(object_ang_vel).all(
-            dim=-1
-        )
+        apple_vel_nonfinite = ~torch.isfinite(object_lin_vel).all(dim=-1) | ~torch.isfinite(object_ang_vel).all(dim=-1)
         nonfinite = arm_or_hand_joints_nonfinite | apple_pose_nonfinite | apple_vel_nonfinite
 
         self._termination_torso_apple = torso_contact
