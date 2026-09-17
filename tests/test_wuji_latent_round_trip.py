@@ -19,6 +19,9 @@ from isaaclab_tasks.utils.hydra import resolve_presets  # noqa: E402
 from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry  # noqa: E402
 
 import Cross_Embodiment_CL.tasks  # noqa: E402, F401
+from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.depth_camera import (  # noqa: E402
+    normalized_depth_to_grayscale,
+)
 
 
 @pytest.mark.integration
@@ -82,13 +85,14 @@ def test_depth_view_publishes_the_exact_final_student_image() -> None:
         env.reset(seed=42)
         unwrapped = env.unwrapped
         observations = unwrapped._get_observations()
-        preview = unwrapped.depth_camera.data.output["depth"].torch
+        preview = unwrapped.depth_camera.data.output["rgb"].torch
         native = unwrapped.depth_camera.data.output["distance_to_image_plane"].torch
 
         assert observations["camera"].shape == (1, 1, 224, 224)
-        assert preview.shape == (1, 224, 224, 1)
+        assert preview.shape == (1, 224, 224, 3)
         assert native.shape == (1, 127, 224, 1)
-        assert torch.equal(preview.permute(0, 3, 1, 2), observations["camera"])
+        expected = normalized_depth_to_grayscale(observations["camera"].permute(0, 2, 3, 1)).expand(-1, -1, -1, 3)
+        assert torch.equal(preview, expected)
     finally:
         env.close()
 

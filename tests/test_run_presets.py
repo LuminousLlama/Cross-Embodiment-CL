@@ -119,8 +119,8 @@ def test_depth_camera_only_in_student_presets(overrides, has_camera):
 
 
 @pytest.mark.unit
-def test_depth_view_preset_colorizes_the_final_student_observation():
-    """The manual viewer streams the normalized, letterboxed student image rather than the render buffer."""
+def test_depth_view_preset_shows_the_final_student_observation_in_grayscale():
+    """The manual viewer streams a grayscale rendering of the normalized, letterboxed student image."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=debug,depth_view"])
 
     visualizer = env_cfg.sim.visualizer_cfgs[0]
@@ -128,8 +128,7 @@ def test_depth_view_preset_colorizes_the_final_student_observation():
     assert visualizer.streaming_sensor_prim_path == (
         "/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
     )
-    assert visualizer.streaming_gt_types == ("depth",)
-    assert (visualizer.streaming_depth_min, visualizer.streaming_depth_max) == (0.0, 1.0)
+    assert visualizer.streaming_gt_types == ("rgb",)
     assert env_cfg.debug.student_depth_preview is True
 
 

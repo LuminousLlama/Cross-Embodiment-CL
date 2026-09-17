@@ -37,7 +37,13 @@ from isaaclab.utils.warp import ProxyArray
 from Cross_Embodiment_CL.models import WujiLatentActionPipeline
 
 from .adr import AdaptiveDomainRandomization
-from .depth_camera import normalize_depth, randomize_depth_measurement, resize_and_pad_depth, warp_depth_intrinsics
+from .depth_camera import (
+    normalize_depth,
+    normalized_depth_to_grayscale,
+    randomize_depth_measurement,
+    resize_and_pad_depth,
+    warp_depth_intrinsics,
+)
 from .env_cfg import STUDENT_DEPTH_LETTERBOX, G1WujiTableEnvCfg
 
 
@@ -405,11 +411,12 @@ class G1WujiTableEnv(DirectRLEnv):
             invalid = {name: value for name, value in nonnegative_camera_cfg.items() if value < 0.0}
             if invalid:
                 raise ValueError(f"Camera ADR ranges must be non-negative, received {invalid}.")
-            if not 0.0 <= self.cfg.adr.depth_boundary_corruption_prob <= 1.0:
-                raise ValueError(
-                    "adr.depth_boundary_corruption_prob must be in [0, 1], received "
-                    f"{self.cfg.adr.depth_boundary_corruption_prob}."
-                )
+            for name, probability in (
+                ("adr.depth_boundary_corruption_prob", self.cfg.adr.depth_boundary_corruption_prob),
+                ("adr.depth_edge_dropout_prob", self.cfg.adr.depth_edge_dropout_prob),
+            ):
+                if not 0.0 <= probability <= 1.0:
+                    raise ValueError(f"{name} must be in [0, 1], received {probability}.")
             for name, half_width in (
                 ("adr.camera_focal_scale", self.cfg.adr.camera_focal_scale),
                 ("adr.depth_scale", self.cfg.adr.depth_scale),
@@ -603,6 +610,7 @@ class G1WujiTableEnv(DirectRLEnv):
             or self.cfg.adr.depth_bias_enabled
             or self.cfg.adr.depth_pixel_noise_enabled
             or self.cfg.adr.depth_boundary_corruption_enabled
+            or self.cfg.adr.depth_edge_dropout_enabled
         )
         if not measurement_enabled:
             return depth
@@ -615,6 +623,9 @@ class G1WujiTableEnv(DirectRLEnv):
                 self.cfg.adr.depth_boundary_corruption_prob
                 if self.cfg.adr.depth_boundary_corruption_enabled
                 else 0.0
+            ),
+            edge_dropout_prob=(
+                self.cfg.adr.depth_edge_dropout_prob if self.cfg.adr.depth_edge_dropout_enabled else 0.0
             ),
             boundary_threshold_m=self.cfg.adr.depth_boundary_threshold,
             strength=self.adr.strength,
@@ -946,18 +957,25 @@ class G1WujiTableEnv(DirectRLEnv):
             depth = self.depth_camera.data.output["distance_to_image_plane"].torch
             depth = depth.permute(0, 3, 1, 2)
             depth = resize_and_pad_depth(depth, STUDENT_DEPTH_LETTERBOX)
-            student_depth = normalize_depth(depth, self.cfg.student_depth_max_m)
+            student_depth = normalize_depth(
+                depth,
+                min_depth_m=self.cfg.student_depth_min_m,
+                max_depth_m=self.cfg.student_depth_max_m,
+            )
             observations["camera"] = student_depth
             if self.cfg.debug.student_depth_preview:
                 self._publish_student_depth_preview(student_depth)
         return observations
 
     def _publish_student_depth_preview(self, student_depth: torch.Tensor) -> None:
-        """Expose the exact normalized student image through the camera panel's preferred depth key."""
-        preview = student_depth.permute(0, 2, 3, 1)
+        """Expose the normalized student image as grayscale through the camera panel's RGB key."""
+        grayscale = normalized_depth_to_grayscale(student_depth.permute(0, 2, 3, 1))
+        preview = grayscale.expand(-1, -1, -1, 3)
         if self._student_depth_preview is None:
-            self._student_depth_preview = torch.empty_like(preview, memory_format=torch.contiguous_format)
-            self.depth_camera.data.output["depth"] = ProxyArray(wp.from_torch(self._student_depth_preview))
+            self._student_depth_preview = torch.empty(
+                preview.shape, dtype=torch.uint8, device=preview.device, memory_format=torch.contiguous_format
+            )
+            self.depth_camera.data.output["rgb"] = ProxyArray(wp.from_torch(self._student_depth_preview))
         self._student_depth_preview.copy_(preview)
 
     def _get_rewards(self) -> torch.Tensor:

@@ -220,12 +220,12 @@ def warp_depth_intrinsics(
     center_y = 0.5 * height
     scale = focal_scale.to(device=depth_m.device, dtype=dtype)
     offset = principal_point_offset_px.to(device=depth_m.device, dtype=dtype)
-    source_columns = (
-        columns.view(1, 1, width) - (center_x + offset[:, 0].view(batch_size, 1, 1))
-    ) / scale.view(batch_size, 1, 1) + center_x
-    source_rows = (
-        rows.view(1, height, 1) - (center_y + offset[:, 1].view(batch_size, 1, 1))
-    ) / scale.view(batch_size, 1, 1) + center_y
+    source_columns = (columns.view(1, 1, width) - (center_x + offset[:, 0].view(batch_size, 1, 1))) / scale.view(
+        batch_size, 1, 1
+    ) + center_x
+    source_rows = (rows.view(1, height, 1) - (center_y + offset[:, 1].view(batch_size, 1, 1))) / scale.view(
+        batch_size, 1, 1
+    ) + center_y
     grid_x = (2.0 * source_columns / width - 1.0).expand(-1, height, -1)
     grid_y = (2.0 * source_rows / height - 1.0).expand(-1, -1, width)
     grid = torch.stack((grid_x, grid_y), dim=-1)
@@ -251,6 +251,7 @@ def randomize_depth_measurement(
     depth_bias_m: torch.Tensor,
     noise_std_at_1m_m: float,
     boundary_corruption_prob: float,
+    edge_dropout_prob: float,
     boundary_threshold_m: float,
     strength: float,
 ) -> torch.Tensor:
@@ -258,7 +259,8 @@ def randomize_depth_measurement(
 
     Calibration scale/bias are fixed per episode by the caller. Gaussian noise is sampled per pixel
     with standard deviation proportional to ``depth^2``. Selected depth-discontinuity pixels copy a
-    valid four-connected neighbor to mimic one-pixel foreground/background silhouette errors.
+    valid four-connected neighbor to mimic one-pixel foreground/background silhouette errors. A thin,
+    mostly-invalid outline is sampled on the foreground side of those same boundaries.
 
     Args:
         depth_m: Metric depth shaped ``(N, 1, H, W)``; zero denotes invalid input depth.
@@ -266,6 +268,7 @@ def randomize_depth_measurement(
         depth_bias_m: Per-image calibration bias [m], shaped ``(N,)``.
         noise_std_at_1m_m: Full-strength Gaussian standard deviation at 1 m [m].
         boundary_corruption_prob: Full-strength corruption probability for depth-edge pixels.
+        edge_dropout_prob: Full-strength invalid probability for each foreground depth-edge pixel.
         boundary_threshold_m: Minimum neighboring depth jump [m] considered a boundary.
         strength: ADR strength in ``[0, 1]``.
 
@@ -282,10 +285,12 @@ def randomize_depth_measurement(
         )
     if not 0.0 <= strength <= 1.0:
         raise ValueError(f"strength must be in [0, 1], received {strength}.")
-    if not 0.0 <= boundary_corruption_prob <= 1.0:
-        raise ValueError(
-            f"boundary_corruption_prob must be in [0, 1], received {boundary_corruption_prob}."
-        )
+    for name, probability in (
+        ("boundary_corruption_prob", boundary_corruption_prob),
+        ("edge_dropout_prob", edge_dropout_prob),
+    ):
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError(f"{name} must be in [0, 1], received {probability}.")
     if noise_std_at_1m_m < 0.0 or boundary_threshold_m < 0.0:
         raise ValueError("Depth-noise standard deviation and boundary threshold must be non-negative.")
 
@@ -307,21 +312,51 @@ def randomize_depth_measurement(
     if boundary_prob > 0.0:
         boundary_source = randomized.clone()
         neighbors = torch.stack([_shift_depth(boundary_source, direction) for direction in range(4)])
-        eligible = (neighbors > 0.0) & (
-            torch.abs(neighbors - boundary_source.unsqueeze(0)) > boundary_threshold_m
-        )
+        eligible = (neighbors > 0.0) & (torch.abs(neighbors - boundary_source.unsqueeze(0)) > boundary_threshold_m)
         selected = eligible.any(dim=0) & (torch.rand_like(randomized) < boundary_prob)
         # Choose only across a real depth jump, never a same-surface or zero-depth neighbor.
         scores = torch.rand_like(neighbors).masked_fill_(~eligible, -1.0)
         chosen = neighbors.gather(0, scores.argmax(dim=0, keepdim=True)).squeeze(0)
         randomized = torch.where(selected, chosen, randomized)
+
+    dropout_prob = edge_dropout_prob * strength
+    if dropout_prob > 0.0:
+        clean_neighbors = torch.stack([_shift_depth(clean, direction) for direction in range(4)])
+        neighbor_in_bounds = torch.stack(
+            [_shift_depth(torch.ones_like(clean), direction) > 0.0 for direction in range(4)]
+        )
+        neighbor_valid = clean_neighbors > 0.0
+        depth_edge = (
+            valid.unsqueeze(0)
+            & neighbor_in_bounds
+            & (~neighbor_valid | (clean_neighbors - clean.unsqueeze(0) > boundary_threshold_m))
+        ).any(dim=0)
+        dropout = depth_edge & (torch.rand_like(randomized) < dropout_prob)
+        randomized.masked_fill_(dropout & valid, 0.0)
     return randomized
 
 
-def normalize_depth(depth_m: torch.Tensor, max_depth_m: float) -> torch.Tensor:
-    """Clip metric depth to ``[0, max_depth_m]`` and scale it to ``[0, 1]``.
+def normalize_depth(depth_m: torch.Tensor, min_depth_m: float, max_depth_m: float) -> torch.Tensor:
+    """Scale usable metric depth to ``[0, 1]`` and map out-of-range values to zero.
 
-    Zero and non-finite input depths remain zero.
+    Zero, non-finite, too-close, and too-far input depths remain or become zero. Valid values retain
+    the student's existing ``depth / max_depth_m`` encoding.
     """
+    if not math.isfinite(min_depth_m) or not math.isfinite(max_depth_m) or not 0.0 <= min_depth_m < max_depth_m:
+        raise ValueError(
+            f"Expected finite depth bounds satisfying 0 <= min < max, received {min_depth_m} and {max_depth_m}."
+        )
     depth = torch.nan_to_num(depth_m, nan=0.0, posinf=0.0, neginf=0.0)
-    return depth.clamp(0.0, max_depth_m) / max_depth_m
+    valid = (depth >= min_depth_m) & (depth < max_depth_m)
+    return torch.where(valid, depth / max_depth_m, torch.zeros_like(depth))
+
+
+def normalized_depth_to_grayscale(depth: torch.Tensor) -> torch.Tensor:
+    """Render normalized policy depth as near-white, far-dark uint8 grayscale.
+
+    Zero is reserved for invalid depth and stays black. This display transform does not modify the
+    floating-point observation passed to the policy.
+    """
+    valid = depth > 0.0
+    contrast = torch.where(valid, 1.0 - depth.clamp(max=1.0), torch.zeros_like(depth))
+    return contrast.mul(255.0).round().to(torch.uint8)
