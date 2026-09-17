@@ -72,6 +72,11 @@ def Xform "wujihand_right" (
             # the existing simplified mesh for every rigid link.
             over "right_palm_link"
             {
+                # Account for the missing fixed hand/mount mass on the palm. Scale the
+                # principal inertia with mass as a same-geometry density approximation.
+                float3 physics:diagonalInertia = (0.00033229785, 0.00022650342, 0.00013731726)
+                float physics:mass = 0.39953
+
                 over "collisions" (
                     active = false
                 )
