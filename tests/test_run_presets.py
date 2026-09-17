@@ -203,12 +203,12 @@ def test_undeclared_nested_override_fails_loudly(override):
 
 
 @pytest.mark.unit
-def test_action_delta_regularizer_defaults_off_and_accepts_experiment_scale():
-    """The experiment can opt in without changing the default reward configuration."""
+def test_action_delta_regularizer_default_and_accepts_experiment_scale():
+    """The default action-delta scale can still be overridden per experiment."""
     default_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
     experiment_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["env.action_delta_reward_scale=0.0001"])
 
-    assert default_cfg.action_delta_reward_scale == 0.0
+    assert default_cfg.action_delta_reward_scale == pytest.approx(0.001)
     assert experiment_cfg.action_delta_reward_scale == pytest.approx(0.0001)
 
 
