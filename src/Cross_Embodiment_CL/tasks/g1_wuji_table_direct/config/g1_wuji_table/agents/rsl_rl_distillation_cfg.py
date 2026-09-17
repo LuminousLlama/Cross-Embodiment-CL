@@ -19,6 +19,8 @@ from isaaclab_rl.rsl_rl import (
     RslRlMLPModelCfg,
 )
 
+from isaaclab_tasks.utils import PresetCfg
+
 from .rsl_rl_ppo_cfg import G1WujiTablePPORunnerCfg
 
 _TEACHER_ACTOR = G1WujiTablePPORunnerCfg().actor
@@ -63,18 +65,18 @@ class G1WujiTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
 
 
 @configclass
-class G1WujiTableDepthDistillationRunnerCfg(G1WujiTableStateDistillationRunnerCfg):
-    """The deployable student: 141-D proprioception, 20-D force, and a 224x224 depth image.
+class G1WujiTableDepthDistillationBaseRunnerCfg(G1WujiTableStateDistillationRunnerCfg):
+    """The deployable student: 141-D proprioception and a 224x224 depth image.
 
     Needs the depth camera, so launch the environment with ``presets=distill``.
     """
 
     max_iterations = 1000
-    obs_groups = {"teacher": ["policy"], "student": ["student", "force", "camera"]}
+    obs_groups = {"teacher": ["policy"], "student": ["student", "camera"]}
     student = RslRlCNNModelCfg(
         hidden_dims=_TEACHER_ACTOR.hidden_dims,
         activation=_TEACHER_ACTOR.activation,
-        # Normalizes the proprioception and force vector; the depth image is already scaled to [0, 1].
+        # Normalizes proprioception; the depth image is already scaled to [0, 1].
         obs_normalization=True,
         distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=0.05),
         # Nature-CNN encoder: 224 -> 55 -> 26 -> 12 px, flattened to 64 * 12 * 12 features.
@@ -84,4 +86,14 @@ class G1WujiTableDepthDistillationRunnerCfg(G1WujiTableStateDistillationRunnerCf
             stride=[4, 2, 2],
             activation="elu",
         ),
+    )
+
+
+@configclass
+class G1WujiTableDepthDistillationRunnerCfg(PresetCfg):
+    """Depth-student variants selected together with the matching environment preset."""
+
+    default: G1WujiTableDepthDistillationBaseRunnerCfg = G1WujiTableDepthDistillationBaseRunnerCfg()
+    force_distill: G1WujiTableDepthDistillationBaseRunnerCfg = default.replace(
+        obs_groups={"teacher": ["policy"], "student": ["student", "force", "camera"]}
     )

@@ -691,9 +691,7 @@ class G1WujiTableEnv(DirectRLEnv):
             self._adr_depth_bias,
             noise_std_at_1m_m=(self.cfg.adr.depth_noise_std_at_1m if self.cfg.adr.depth_pixel_noise_enabled else 0.0),
             boundary_corruption_prob=(
-                self.cfg.adr.depth_boundary_corruption_prob
-                if self.cfg.adr.depth_boundary_corruption_enabled
-                else 0.0
+                self.cfg.adr.depth_boundary_corruption_prob if self.cfg.adr.depth_boundary_corruption_enabled else 0.0
             ),
             edge_dropout_prob=(
                 self.cfg.adr.depth_edge_dropout_prob if self.cfg.adr.depth_edge_dropout_enabled else 0.0
@@ -1142,7 +1140,7 @@ class G1WujiTableEnv(DirectRLEnv):
                 max_depth_m=self.cfg.student_depth_max_m,
             )
             observations["camera"] = student_depth
-            if self.cfg.debug.student_depth_preview:
+            if self.cfg.depth_preview.enabled:
                 self._publish_student_depth_preview(student_depth)
         if self.virtual_force_output is not None:
             observations["force"] = self.virtual_force_output.observed_actuator_torque_nm

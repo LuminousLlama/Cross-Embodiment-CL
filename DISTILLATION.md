@@ -4,9 +4,10 @@
 
 The privileged PPO teacher R007 was behavior-cloned into a depth student with RSL-RL DAgger. The
 student received the former 87-D proprioception and one normalized 224x224 D435 depth image; the teacher
-used the former 117-D privileged observation. The current student uses 141-D proprioception, 20-D virtual
-force, and depth alongside the teacher's 171-D privileged observation, so that checkpoint predates and is
-incompatible with the current observation contract.
+used the former 117-D privileged observation. Current runs can select either 141-D proprioception plus
+depth (`presets=distill`) or the same inputs plus 20-D virtual force (`presets=force_distill`), alongside
+the teacher's unchanged 171-D privileged observation. That checkpoint predates and is incompatible with
+both current observation contracts.
 
 New distillation runs retain the D435's full-width view: the 848x480 source is resized to 224x127 and
 padded with 48 zero rows above and 49 below. The simulator renders the same 224x127 pinhole content
@@ -33,10 +34,11 @@ with the articulation's public `body_link_jacobian_w`; it does not call the old 
 Newton-private buffers. The implementation has been exercised headlessly on both Newton MJWarp and
 Isaac Sim PhysX.
 
-`presets=distill` enables the pipeline. Other presets leave it disabled, so PPO training and ordinary
-evaluation do not pay for detailed contact reporting. When enabled, observations contain a separate
+`presets=force_distill` enables the pipeline; `presets=distill` is the force-free depth baseline. Other
+presets leave it disabled, so PPO training and ordinary evaluation do not pay for detailed contact reporting.
+When enabled, observations contain a separate
 `force` tensor with shape `(num_envs, 20)` in `right_finger1_joint1` through
-`right_finger5_joint4` order. The depth-distillation student consumes this tensor alongside its unchanged
+`right_finger5_joint4` order. The force-distillation student consumes this tensor alongside its unchanged
 141-D proprioceptive `student` group and camera image, giving it 161 low-dimensional inputs. Code that
 needs the diagnostic packet can call
 `env.unwrapped.get_virtual_force_output()` to obtain ideal contact torque, observed/modelled torque,

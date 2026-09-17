@@ -40,6 +40,7 @@ def _visualizer_types(env_cfg) -> list[str]:
         (["presets=debug"], 4, True, ["newton_gl"], True, True, False),
         (["presets=eval"], 16, False, [], False, False, False),
         (["presets=distill"], 1024, True, [], False, False, False),
+        (["presets=force_distill"], 1024, True, [], False, False, False),
         (["presets=debug,depth_view"], 4, True, ["newton_gl"], True, True, True),
     ],
 )
@@ -58,7 +59,7 @@ def test_run_preset_bundles(
     assert _visualizer_types(env_cfg) == visualizers
     assert env_cfg.debug.keypoint_markers is keypoint_markers
     assert env_cfg.debug.adr_spawn_area_marker is spawn_area_marker
-    assert env_cfg.debug.student_depth_preview is student_depth_preview
+    assert env_cfg.depth_preview.enabled is student_depth_preview
 
 
 @pytest.mark.unit
@@ -104,6 +105,7 @@ def test_tabletop_object_reset_override_preserves_the_normal_spawn_range():
         (["presets=train"], False),
         (["presets=eval"], False),
         (["presets=distill"], True),
+        (["presets=force_distill"], True),
         (["presets=debug,depth_view"], True),
     ],
 )
@@ -125,12 +127,12 @@ def test_depth_camera_only_in_student_presets(overrides, has_camera):
         ([], False),
         (["presets=train"], False),
         (["presets=eval"], False),
-        (["presets=distill"], True),
-        (["presets=distill", "env.virtual_force.enabled=False"], False),
+        (["presets=distill"], False),
+        (["presets=force_distill"], True),
     ],
 )
-def test_virtual_force_only_in_student_preset(overrides, enabled):
-    """Force diagnostics should cost nothing in PPO/eval runs and remain explicitly overridable."""
+def test_virtual_force_only_in_force_student_preset(overrides, enabled):
+    """Only the force-student preset pays for detailed contact sensing."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=overrides)
 
     assert env_cfg.virtual_force.enabled is enabled
@@ -147,7 +149,7 @@ def test_depth_view_preset_shows_the_final_student_observation_in_grayscale():
         "/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
     )
     assert visualizer.streaming_gt_types == ("rgb",)
-    assert env_cfg.debug.student_depth_preview is True
+    assert env_cfg.depth_preview.enabled is True
 
 
 @pytest.mark.unit

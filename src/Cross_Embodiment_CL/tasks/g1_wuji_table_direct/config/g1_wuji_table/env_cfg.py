@@ -160,6 +160,7 @@ class G1WujiTablePhysicsCfg(PresetCfg):
     # The student's depth camera must see the apple, whose visible mesh is visual-only.  An explicit
     # False would win over the camera's request for visual shapes, so this preset sets True.
     distill: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=True)
+    force_distill: NewtonCfg = distill
     default: NewtonCfg = newton_mjwarp
 
 
@@ -174,6 +175,7 @@ class G1WujiTableSceneCfg(PresetCfg):
     debug: InteractiveSceneCfg = default.replace(num_envs=4)
     eval: InteractiveSceneCfg = default.replace(num_envs=16)
     distill: InteractiveSceneCfg = default.replace(num_envs=1024)
+    force_distill: InteractiveSceneCfg = distill
 
 
 @configclass
@@ -192,8 +194,6 @@ class G1WujiTableDebugCfg:
     """Whether to draw the goal (green) and current (red) object-pose keypoint markers."""
     adr_spawn_area_marker: bool = False
     """Whether to draw the configured full-strength ADR spawn area as a visual-only square."""
-    student_depth_preview: bool = False
-    """Whether the camera panel shows the finalized normalized 224x224 student observation."""
 
 
 @configclass
@@ -204,7 +204,23 @@ class G1WujiTableDebugPresetCfg(PresetCfg):
     train: G1WujiTableDebugCfg = G1WujiTableDebugCfg()
     eval: G1WujiTableDebugCfg = train
     distill: G1WujiTableDebugCfg = train
-    depth_view: G1WujiTableDebugCfg = G1WujiTableDebugCfg(adr_spawn_area_marker=True, student_depth_preview=True)
+    force_distill: G1WujiTableDebugCfg = train
+
+
+@configclass
+class G1WujiTableDepthPreviewCfg:
+    """Student-depth viewer output independent of the debug-marker bundle."""
+
+    enabled: bool = False
+    """Whether the camera panel shows the finalized normalized 224x224 student observation."""
+
+
+@configclass
+class G1WujiTableDepthPreviewPresetCfg(PresetCfg):
+    """Enable the policy-input preview only for the composable ``depth_view`` overlay."""
+
+    default: G1WujiTableDepthPreviewCfg = G1WujiTableDepthPreviewCfg()
+    depth_view: G1WujiTableDepthPreviewCfg = default.replace(enabled=True)
 
 
 STUDENT_DEPTH_SIZE = 224
@@ -243,6 +259,7 @@ class G1WujiTableDepthCameraPresetCfg(PresetCfg):
         offset=CameraCfg.OffsetCfg(convention="world"),
         renderer_cfg=NewtonWarpRendererCfg(enable_textures=False),
     )
+    force_distill: CameraCfg = distill
     depth_view: CameraCfg = distill
 
 
@@ -287,7 +304,7 @@ class G1WujiTableVirtualForcePresetCfg(PresetCfg):
     """Keep virtual force disabled unless a force-student preset explicitly enables it."""
 
     default: G1WujiTableVirtualForceCfg = G1WujiTableVirtualForceCfg()
-    distill: G1WujiTableVirtualForceCfg = default.replace(enabled=True)
+    force_distill: G1WujiTableVirtualForceCfg = default.replace(enabled=True)
 
 
 @configclass
@@ -495,11 +512,13 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
     virtual_force: G1WujiTableVirtualForceCfg = G1WujiTableVirtualForcePresetCfg()
-    """Virtual Wuji actuator-torque sensing, enabled only by its matching student preset."""
+    """Virtual Wuji actuator-torque sensing, enabled only by ``presets=force_distill``."""
     adr_debug_spawn_area_vis: bool = False
     """Legacy opt-in alias for :attr:`debug.adr_spawn_area_marker`."""
     debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
     """Viewer diagnostics; headless ``train`` and ``eval`` turn them off."""
+    depth_preview: G1WujiTableDepthPreviewCfg = G1WujiTableDepthPreviewPresetCfg()
+    """Composable grayscale preview of the exact student depth input."""
     contact_debug: bool = False
     """Whether to sample MJWarp contact and constraint demand for capacity sizing; off during normal runs."""
     contact_debug_interval: int = 1
@@ -643,6 +662,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
             train=[],
             eval=[],
             distill=[],
+            force_distill=[],
             depth_view=[
                 NewtonGLVisualizerCfg(
                     streaming_view=True,

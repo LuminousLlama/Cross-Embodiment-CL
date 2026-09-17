@@ -3,7 +3,7 @@
 reference for commands we commonly run
 
 
-## Isaac sim kit GUI 
+## Isaac sim kit GUI
 ```
 uv run isaacsim
 ```
@@ -26,6 +26,7 @@ The G1 + Wuji task bundles its launch settings into run presets, selected with
 | `debug` | `newton_mjwarp`  | 4    | `newton_gl` | on               | on                   |
 | `eval`  | `newton_mjwarp`  | 16   | none        | off              | off                  |
 | `distill` | `newton_mjwarp` | 1024 | none        | off              | on, student camera   |
+| `force_distill` | `newton_mjwarp` | 1024 | none | off | on, student camera + virtual force |
 | `depth_view` overlay | preserves selected run preset | preserves selected run preset | adds streaming `newton_gl` | preserves selected run preset | on, depth stream |
 
 Anything given explicitly still wins over the preset: `--num_envs 64`, `--viz none`
@@ -82,8 +83,25 @@ PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab zero_agent \
 
 ## Depth-student distillation
 
-The deployable student consumes 141-D proprioception plus one normalized 224x224 D435 depth image.
-The valid 224x127 region retains the full horizontal field of view and is padded vertically.
+`presets=distill` trains the baseline student from 141-D proprioception plus one normalized 224x224
+D435 depth image. `presets=force_distill` adds the 20-D virtual Wuji actuator-torque packet. The valid
+224x127 image region retains the full horizontal field of view and is padded vertically. Use the same
+preset for training and playback because the two student checkpoints have different input dimensions.
+
+Train either student by selecting its preset:
+
+```
+PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab train --rl_library rsl_rl \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --agent rsl_rl_distillation_cfg_entry_point \
+  --checkpoint <absolute-teacher-checkpoint.pt> presets=distill
+
+PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab train --rl_library rsl_rl \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --agent rsl_rl_distillation_cfg_entry_point \
+  --checkpoint <absolute-teacher-checkpoint.pt> presets=force_distill
+```
+
 Use the depth distillation runner to play a student checkpoint in the camera viewer:
 
 ```
@@ -93,6 +111,9 @@ PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab play --rl_library 
   --checkpoint <student-checkpoint.pt> --num_envs 1 presets=debug,depth_view
 ```
 
+For a force-student checkpoint, replace the final selector with
+`presets=force_distill,depth_view`.
+
 Evaluate deterministically, headlessly, at full gravity with an absolute checkpoint path:
 
 ```
@@ -101,6 +122,8 @@ PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/python scripts/eval_policy.
   --agent rsl_rl_distillation_cfg_entry_point \
   --checkpoint <absolute-student-checkpoint.pt> presets=distill --num_envs 2 --episodes 64
 ```
+
+Evaluate a force-student checkpoint with `presets=force_distill` instead.
 
 ## Evaluate a checkpoint
 
@@ -127,12 +150,12 @@ uv run isaaclab play --rl_library rsl_rl \
 
 
 
-## Tensorboard 
+## Tensorboard
 ```
 uv run tensorboard --logdir <path>
 
-# on remote server 
-uv run tensorboard --logdir <path> 
+# on remote server
+uv run tensorboard --logdir <path>
 ```
 
 

@@ -10,8 +10,10 @@ import torch
 from rsl_rl.models import CNNModel, MLPModel
 from tensordict import TensorDict
 
+from isaaclab_tasks.utils import resolve_task_config
+
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents.rsl_rl_distillation_cfg import (
-    G1WujiTableDepthDistillationRunnerCfg,
+    G1WujiTableDepthDistillationBaseRunnerCfg,
     G1WujiTableStateDistillationRunnerCfg,
 )
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents.rsl_rl_ppo_cfg import (
@@ -23,7 +25,8 @@ _STUDENT_OBSERVATION_DIM = 141
 _FORCE_OBSERVATION_DIM = 20
 _DEPTH_SIZE = 224
 _ACTION_DIM = 25
-_DISTILLATION_CFGS = [G1WujiTableStateDistillationRunnerCfg, G1WujiTableDepthDistillationRunnerCfg]
+_TASK = "CrossEmbodimentCl-G1-Wuji-Table-Direct"
+_AGENT = "rsl_rl_distillation_cfg_entry_point"
 
 
 def _observations(batch: int = 1) -> TensorDict:
@@ -51,23 +54,37 @@ def _build_mlp(model_cfg, obs_groups: dict[str, list[str]], obs_set: str) -> MLP
     )
 
 
-@pytest.mark.parametrize("cfg_class", _DISTILLATION_CFGS)
-def test_ppo_actor_loads_strictly_into_teacher(cfg_class):
+@pytest.mark.parametrize(
+    "distillation_cfg",
+    [
+        G1WujiTableStateDistillationRunnerCfg(),
+        G1WujiTableDepthDistillationBaseRunnerCfg(),
+    ],
+)
+def test_ppo_actor_loads_strictly_into_teacher(distillation_cfg):
     """A PPO checkpoint's actor weights must load strictly into the distillation teacher."""
     ppo_cfg = G1WujiTablePPORunnerCfg()
-    distillation_cfg = cfg_class()
     actor = _build_mlp(ppo_cfg.actor, ppo_cfg.obs_groups, "actor")
     teacher = _build_mlp(distillation_cfg.teacher, distillation_cfg.obs_groups, "teacher")
     teacher.load_state_dict(actor.state_dict(), strict=True)
 
 
-def test_depth_student_reads_only_deployable_observations():
-    """The depth student encodes proprioception, virtual force, and depth, never privileged state."""
-    distillation_cfg = G1WujiTableDepthDistillationRunnerCfg()
-    assert distillation_cfg.obs_groups == {
-        "teacher": ["policy"],
-        "student": ["student", "force", "camera"],
-    }
+@pytest.mark.parametrize(
+    ("preset", "student_groups", "low_dimensional_size"),
+    [
+        ("distill", ["student", "camera"], _STUDENT_OBSERVATION_DIM),
+        (
+            "force_distill",
+            ["student", "force", "camera"],
+            _STUDENT_OBSERVATION_DIM + _FORCE_OBSERVATION_DIM,
+        ),
+    ],
+)
+def test_depth_student_preset_selects_matching_deployable_observations(preset, student_groups, low_dimensional_size):
+    """Each depth-student preset builds against exactly the observations its environment exposes."""
+    env_cfg, distillation_cfg = resolve_task_config(_TASK, _AGENT, overrides=[f"presets={preset}"])
+    assert distillation_cfg.obs_groups == {"teacher": ["policy"], "student": student_groups}
+    assert env_cfg.virtual_force.enabled is (preset == "force_distill")
 
     student_cfg = distillation_cfg.student
     student = CNNModel(
@@ -81,6 +98,6 @@ def test_depth_student_reads_only_deployable_observations():
         distribution_cfg=student_cfg.distribution_cfg.to_dict(),
         cnn_cfg=student_cfg.cnn_cfg.to_dict(),
     )
-    # 224 -> 55 -> 26 -> 12 px through the encoder, flattened, then 141-D proprioception + 20-D force.
-    assert student.mlp[0].in_features == 64 * 12 * 12 + _STUDENT_OBSERVATION_DIM + _FORCE_OBSERVATION_DIM
+    # 224 -> 55 -> 26 -> 12 px through the encoder, followed by the selected low-dimensional inputs.
+    assert student.mlp[0].in_features == 64 * 12 * 12 + low_dimensional_size
     assert student(_observations(batch=2)).shape == (2, _ACTION_DIM)
