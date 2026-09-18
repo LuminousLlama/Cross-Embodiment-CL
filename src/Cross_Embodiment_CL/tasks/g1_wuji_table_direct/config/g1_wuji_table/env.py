@@ -407,8 +407,9 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError("gravity_curriculum_start must be in [0, 1].")
         if not 0.0 <= self.cfg.adr.gravity_start <= 1.0:
             raise ValueError("adr.gravity_start must be in [0, 1].")
-        if self.cfg.adr.robot_position_range < 0.0:
-            raise ValueError("adr.robot_position_range must be nonnegative.")
+        # Robot-position DR is intentionally unavailable for now.
+        # if self.cfg.adr.robot_position_range < 0.0:
+        #     raise ValueError("adr.robot_position_range must be nonnegative.")
         if self.cfg.gravity_curriculum_steps <= 0:
             raise ValueError("gravity_curriculum_steps must be positive.")
         if self.cfg.contact_debug_interval <= 0:
@@ -443,6 +444,8 @@ class G1WujiTableEnv(DirectRLEnv):
         self._gravity_frac = 1.0
         self._last_applied_gravity_frac: float | None = None
         self._apply_gravity_curriculum(force=True)
+        # Retain this zero placeholder in the privileged critic state so existing
+        # 247-D critic/checkpoint contracts do not change while robot-position DR is unused.
         self._adr_robot_position_offset = torch.zeros((self.num_envs, 3), device=self.device)
         self._adr_hand_target_scale = torch.ones(self.num_envs, device=self.device)
         self._adr_action_delay_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
@@ -455,7 +458,8 @@ class G1WujiTableEnv(DirectRLEnv):
         self._adr_object_inertia_scale = torch.ones(self.num_envs, device=self.device)
         self._adr_extra_active = bool(self.cfg.adr.enabled and self.cfg.adr.extra_enabled)
         self._adr_spawn_active = bool(self.cfg.adr.enabled and self.cfg.adr.spawn_enabled)
-        self._adr_robot_position_active = bool(self.cfg.adr.enabled and self.cfg.adr.robot_position_enabled)
+        # Robot-position DR is intentionally unavailable for now.
+        # self._adr_robot_position_active = bool(self.cfg.adr.enabled and self.cfg.adr.robot_position_enabled)
         self._adr_goal_alpha_active = bool(self.cfg.adr.enabled and self.cfg.adr.goal_alpha_enabled)
         self._adr_sensor_noise_active = bool(self._adr_extra_active and self.cfg.adr.sensor_noise_enabled)
         self._adr_action_latency_active = bool(self._adr_extra_active and self.cfg.adr.action_latency_enabled)
@@ -1846,7 +1850,7 @@ class G1WujiTableEnv(DirectRLEnv):
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int]) -> None:
-        """Restore authored poses; ADR may perturb the robot root and apple spawn independently."""
+        """Restore the authored robot pose; ADR may perturb the apple spawn."""
         super()._reset_idx(env_ids)
         if getattr(self, "virtual_force_pipeline", None) is not None:
             self.virtual_force_pipeline.reset(torch.as_tensor(env_ids, dtype=torch.long, device=self.device))
@@ -1854,11 +1858,13 @@ class G1WujiTableEnv(DirectRLEnv):
 
         robot_pose = self.robot.data.default_root_pose.torch[env_ids].clone()
         self._adr_robot_position_offset[env_ids] = 0.0
-        if self._adr_robot_position_active:
-            self._adr_robot_position_offset[env_ids] = scaled_uniform(
-                (len(env_ids), 3), self.cfg.adr.robot_position_range, self.adr.strength, device=self.device
-            )
-            robot_pose[:, :3] += self._adr_robot_position_offset[env_ids]
+        # Robot-position DR is intentionally unavailable for now. Keep the former
+        # sampling path visible here until the feature is reconsidered.
+        # if self._adr_robot_position_active:
+        #     self._adr_robot_position_offset[env_ids] = scaled_uniform(
+        #         (len(env_ids), 3), self.cfg.adr.robot_position_range, self.adr.strength, device=self.device
+        #     )
+        #     robot_pose[:, :3] += self._adr_robot_position_offset[env_ids]
         robot_pose[:, :3] += self.scene.env_origins[env_ids]
         self.robot.write_root_pose_to_sim_index(root_pose=robot_pose, env_ids=env_ids)
         self.robot.write_root_velocity_to_sim_index(

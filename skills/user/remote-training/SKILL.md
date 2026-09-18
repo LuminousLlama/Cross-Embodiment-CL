@@ -26,6 +26,7 @@ Delegate mechanical remote operations to a `gpt-5.6-luna` subagent for token eff
 - Use a unique numbered tmux session named `NN-description`; check that its numeric prefix cannot be confused with an existing session.
 - Record branch/commit, checkpoint, exact command, server, GPU assignment, session name, and run directory in the queue record.
 - Treat a run as healthy only after the process remains live and the run directory contains TensorBoard events plus a checkpoint. Treat tmux alone as insufficient evidence.
+- Always copy a completed or crashed remote training run back to the primary local checkout. Never put retrieved runs in a linked worktree.
 
 ## Launch Recipes
 
@@ -64,15 +65,43 @@ Do not run `docker exec` outside tmux: stopping the SSH command can leave an orp
 3. Start the exact command inside detached tmux. For a requested container, use `docker exec <container>` inside tmux.
 4. Capture the launch pane after startup. Confirm device, environment count, checkpoint load, requested overrides, and first metrics.
 5. Poll active runs at the requested cadence. Check tmux, process PID, `nvidia-smi`, the last 40 log lines, and the latest event/checkpoint timestamps.
-6. On completion or crash, update the queue record with state, final checkpoint, result paths, and the concise failure evidence when applicable. Copy requested artifacts with a checksum when transfer integrity matters.
+6. On completion or crash, copy the complete remote run directory into the primary checkout using the destination convention below. Update the queue record with state, final checkpoint, remote and local result paths, and concise failure evidence when applicable. Use a checksum when transfer integrity matters.
 7. Launch the next compatible pending entry only after its assigned resources are idle.
+
+## Retrieved Run Destination
+
+Preserve the normal RL-library and task log hierarchy, and insert `00_SERVER_LOGS` immediately before
+the run directory. If the remote run is:
+
+```text
+<remote-repository>/logs/<rl-library>/<task>/<run-folder>/
+```
+
+copy the complete folder to:
+
+```text
+<primary>/logs/<rl-library>/<task>/00_SERVER_LOGS/<run-folder>/
+```
+
+For example, an RSL-RL G1-Wuji run belongs at:
+
+```text
+<primary>/logs/rsl_rl/g1_wuji_table_direct/00_SERVER_LOGS/<run-folder>/
+```
+
+Derive `<rl-library>`, `<task>`, and `<run-folder>` from the actual remote run path rather than
+reconstructing or renaming them. Copy the entire run folder, including checkpoints, TensorBoard events,
+resolved configuration, and any evaluation files stored there. Create the local parent directory when
+needed. If the destination already exists, first confirm that it is the same server/run before resuming
+an interrupted transfer; never merge unrelated runs or silently overwrite an existing local run. Mark
+the queue entry `copied` only after the complete transfer succeeds, and record the resulting local path.
 
 ## Queue Record
 
 Use `<primary>/.local_untracked/remote-training-queue.md`. One Markdown row per run:
 
-| state | server/repository | GPUs | session | branch@commit | checkpoint | command | run directory | last check |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| state | server/repository | GPUs | session | branch@commit | checkpoint | command | remote run directory | local copy | last check |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 
 States: `pending`, `starting`, `running`, `complete`, `crashed`, `cancelled`, `copied`.
 

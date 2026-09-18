@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+    echo "Usage: ./worktree-local uv run <command> [args...]" >&2
+}
+
+if [[ $# -lt 2 || "$1" != "uv" || "$2" != "run" ]]; then
+    usage
+    exit 2
+fi
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+worktree_root=$(git -C "$script_dir" rev-parse --show-toplevel)
+git_common_dir=$(git -C "$worktree_root" rev-parse --path-format=absolute --git-common-dir)
+primary_root=$(dirname -- "$git_common_dir")
+shared_venv="$primary_root/.venv"
+
+if [[ ! -x "$shared_venv/bin/python" ]]; then
+    echo "worktree-local: prepared primary environment not found at $shared_venv" >&2
+    exit 1
+fi
+
+# Reuse the prepared primary environment without letting uv synchronize it, while
+# making imports resolve against the checkout containing this launcher.
+export UV_PROJECT="$worktree_root"
+export UV_PROJECT_ENVIRONMENT="$shared_venv"
+export UV_NO_SYNC=1
+export PYTHONPATH="$worktree_root/src${PYTHONPATH:+:$PYTHONPATH}"
+
+exec "$@"

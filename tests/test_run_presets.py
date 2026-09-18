@@ -187,18 +187,19 @@ def test_lift_reward_toggle_defaults_off_and_accepts_cli_override():
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "override",
+    ("override", "field"),
     [
-        "env.definitely_fake_flag=False",
-        "env.adr.definitely_fake_flag=False",
-        "env.sim.definitely_fake_flag=False",
+        ("env.definitely_fake_flag=False", "definitely_fake_flag"),
+        ("env.adr.definitely_fake_flag=False", "adr.definitely_fake_flag"),
+        ("env.sim.definitely_fake_flag=False", "sim.definitely_fake_flag"),
+        ("env.adr.robot_position_enabled=True", "adr.robot_position_enabled"),
     ],
 )
-def test_undeclared_nested_override_fails_loudly(override):
+def test_undeclared_nested_override_fails_loudly(override, field):
     """Environment validation must reject fields Hydra attached dynamically."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[override])
 
-    with pytest.raises(ValueError, match=override.removeprefix("env.").removesuffix("=False")):
+    with pytest.raises(ValueError, match=field):
         env_cfg.validate()
 
 
@@ -224,7 +225,6 @@ def test_train_and_dr_none_select_nominal_gravity_without_randomized_terms():
     assert not any(
         (
             adr.spawn_enabled,
-            adr.robot_position_enabled,
             adr.goal_alpha_enabled,
             adr.extra_enabled,
             adr.sensor_noise_enabled,
@@ -250,7 +250,6 @@ def test_eval_and_dr_full_enable_all_randomized_terms_at_full_level():
     assert all(
         (
             adr.spawn_enabled,
-            adr.robot_position_enabled,
             adr.goal_alpha_enabled,
             adr.extra_enabled,
             adr.sensor_noise_enabled,

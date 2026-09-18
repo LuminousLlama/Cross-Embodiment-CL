@@ -331,10 +331,10 @@ class G1WujiTableAdrCfg:
     """Full-strength apple spawn-box size along y [m]."""
     spawn_enabled: bool = True
     """Whether ADR strength controls centered continuous apple spawn offsets."""
-    robot_position_enabled: bool = False
-    """Whether ADR strength randomizes the robot root position independently of other DR terms."""
-    robot_position_range: float = 0.03
-    """Full-strength robot root-position randomization half-width [m] along each axis."""
+    # Robot-position DR is intentionally unavailable for now. Keep the former
+    # configuration here as a record until the feature is reconsidered.
+    # robot_position_enabled: bool = False
+    # robot_position_range: float = 0.03
     goal_alpha_end: float = 30.0
     """Goal-reward keypoint-error sharpness at full ADR strength."""
     goal_alpha_enabled: bool = True
@@ -423,7 +423,7 @@ class G1WujiTableAdrPresetCfg(PresetCfg):
         initial_level=50,
         max_level=50,
         spawn_enabled=False,
-        robot_position_enabled=False,
+        # robot_position_enabled=False,
         goal_alpha_enabled=False,
         extra_enabled=False,
         sensor_noise_enabled=False,
@@ -437,7 +437,7 @@ class G1WujiTableAdrPresetCfg(PresetCfg):
         initial_level=50,
         max_level=50,
         spawn_enabled=True,
-        robot_position_enabled=True,
+        # robot_position_enabled=True,
         goal_alpha_enabled=True,
         extra_enabled=True,
         sensor_noise_enabled=True,

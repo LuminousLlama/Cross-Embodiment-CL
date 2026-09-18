@@ -179,6 +179,9 @@ def test_sensor_noise_is_actor_only_and_critic_gets_dr_state() -> None:
         assert observations["policy"].shape == (2, 171)
         assert observations["critic"].shape == (2, 247)
         assert torch.allclose(observations["critic"][:, 171], torch.ones(2, device=unwrapped.device))
+        assert torch.count_nonzero(observations["critic"][:, 174:177]) == 0
+        expected_root_position = unwrapped.robot.data.default_root_pose.torch[:, :3] + unwrapped.scene.env_origins
+        torch.testing.assert_close(unwrapped.robot.data.root_pos_w.torch, expected_root_position)
         assert torch.equal(observations["policy"][:, :141], observations["student"])
         assert not torch.equal(observations["policy"], observations["critic"])
     finally:

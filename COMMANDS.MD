@@ -73,11 +73,11 @@ observation path resizes it to 224x127 and adds 48 zero rows above and 49 below 
 224x224 tensor. Combine it with a run preset such as `debug` to retain that preset's environment
 count and markers.
 
-In a linked worktree, reuse the sibling checkout's prepared venv and put this worktree's source
-first on `PYTHONPATH`:
+In a linked worktree, use the root launcher to reuse the primary checkout's prepared environment
+while importing this worktree's source:
 
 ```
-PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab zero_agent \
+./worktree-local uv run isaaclab zero_agent \
   --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets=debug,depth_view
 ```
 
