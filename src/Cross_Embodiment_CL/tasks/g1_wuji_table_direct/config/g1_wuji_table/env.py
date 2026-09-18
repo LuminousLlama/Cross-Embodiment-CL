@@ -72,6 +72,20 @@ def object_spawn_height(object_rest_height: float, offset_cm: float) -> float:
     return object_rest_height + offset_cm / 100.0
 
 
+def goal_pose_in_base_frame(
+    goal_position_w: torch.Tensor,
+    goal_rotation_w: torch.Tensor,
+    base_position_w: torch.Tensor,
+    base_rotation_w: torch.Tensor,
+) -> torch.Tensor:
+    """Encode a world-frame goal pose in the robot base frame as position plus 6-D rotation."""
+    world_to_base = quat_inv(base_rotation_w)
+    goal_position_b = quat_apply(world_to_base, goal_position_w - base_position_w)
+    goal_rotation_b = quat_mul(world_to_base, goal_rotation_w)
+    goal_rotation_6d_b = matrix_from_quat(goal_rotation_b)[..., :, :2].reshape(goal_position_w.shape[0], -1)
+    return torch.cat((goal_position_b, goal_rotation_6d_b), dim=-1)
+
+
 def sample_goal_poses_outside_success_threshold(
     object_positions: torch.Tensor,
     object_rotations: torch.Tensor,
@@ -325,6 +339,7 @@ class G1WujiTableEnv(DirectRLEnv):
     # The deployable proprioceptive prefix of the privileged observation: joint positions and
     # velocities, commanded arm and hand targets, and their position limits.
     _STUDENT_OBSERVATION_DIM = 141
+    _GOAL_OBSERVATION_DIM = 9
 
     def __init__(self, cfg: G1WujiTableEnvCfg, render_mode: str | None = None, **kwargs) -> None:
         self._student_depth_preview: torch.Tensor | None = None
@@ -1098,6 +1113,12 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
         goal_position = self.goal_position + self.scene.env_origins
+        goal_observation = goal_pose_in_base_frame(
+            goal_position,
+            self.goal_rotation,
+            self.robot.data.root_pos_w.torch,
+            self.robot.data.root_quat_w.torch,
+        )
         object_rotation_relative_to_goal = quat_mul(quat_inv(self.goal_rotation), object_rotation)
         goal_rotation_error_6d = matrix_from_quat(object_rotation_relative_to_goal)[..., :, :2].reshape(
             self.num_envs, -1
@@ -1162,10 +1183,15 @@ class G1WujiTableEnv(DirectRLEnv):
                 f"Expected {self._CRITIC_OBSERVATION_DIM}-D critic observation, received "
                 f"{critic_observation.shape[-1]} ."
             )
+        if goal_observation.shape[-1] != self._GOAL_OBSERVATION_DIM:
+            raise RuntimeError(
+                f"Expected {self._GOAL_OBSERVATION_DIM}-D goal observation, received {goal_observation.shape[-1]}."
+            )
         observations = {
             "policy": actor_observation,
             "critic": critic_observation,
             "student": actor_proprioception,
+            "goal": goal_observation,
         }
         if self.depth_camera is not None:
             # (N, H, W, 1) full-width planar depth [m] to the padded (N, 1, 224, 224) student input.

@@ -83,8 +83,9 @@ PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab zero_agent \
 
 ## Depth-student distillation
 
-`presets=distill` trains the baseline student from 141-D proprioception plus one normalized 224x224
-D435 depth image. `presets=force_distill` adds the 20-D virtual Wuji actuator-torque packet. The valid
+`presets=distill` trains the baseline student from 141-D proprioception, a 9-D pelvis-frame goal pose,
+and one normalized 224x224 D435 depth image. `presets=force_distill` adds the 20-D virtual Wuji
+actuator-torque packet. The valid
 224x127 image region retains the full horizontal field of view and is padded vertically. Use the same
 preset for training and playback because the two student checkpoints have different input dimensions.
 

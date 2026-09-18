@@ -22,6 +22,7 @@ from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents.
 
 _OBSERVATION_DIM = 171
 _STUDENT_OBSERVATION_DIM = 141
+_GOAL_OBSERVATION_DIM = 9
 _FORCE_OBSERVATION_DIM = 20
 _DEPTH_SIZE = 224
 _ACTION_DIM = 25
@@ -34,6 +35,7 @@ def _observations(batch: int = 1) -> TensorDict:
         {
             "policy": torch.zeros(batch, _OBSERVATION_DIM),
             "student": torch.zeros(batch, _STUDENT_OBSERVATION_DIM),
+            "goal": torch.zeros(batch, _GOAL_OBSERVATION_DIM),
             "force": torch.zeros(batch, _FORCE_OBSERVATION_DIM),
             "camera": torch.zeros(batch, 1, _DEPTH_SIZE, _DEPTH_SIZE),
         },
@@ -72,11 +74,15 @@ def test_ppo_actor_loads_strictly_into_teacher(distillation_cfg):
 @pytest.mark.parametrize(
     ("preset", "student_groups", "low_dimensional_size"),
     [
-        ("distill", ["student", "camera"], _STUDENT_OBSERVATION_DIM),
+        (
+            "distill",
+            ["student", "goal", "camera"],
+            _STUDENT_OBSERVATION_DIM + _GOAL_OBSERVATION_DIM,
+        ),
         (
             "force_distill",
-            ["student", "force", "camera"],
-            _STUDENT_OBSERVATION_DIM + _FORCE_OBSERVATION_DIM,
+            ["student", "goal", "force", "camera"],
+            _STUDENT_OBSERVATION_DIM + _GOAL_OBSERVATION_DIM + _FORCE_OBSERVATION_DIM,
         ),
     ],
 )

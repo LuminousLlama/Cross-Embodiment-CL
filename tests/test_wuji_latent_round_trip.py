@@ -13,7 +13,7 @@ import gymnasium as gym  # noqa: E402
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
-from isaaclab.utils.math import unscale_transform  # noqa: E402
+from isaaclab.utils.math import quat_from_euler_xyz, unscale_transform  # noqa: E402
 
 from isaaclab_tasks.utils.hydra import resolve_presets  # noqa: E402
 from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry  # noqa: E402
@@ -22,6 +22,29 @@ import Cross_Embodiment_CL.tasks  # noqa: E402, F401
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.depth_camera import (  # noqa: E402
     normalized_depth_to_grayscale,
 )
+from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (  # noqa: E402
+    goal_pose_in_base_frame,
+)
+
+
+@pytest.mark.unit
+def test_goal_pose_observation_is_expressed_in_the_robot_base_frame() -> None:
+    """Keep the deployable goal invariant to the robot base's world translation and yaw."""
+    half_pi = torch.tensor([torch.pi / 2])
+    zero = torch.zeros_like(half_pi)
+    base_rotation_w = quat_from_euler_xyz(zero, zero, half_pi)
+    base_position_w = torch.tensor([[1.0, 2.0, 3.0]])
+    goal_position_w = torch.tensor([[1.2, 2.3, 3.1]])
+
+    observation = goal_pose_in_base_frame(
+        goal_position_w,
+        base_rotation_w,
+        base_position_w,
+        base_rotation_w,
+    )
+
+    expected = torch.tensor([[0.3, -0.2, 0.1, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0]])
+    torch.testing.assert_close(observation, expected, atol=1.0e-6, rtol=0.0)
 
 
 @pytest.mark.integration
@@ -42,6 +65,7 @@ def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset:
 
         assert observations["policy"].shape == (4, 171)
         assert observations["student"].shape == (4, 141)
+        assert observations["goal"].shape == (4, 9)
         assert torch.equal(observations["policy"][:, :141], observations["student"])
         assert torch.equal(observations["student"][:, : robot.num_joints], robot.data.joint_pos.torch)
 
@@ -93,6 +117,7 @@ def test_virtual_force_packet_uses_common_contact_and_jacobian_apis(physics_pres
 
         assert output is not None
         assert observations["student"].shape == (2, 141)
+        assert observations["goal"].shape == (2, 9)
         assert observations["force"].shape == (2, 20)
         assert output.ideal_actuator_torque_nm.shape == (2, 20)
         assert output.observed_actuator_torque_nm.shape == (2, 20)
@@ -202,9 +227,10 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         assert unwrapped.adr_spawn_area_marker is not None
         assert unwrapped.local_cube_keypoints.shape == (8, 3)
         observations = unwrapped._get_observations()
-        assert set(observations) == {"policy", "critic", "student"}
+        assert set(observations) == {"policy", "critic", "student", "goal"}
         assert observations["policy"].shape == (1, 171)
         assert observations["student"].shape == (1, 141)
+        assert observations["goal"].shape == (1, 9)
         assert torch.isfinite(observations["policy"]).all()
         assert observations["critic"].shape == (1, 247)
         assert torch.equal(observations["critic"][:, :171], observations["policy"])

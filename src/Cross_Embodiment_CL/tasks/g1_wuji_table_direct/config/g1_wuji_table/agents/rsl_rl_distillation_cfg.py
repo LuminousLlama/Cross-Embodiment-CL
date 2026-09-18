@@ -66,13 +66,13 @@ class G1WujiTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
 
 @configclass
 class G1WujiTableDepthDistillationBaseRunnerCfg(G1WujiTableStateDistillationRunnerCfg):
-    """The deployable student: 141-D proprioception and a 224x224 depth image.
+    """The deployable student: proprioception, a 9-D base-frame goal, and depth.
 
     Needs the depth camera, so launch the environment with ``presets=distill``.
     """
 
     max_iterations = 1000
-    obs_groups = {"teacher": ["policy"], "student": ["student", "camera"]}
+    obs_groups = {"teacher": ["policy"], "student": ["student", "goal", "camera"]}
     student = RslRlCNNModelCfg(
         hidden_dims=_TEACHER_ACTOR.hidden_dims,
         activation=_TEACHER_ACTOR.activation,
@@ -95,5 +95,5 @@ class G1WujiTableDepthDistillationRunnerCfg(PresetCfg):
 
     default: G1WujiTableDepthDistillationBaseRunnerCfg = G1WujiTableDepthDistillationBaseRunnerCfg()
     force_distill: G1WujiTableDepthDistillationBaseRunnerCfg = default.replace(
-        obs_groups={"teacher": ["policy"], "student": ["student", "force", "camera"]}
+        obs_groups={"teacher": ["policy"], "student": ["student", "goal", "force", "camera"]}
     )
