@@ -7,6 +7,7 @@ at a glance", which is what deciding the next experiment actually needs.
 Usage:
     scripts/run_summary.py RUN [RUN_B] [--bins N] [--tags a,b,c]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,23 +19,51 @@ from collections import defaultdict
 from pathlib import Path
 
 DEFAULT_TAGS = [
-    "Train/mean_reward", "Train/mean_episode_length",
-    "Task/success", "Task/object_height_ep_max",
-    "Task/keypoint_error_ep_min", "Task/keypoint_error_ep_final",
-    "Reach/hand_distance_farthest_ep_min", "Reach/hand_distance_nearest_step",
-    "Reward/reach_ep_return", "Reward/goal_ep_return", "Reward/contact_ep_return",
+    "Train/mean_reward",
+    "Train/mean_episode_length",
+    "Task/success",
+    "Task/object_height_ep_max",
+    "Task/keypoint_error_ep_min",
+    "Task/keypoint_error_ep_final",
+    "Reach/hand_distance_farthest_ep_min",
+    "Reach/hand_distance_nearest_step",
+    "Reward/reach_ep_return",
+    "Reward/goal_ep_return",
+    "Reward/contact_ep_return",
     "Contact/gate_frac_ep",
-    "Contact/touch_frac_any_step", "Contact/force_max_step", "Contact/force_thumb_step",
-    "Contact/groups_over_threshold_step", "Contact/penetration_elbow_torso_ep_max",
-    "Policy/mean_std", "Loss/entropy", "Loss/value", "Loss/learning_rate",
-    "Control/action_saturation_frac_step", "Control/arm_target_rate_step",
-    "Control/arm_joint_velocity_step", "Control/arm_computed_effort_step", "Control/arm_applied_effort_step",
-    "Control/arm_effort_saturation_frac_step", "Control/arm_anti_windup_frac_step",
-    "Terminations/timeout", "Terminations/workspace_exit", "Terminations/below_table",
+    "Contact/touch_frac_any_step",
+    "Contact/force_max_step",
+    "Contact/force_thumb_step",
+    "Contact/groups_over_threshold_step",
+    "Contact/penetration_elbow_torso_ep_max",
+    "Policy/mean_std",
+    "Loss/entropy",
+    "Loss/value",
+    "Loss/learning_rate",
+    "Control/action_saturation_frac_step",
+    "Control/arm_target_rate_step",
+    "Control/arm_joint_velocity_step",
+    "Control/arm_computed_effort_step",
+    "Control/arm_applied_effort_step",
+    "Control/arm_effort_saturation_frac_step",
+    "Control/arm_anti_windup_frac_step",
+    "Terminations/timeout",
+    "Terminations/workspace_exit",
+    "Terminations/below_table",
     "Perf/total_fps",
 ]
-SHORT = {"Task/": "Tk/", "Reach/": "R/", "Reward/": "W/", "Train/": "T/", "Control/": "C/",
-         "Terminations/": "X/", "Policy/": "P/", "Loss/": "L/", "Perf/": "", "Contact/": "K/"}
+SHORT = {
+    "Task/": "Tk/",
+    "Reach/": "R/",
+    "Reward/": "W/",
+    "Train/": "T/",
+    "Control/": "C/",
+    "Terminations/": "X/",
+    "Policy/": "P/",
+    "Loss/": "L/",
+    "Perf/": "",
+    "Contact/": "K/",
+}
 # Runs logged before the tag rename, read under their new names so old and new runs compare.
 LEGACY_TAGS = {
     "Metrics/success": "Task/success",
@@ -52,8 +81,10 @@ LEGACY_TAGS = {
     "Metrics/step_contact_gate_fraction": "Contact/gate_frac_step",
     "Contact/step_bodies_over_threshold": "Contact/groups_over_threshold_step",
     "Contact/step_any_touch_fraction": "Contact/touch_frac_any_step",
-    **{f"Contact/step_touch_fraction_{group}": f"Contact/touch_frac_{group}_step"
-       for group in ("palm", "finger1", "finger2", "finger3", "finger4", "finger5")},
+    **{
+        f"Contact/step_touch_fraction_{group}": f"Contact/touch_frac_{group}_step"
+        for group in ("palm", "finger1", "finger2", "finger3", "finger4", "finger5")
+    },
     **{f"Metrics/{term}_return": f"Reward/{term}_ep_return" for term in ("reach", "goal", "contact", "lift")},
     **{f"Metrics/step_{term}_reward": f"Reward/{term}_step" for term in ("reach", "goal", "contact", "lift")},
     "Control/step_action_saturation_fraction": "Control/action_saturation_frac_step",
@@ -68,7 +99,8 @@ def load(run: Path, tags: set[str]) -> dict[str, dict[int, float]]:
     """Read the cached scalars, preparing them via analyze_run.py when stale."""
     subprocess.run(
         [sys.executable, str(Path(__file__).with_name("analyze_run.py")), "prepare", str(run)],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     out: dict[str, dict[int, float]] = defaultdict(dict)
     with (run / "analysis/scalars.csv").open(newline="") as stream:
@@ -94,7 +126,7 @@ def mean(values: dict[int, float], lo: int, hi: int) -> str:
 def short(tag: str) -> str:
     for long_prefix, abbreviation in SHORT.items():
         if tag.startswith(long_prefix):
-            return abbreviation + tag[len(long_prefix):]
+            return abbreviation + tag[len(long_prefix) :]
     return tag
 
 

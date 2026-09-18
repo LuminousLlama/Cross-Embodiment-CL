@@ -9,13 +9,12 @@ import argparse
 from pathlib import Path
 
 import torch
+from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
 
 from isaaclab.assets import ArticulationCfg
 from isaaclab.sim import SimulationCfg, UsdFileCfg, build_simulation_context
-import isaaclab.sim as sim_utils
 from isaaclab_newton.assets import Articulation
 from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg
-from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
 
 
 def main() -> None:

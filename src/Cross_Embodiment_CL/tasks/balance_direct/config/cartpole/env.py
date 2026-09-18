@@ -163,6 +163,7 @@ class BalanceEnv(DirectRLEnv):
         # Refer to the `collect_reference_motions` method in the Humanoid-AMP task for an example.
         return torch.zeros((num_samples, self.amp_observation_size), device=self.device)
 
+
 @torch.jit.script
 def compute_rewards(
     rew_scale_alive: float,

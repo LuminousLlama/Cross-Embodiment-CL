@@ -19,7 +19,9 @@ def test_task_registrations():
         },
         "CrossEmbodimentCl-Balance-Marl-Cartpole-Direct": {
             "entry_point": "Cross_Embodiment_CL.tasks.balance_marl_direct.config.cartpole.env:BalanceMarlEnv",
-            "env_cfg_entry_point": "Cross_Embodiment_CL.tasks.balance_marl_direct.config.cartpole.env_cfg:BalanceMarlEnvCfg",
+            "env_cfg_entry_point": (
+                "Cross_Embodiment_CL.tasks.balance_marl_direct.config.cartpole.env_cfg:BalanceMarlEnvCfg"
+            ),
             "default_agent": "skrl",
         },
         "CrossEmbodimentCl-G1-Wuji-Table-Direct": {

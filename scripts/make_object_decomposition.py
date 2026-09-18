@@ -84,9 +84,7 @@ def _load_spec(object_dir: Path) -> dict[str, object]:
     return spec
 
 
-def _write_decomposed_asset(
-    src_usd_path: Path, output_path: Path, hulls: list[tuple[np.ndarray, np.ndarray]]
-) -> None:
+def _write_decomposed_asset(src_usd_path: Path, output_path: Path, hulls: list[tuple[np.ndarray, np.ndarray]]) -> None:
     """Author a new USD with the source visual setup and explicit convex-hull colliders."""
     src_stage = Usd.Stage.Open(str(src_usd_path))
     src_flat = src_stage.Flatten()
@@ -105,9 +103,9 @@ def _write_decomposed_asset(
     UsdPhysics.RigidBodyAPI.Apply(object_prim)
     UsdPhysics.MassAPI.Apply(object_prim).CreateMassAttr(mass)
     if object_name is not None:
-        object_prim.CreateAttribute(
-            "crossEmbodiment:objectName", Sdf.ValueTypeNames.String, custom=True
-        ).Set(object_name)
+        object_prim.CreateAttribute("crossEmbodiment:objectName", Sdf.ValueTypeNames.String, custom=True).Set(
+            object_name
+        )
 
     if not Sdf.CopySpec(src_flat, Sdf.Path(_MATERIAL_PATH), stage.GetRootLayer(), Sdf.Path(_MATERIAL_PATH)):
         raise RuntimeError(f"Failed to copy {_MATERIAL_PATH} from {src_usd_path}")
