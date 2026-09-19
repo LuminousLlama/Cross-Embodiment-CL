@@ -91,9 +91,9 @@ class G1WujiTableDepthDistillationBaseRunnerCfg(G1WujiTableStateDistillationRunn
 
 @configclass
 class G1WujiTableDepthDistillationRunnerCfg(PresetCfg):
-    """Depth-student variants selected together with the matching environment preset."""
+    """Depth-student configuration with an independently stackable force overlay."""
 
     default: G1WujiTableDepthDistillationBaseRunnerCfg = G1WujiTableDepthDistillationBaseRunnerCfg()
-    force_distill: G1WujiTableDepthDistillationBaseRunnerCfg = default.replace(
+    force: G1WujiTableDepthDistillationBaseRunnerCfg = default.replace(
         obs_groups={"teacher": ["policy"], "student": ["student", "goal", "force", "camera"]}
     )

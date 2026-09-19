@@ -8,7 +8,6 @@
 import pytest
 import torch
 
-from isaaclab_newton.physics import NewtonCfg
 from isaaclab_physx.physics import PhysxCfg
 
 from isaaclab_tasks.utils import resolve_task_config
@@ -21,45 +20,6 @@ AGENT = "rsl_rl_cfg_entry_point"
 
 def _visualizer_types(env_cfg) -> list[str]:
     return [cfg.visualizer_type for cfg in env_cfg.sim.visualizer_cfgs]
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    (
-        "overrides",
-        "num_envs",
-        "visual_shapes",
-        "visualizers",
-        "keypoint_markers",
-        "spawn_area_marker",
-        "student_depth_preview",
-    ),
-    [
-        ([], 1, True, ["newton_gl"], True, True, False),
-        (["presets=train"], 2048, False, [], False, False, False),
-        (["presets=debug"], 4, True, ["newton_gl"], True, True, False),
-        (["presets=eval"], 16, False, [], False, False, False),
-        (["presets=distill"], 1024, True, [], False, False, False),
-        (["presets=force_distill"], 1024, True, [], False, False, False),
-        (["presets=debug,depth_view"], 4, True, ["newton_gl"], True, True, True),
-    ],
-)
-def test_run_preset_bundles(
-    overrides, num_envs, visual_shapes, visualizers, keypoint_markers, spawn_area_marker, student_depth_preview
-):
-    """The default and each run preset set physics, environment count, viewer, and diagnostics together."""
-    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=overrides)
-
-    assert isinstance(env_cfg.sim.physics, NewtonCfg)
-    assert env_cfg.sim.physics.solver_cfg.nconmax == 128
-    assert env_cfg.sim.physics.solver_cfg.njmax == 128
-    assert env_cfg.sim.physics.load_visual_shapes is visual_shapes
-    assert env_cfg.scene.num_envs == num_envs
-    assert env_cfg.scene.env_spacing == 3.0
-    assert _visualizer_types(env_cfg) == visualizers
-    assert env_cfg.debug.keypoint_markers is keypoint_markers
-    assert env_cfg.debug.adr_spawn_area_marker is spawn_area_marker
-    assert env_cfg.depth_preview.enabled is student_depth_preview
 
 
 @pytest.mark.unit
@@ -95,61 +55,6 @@ def test_tabletop_object_reset_override_preserves_the_normal_spawn_range():
     assert env_cfg.object_spawn_z_range == pytest.approx(
         (env_cfg.object_rest_height, env_cfg.object_rest_height + env_cfg.object_spawn_height_above_table)
     )
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("overrides", "has_camera"),
-    [
-        ([], False),
-        (["presets=train"], False),
-        (["presets=eval"], False),
-        (["presets=distill"], True),
-        (["presets=force_distill"], True),
-        (["presets=debug,depth_view"], True),
-    ],
-)
-def test_depth_camera_only_in_student_presets(overrides, has_camera):
-    """Only student presets render the depth camera, so PPO runs pay no rendering cost."""
-    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=overrides)
-
-    assert (env_cfg.depth_camera is not None) is has_camera
-    if has_camera:
-        assert env_cfg.depth_camera.data_types == ["distance_to_image_plane"]
-        assert (env_cfg.depth_camera.width, env_cfg.depth_camera.height) == (224, 127)
-        assert env_cfg.depth_camera.update_latest_camera_pose is True
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    ("overrides", "enabled"),
-    [
-        ([], False),
-        (["presets=train"], False),
-        (["presets=eval"], False),
-        (["presets=distill"], False),
-        (["presets=force_distill"], True),
-    ],
-)
-def test_virtual_force_only_in_force_student_preset(overrides, enabled):
-    """Only the force-student preset pays for detailed contact sensing."""
-    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=overrides)
-
-    assert env_cfg.virtual_force.enabled is enabled
-
-
-@pytest.mark.unit
-def test_depth_view_preset_shows_the_final_student_observation_in_grayscale():
-    """The manual viewer streams a grayscale rendering of the normalized, letterboxed student image."""
-    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=debug,depth_view"])
-
-    visualizer = env_cfg.sim.visualizer_cfgs[0]
-    assert visualizer.streaming_view is True
-    assert visualizer.streaming_sensor_prim_path == (
-        "/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
-    )
-    assert visualizer.streaming_gt_types == ("rgb",)
-    assert env_cfg.depth_preview.enabled is True
 
 
 @pytest.mark.unit
@@ -309,33 +214,33 @@ def test_contact_debug_is_opt_in_and_configurable():
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("physics_override", ["physics=isaacsim_physx", "env.sim.physics=isaacsim_physx"])
-def test_physics_selectors_compose_with_debug_preset(physics_override):
-    """``debug`` leaves physics at its default, so either selector swaps only the backend."""
-    env_cfg, _ = resolve_task_config(
-        TASK, AGENT, overrides=["presets=debug", physics_override, "env.debug.keypoint_markers=False"]
-    )
-
-    assert type(env_cfg.sim.physics) is PhysxCfg
-    assert env_cfg.scene.num_envs == 4
-    assert _visualizer_types(env_cfg) == ["newton_gl"]
-    assert env_cfg.debug.keypoint_markers is False
-
-
-@pytest.mark.unit
-def test_physics_path_selector_wins_over_train_preset():
-    """``env.sim.physics=NAME`` replaces the ``train`` physics config and keeps the rest of the preset."""
-    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=train", "env.sim.physics=isaacsim_physx"])
-
+def test_run_profile_composes_with_typed_physics_selector():
+    """Backend selection remains independent instead of conflicting with the run profile."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=train", "physics=isaacsim_physx"])
     assert type(env_cfg.sim.physics) is PhysxCfg
     assert env_cfg.scene.num_envs == 2048
     assert _visualizer_types(env_cfg) == []
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("physics", ["ovphysx", "newton_mjwarp"])
-@pytest.mark.parametrize("preset_name", ["train", "eval"])
-def test_typed_physics_selector_conflicts_with_headless_presets(preset_name, physics):
-    """A typed selector picking another physics config errors instead of silently losing."""
-    with pytest.raises(ValueError, match="Conflicting global presets"):
-        resolve_task_config(TASK, AGENT, overrides=[f"presets={preset_name}", f"physics={physics}"])
+def test_distillation_overlays_compose_across_environment_and_agent():
+    """Depth viewing, force input, and DR can be stacked without colliding on bundled sections."""
+    env_cfg, agent_cfg = resolve_task_config(
+        TASK,
+        "rsl_rl_distillation_cfg_entry_point",
+        overrides=["presets=distill,depth_view,force,dr_full"],
+    )
+
+    assert env_cfg.depth_camera is not None
+    assert env_cfg.depth_preview.enabled
+    assert env_cfg.virtual_force.enabled
+    assert env_cfg.adr.enabled
+    assert _visualizer_types(env_cfg) == ["newton_gl"]
+    assert agent_cfg.obs_groups["student"] == ["student", "goal", "force", "camera"]
+
+
+@pytest.mark.unit
+def test_removed_force_distill_preset_fails_loudly():
+    """The old bundled name is not retained as an alias after the clean preset cutover."""
+    with pytest.raises(ValueError, match="force_distill"):
+        resolve_task_config(TASK, AGENT, overrides=["presets=force_distill"])

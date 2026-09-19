@@ -403,15 +403,11 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError("wuji_action_ema_alpha must be in (0, 1].")
         if self.cfg.arm_joint_velocity_limit <= 0.0 or self.cfg.hand_joint_velocity_limit <= 0.0:
             raise ValueError("arm_joint_velocity_limit and hand_joint_velocity_limit must be positive.")
-        if not 0.0 <= self.cfg.gravity_curriculum_start <= 1.0:
-            raise ValueError("gravity_curriculum_start must be in [0, 1].")
         if not 0.0 <= self.cfg.adr.gravity_start <= 1.0:
             raise ValueError("adr.gravity_start must be in [0, 1].")
         # Robot-position DR is intentionally unavailable for now.
         # if self.cfg.adr.robot_position_range < 0.0:
         #     raise ValueError("adr.robot_position_range must be nonnegative.")
-        if self.cfg.gravity_curriculum_steps <= 0:
-            raise ValueError("gravity_curriculum_steps must be positive.")
         if self.cfg.contact_debug_interval <= 0:
             raise ValueError("contact_debug_interval must be positive.")
         if self.cfg.action_delta_reward_scale < 0.0:
@@ -443,7 +439,7 @@ class G1WujiTableEnv(DirectRLEnv):
             self._adr_completed_episodes = 0
         self._gravity_frac = 1.0
         self._last_applied_gravity_frac: float | None = None
-        self._apply_gravity_curriculum(force=True)
+        self._apply_adr_gravity(force=True)
         # Retain this zero placeholder in the privileged critic state so existing
         # 247-D critic/checkpoint contracts do not change while robot-position DR is unused.
         self._adr_robot_position_offset = torch.zeros((self.num_envs, 3), device=self.device)
@@ -802,28 +798,24 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         # The anti-windup clamp follows the measured position, which contact can push backwards; never command that.
         self.wuji_joint_targets.clamp_(min=wuji_command_lower)
-        self._apply_gravity_curriculum()
+        self._apply_adr_gravity()
 
     def _wuji_command_lower_limits(self, wuji_limits: torch.Tensor) -> torch.Tensor:
         """Return the effective Wuji command lower limits [rad]."""
         return torch.maximum(wuji_limits[..., 0], self._wuji_command_lower_floor)
 
-    def _apply_gravity_curriculum(self, force: bool = False) -> None:
-        """Ramp whole-scene gravity from ``adr.gravity_start`` to full strength under ADR.
+    def _apply_adr_gravity(self, force: bool = False) -> None:
+        """Scale gravity from ``adr.gravity_start`` to full strength with ADR.
 
-        The update is sent only when the fraction changes by at least 0.005, avoiding a model-property
-        notification every policy step while keeping the 600-iteration ramp smooth.  Isaac Lab's current
-        Newton, OvPhysX, and Isaac Sim PhysX managers expose different runtime gravity APIs, so this selects
-        their capability rather than changing task dynamics by backend name.  When :attr:`G1WujiTableEnvCfg.
-        adr.enabled` and :attr:`~.G1WujiTableEnvCfg.adr.drives_gravity` are both set, the ADR schedule's
-        strength replaces the step-based ramp.
+        ADR-disabled runs use full gravity. The update is sent only when the fraction changes by at least
+        0.005, avoiding a model-property notification every policy step. Isaac Lab's current Newton,
+        OvPhysX, and Isaac Sim PhysX managers expose different runtime gravity APIs, so this selects their
+        capability rather than changing task dynamics by backend name.
         """
-        if self.cfg.adr.enabled and self.cfg.adr.drives_gravity:
+        if self.adr is not None:
             self._gravity_frac = self.cfg.adr.gravity_start + (1.0 - self.cfg.adr.gravity_start) * self.adr.strength
         else:
-            start = self.cfg.gravity_curriculum_start
-            ramp = min(1.0, self.common_step_counter / self.cfg.gravity_curriculum_steps)
-            self._gravity_frac = start + (1.0 - start) * ramp
+            self._gravity_frac = 1.0
         if (
             not force
             and self._last_applied_gravity_frac is not None
@@ -838,7 +830,7 @@ class G1WujiTableEnv(DirectRLEnv):
 
             model = physics_manager.get_model()
             if model is None:
-                raise RuntimeError("Newton model is not initialized; cannot apply the gravity curriculum.")
+                raise RuntimeError("Newton model is not initialized; cannot apply ADR gravity.")
             model.set_gravity(gravity)
             physics_manager.add_model_change(ModelFlags.MODEL_PROPERTIES)
         elif hasattr(physics_manager, "set_gravity"):

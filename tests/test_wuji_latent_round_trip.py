@@ -52,7 +52,7 @@ def test_goal_pose_observation_is_expressed_in_the_robot_base_frame() -> None:
 def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset: str) -> None:
     """Expose raw joint angles and the physical arm/effective Wuji command limits."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
-    resolve_presets(env_cfg, selected=(physics_preset,))
+    env_cfg = resolve_presets(env_cfg, selected=(physics_preset,))
     env_cfg.scene.num_envs = 4
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = False
@@ -103,7 +103,7 @@ def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset:
 def test_virtual_force_packet_uses_common_contact_and_jacobian_apis(physics_preset: str) -> None:
     """Catch backend-specific sensor wiring, body ordering, and packet-shape regressions."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
-    resolve_presets(env_cfg, selected=(physics_preset,))
+    env_cfg = resolve_presets(env_cfg, selected=(physics_preset,))
     env_cfg.scene.num_envs = 2
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = False
@@ -136,7 +136,7 @@ def test_virtual_force_packet_uses_common_contact_and_jacobian_apis(physics_pres
 def test_depth_view_publishes_the_exact_final_student_image() -> None:
     """The viewer-facing camera output is the finalized student tensor in NHWC layout."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
-    resolve_presets(env_cfg, selected=("depth_view",))
+    env_cfg = resolve_presets(env_cfg, selected=("depth_view",))
     env_cfg.sim.visualizer_cfgs = []
     env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
     try:
@@ -159,7 +159,7 @@ def test_depth_view_publishes_the_exact_final_student_image() -> None:
 def test_sensor_noise_is_actor_only_and_critic_gets_dr_state() -> None:
     """Sensor noise stays actor-only while the critic receives clean state plus DR metadata."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
-    resolve_presets(env_cfg, selected=("newton_mjwarp",))
+    env_cfg = resolve_presets(env_cfg, selected=("newton_mjwarp",))
     env_cfg.scene.num_envs = 2
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = False
@@ -192,7 +192,7 @@ def test_sensor_noise_is_actor_only_and_critic_gets_dr_state() -> None:
 def test_nonfinite_state_returns_zero_terminal_reward() -> None:
     """A state rejected by the done guard must not leak a NaN reward to the trainer."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
-    resolve_presets(env_cfg)
+    env_cfg = resolve_presets(env_cfg)
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = False
     env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
@@ -215,7 +215,7 @@ def test_nonfinite_state_returns_zero_terminal_reward() -> None:
 def test_wuji_latent_round_trip_ping_pong() -> None:
     """Project two simulated poses and verify their latent commands move the hand."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
-    resolve_presets(env_cfg)
+    env_cfg = resolve_presets(env_cfg)
     # The default preset opens the Newton viewer; keep this runtime test headless.
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = True
@@ -393,7 +393,7 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
 def test_wuji_multi_env_reset_initializes_ema_targets() -> None:
     """Resetting all environments must preserve the per-joint target layout."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
-    resolve_presets(env_cfg)
+    env_cfg = resolve_presets(env_cfg)
     env_cfg.scene.num_envs = 2
     env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
     try:

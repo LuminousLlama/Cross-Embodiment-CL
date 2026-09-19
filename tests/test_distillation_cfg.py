@@ -72,25 +72,25 @@ def test_ppo_actor_loads_strictly_into_teacher(distillation_cfg):
 
 
 @pytest.mark.parametrize(
-    ("preset", "student_groups", "low_dimensional_size"),
+    ("presets", "student_groups", "low_dimensional_size"),
     [
         (
-            "distill",
+            ["distill"],
             ["student", "goal", "camera"],
             _STUDENT_OBSERVATION_DIM + _GOAL_OBSERVATION_DIM,
         ),
         (
-            "force_distill",
+            ["distill", "force"],
             ["student", "goal", "force", "camera"],
             _STUDENT_OBSERVATION_DIM + _GOAL_OBSERVATION_DIM + _FORCE_OBSERVATION_DIM,
         ),
     ],
 )
-def test_depth_student_preset_selects_matching_deployable_observations(preset, student_groups, low_dimensional_size):
+def test_depth_student_preset_selects_matching_deployable_observations(presets, student_groups, low_dimensional_size):
     """Each depth-student preset builds against exactly the observations its environment exposes."""
-    env_cfg, distillation_cfg = resolve_task_config(_TASK, _AGENT, overrides=[f"presets={preset}"])
+    env_cfg, distillation_cfg = resolve_task_config(_TASK, _AGENT, overrides=[f"presets={','.join(presets)}"])
     assert distillation_cfg.obs_groups == {"teacher": ["policy"], "student": student_groups}
-    assert env_cfg.virtual_force.enabled is (preset == "force_distill")
+    assert env_cfg.virtual_force.enabled is ("force" in presets)
 
     student_cfg = distillation_cfg.student
     student = CNNModel(

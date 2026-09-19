@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Cross-Embodiment CL Contributors.
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Headless evaluation or random-action contact stress test of an RSL-RL checkpoint.
+"""Headless deterministic or training-noise evaluation of an RSL-RL checkpoint.
 
 Based on IsaacLab's ``isaaclab_rl/entrypoints/backends/play_rsl_rl.py``: keeps its CLI and
 preset parsing, environment creation, runner construction, ``runner.load``, and
@@ -104,7 +104,7 @@ for _entry_point in metadata.entry_points(group="isaaclab.tasks"):
     _entry_point.load()
 
 # -- argparse ----------------------------------------------------------------
-parser = argparse.ArgumentParser(description="Evaluate a checkpoint of an RL agent from RSL-RL, headless.")
+parser = argparse.ArgumentParser(description="Evaluate a checkpoint of an RSL-RL agent headlessly.")
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
@@ -123,18 +123,21 @@ parser.add_argument(
 parser.add_argument("--external_callback", default=None, help="Fully qualified path to an externally defined callback.")
 parser.add_argument("--episodes", type=int, default=64, help="Number of completed episodes to collect.")
 parser.add_argument(
-    "--random_actions",
+    "--enable-train-time-noise",
     action="store_true",
-    help="Sample normalized actions uniformly instead of the checkpoint policy for contact stress tests.",
+    help="Sample the checkpoint policy's saved training-time action distribution instead of its deterministic mean.",
 )
 parser.add_argument(
-    "--out", type=str, default=None, help="Output JSON path. Defaults to <checkpoint dir>/eval_<checkpoint stem>.json."
+    "--out",
+    type=str,
+    default=None,
+    help="Output JSON path. Defaults to <checkpoint dir>/eval/<checkpoint stem>.json.",
 )
 parser.add_argument(
     "--frames_dir",
     type=str,
     default=None,
-    help="Directory to save headless PNG frames of the deterministic rollout plus a tiled contact sheet. "
+    help="Directory to save headless PNG frames of the selected rollout plus a tiled contact sheet. "
     "Disabled by default; when set, forces 1 environment, Newton visual shapes, and keypoint markers.",
 )
 parser.add_argument("--frame_every", type=int, default=15, help="Save a frame every N policy steps.")
@@ -234,11 +237,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             log_dir = os.path.dirname(resume_path)
             env_cfg.log_dir = log_dir
 
-            # A fresh process restarts the curriculum from its easy end, so evaluate at full gravity.
-            if hasattr(env_cfg, "gravity_curriculum_start"):
-                env_cfg.gravity_curriculum_start = 1.0
-                print("[INFO] Forcing gravity_curriculum_start=1.0 for evaluation.")
-
             screen.stage("Creating environment")
             env = create_isaaclab_env(
                 args_cli.task,
@@ -262,8 +260,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 configure_seed(env_cfg.seed, torch_deterministic=True)
             runner.load(resume_path)
 
-            # The inference policy uses the deterministic mean action, not a sampled one.
+            # Deterministic evaluation uses the distribution mean. The opt-in noise path samples the
+            # same saved action distribution used during training.
             policy = runner.get_inference_policy(device=env.unwrapped.device)
+            action_std: list[float] | None = None
 
             screen.close()
             obs = env.get_observations()
@@ -279,13 +279,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             print(f"[INFO] Collecting {args_cli.episodes} episodes...")
             while completed_episodes < args_cli.episodes:
                 with torch.inference_mode():
-                    if args_cli.random_actions:
-                        actions = 2.0 * torch.rand((env.num_envs, env.num_actions), device=env.unwrapped.device) - 1.0
+                    if args_cli.enable_train_time_noise:
+                        actions = policy(obs, stochastic_output=True)
+                        if action_std is None:
+                            action_std = policy.output_std[0].detach().cpu().tolist()
                     else:
                         actions = policy(obs)
                     obs, _, dones, extras = env.step(actions)
-                    if not args_cli.random_actions:
-                        policy.reset(dones)
+                    policy.reset(dones)
                 policy_step += 1
                 log = extras.get("log", {})
                 for tag, _value in log.items():
@@ -320,17 +321,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     commit = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
     ).stdout.strip()
-    out_path = args_cli.out or os.path.join(log_dir, f"eval_{os.path.splitext(os.path.basename(resume_path))[0]}.json")
+    checkpoint_stem = os.path.splitext(os.path.basename(resume_path))[0]
+    out_path = args_cli.out or os.path.join(log_dir, "eval", f"{checkpoint_stem}.json")
+    policy_mode = "training_noise" if args_cli.enable_train_time_noise else "deterministic"
     result = {
         "checkpoint": resume_path,
         "commit": commit,
         "num_envs": env_cfg.scene.num_envs,
         "episodes": completed_episodes,
-        "policy": "random_actions" if args_cli.random_actions else "deterministic",
+        "policy": policy_mode,
         "seed": env_cfg.seed,
         "metrics": metrics,
         "debug_peaks": debug_peaks,
     }
+    if action_std is not None:
+        result["action_std"] = action_std
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w") as stream:
         json.dump(result, stream, indent=2, sort_keys=True)

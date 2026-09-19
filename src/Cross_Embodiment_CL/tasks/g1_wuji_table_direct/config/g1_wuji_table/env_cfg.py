@@ -31,7 +31,7 @@ from isaaclab_ov.physics import OvPhysxCfg
 from isaaclab_physx.physics import PhysxCfg
 from isaaclab_physx.sim.spawners.materials.physics_materials_cfg import PhysxRigidBodyMaterialCfg
 
-from isaaclab_tasks.utils import PresetCfg, preset
+from isaaclab_tasks.utils import PresetCfg
 
 from .depth_camera import D435_DEPTH_848X480, fit_depth_letterbox
 
@@ -153,29 +153,10 @@ class G1WujiTablePhysicsCfg(PresetCfg):
     # from its render-only textured mesh.  Always import the latter so
     # either Newton visualizer can display the same apple as Kit/PhysX.
     newton_mjwarp: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=True)
-    # Headless runs (``presets=train|eval``) never draw the scene, and Newton clones render meshes per
-    # environment, so those presets drop them.  Visual shapes do not collide, so dynamics match the default.
-    train: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=False)
-    eval: NewtonCfg = train
-    # The student's depth camera must see the apple, whose visible mesh is visual-only.  An explicit
-    # False would win over the camera's request for visual shapes, so this preset sets True.
-    distill: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=True)
-    force_distill: NewtonCfg = distill
     default: NewtonCfg = newton_mjwarp
-
-
-# Run presets live on whole sections, never on a scalar field: Isaac Lab reads ``env.a.b=value`` on a
-# preset node as a preset name, so a scalar preset would reject ``env.a.b=True`` as an unknown preset.
-@configclass
-class G1WujiTableSceneCfg(PresetCfg):
-    """Environment-count presets; every other scene setting is shared."""
-
-    default: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=1, env_spacing=3.0, replicate_physics=True)
-    train: InteractiveSceneCfg = default.replace(num_envs=2048)
-    debug: InteractiveSceneCfg = default.replace(num_envs=4)
-    eval: InteractiveSceneCfg = default.replace(num_envs=16)
-    distill: InteractiveSceneCfg = default.replace(num_envs=1024)
-    force_distill: InteractiveSceneCfg = distill
+    # A depth preview requires the apple's render-only mesh. Run profiles may replace ``default``
+    # with a headless Newton config that omits visual shapes, so the overlay restores them.
+    depth_view: NewtonCfg = newton_mjwarp
 
 
 @configclass
@@ -194,17 +175,6 @@ class G1WujiTableDebugCfg:
     """Whether to draw the goal (green) and current (red) object-pose keypoint markers."""
     adr_spawn_area_marker: bool = False
     """Whether to draw the configured full-strength ADR spawn area as a visual-only square."""
-
-
-@configclass
-class G1WujiTableDebugPresetCfg(PresetCfg):
-    """Diagnostics per run preset: markers whenever a viewer is open, so off for headless ``train`` and ``eval``."""
-
-    default: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True, adr_spawn_area_marker=True)
-    train: G1WujiTableDebugCfg = G1WujiTableDebugCfg()
-    eval: G1WujiTableDebugCfg = train
-    distill: G1WujiTableDebugCfg = train
-    force_distill: G1WujiTableDebugCfg = train
 
 
 @configclass
@@ -233,12 +203,9 @@ _STUDENT_DEPTH_CAMERA_STREAM_PATTERN = "/World/envs/env_[^/]+/G1Wuji/g1_simplifi
 """Resolved camera-prim regex required by the Newton visualizer stream lookup."""
 
 
-@configclass
-class G1WujiTableDepthCameraPresetCfg(PresetCfg):
-    """The student's head depth camera: absent by default, so PPO training renders nothing."""
-
-    default: CameraCfg | None = None
-    distill: CameraCfg = CameraCfg(
+def _student_depth_camera_cfg() -> CameraCfg:
+    """Build the deployable student's D435 depth-camera configuration."""
+    return CameraCfg(
         # The G1 rev 1.0 head D435 frame on torso_link (x forward), at the depth imager's origin.
         prim_path=_STUDENT_DEPTH_CAMERA_PRIM_PATH,
         # Sensors update lazily, so the camera renders once per policy step, when the observation reads it.
@@ -259,8 +226,31 @@ class G1WujiTableDepthCameraPresetCfg(PresetCfg):
         offset=CameraCfg.OffsetCfg(convention="world"),
         renderer_cfg=NewtonWarpRendererCfg(enable_textures=False),
     )
-    force_distill: CameraCfg = distill
-    depth_view: CameraCfg = distill
+
+
+@configclass
+class G1WujiTableDepthCameraPresetCfg(PresetCfg):
+    """Enable the student's head depth camera for the composable depth-view overlay."""
+
+    default: CameraCfg | None = None
+    depth_view: CameraCfg = _student_depth_camera_cfg()
+
+
+@configclass
+class G1WujiTableVisualizerPresetCfg(PresetCfg):
+    """Select the normal scene viewer or the composable student-depth preview."""
+
+    default: list[VisualizerCfg] = [NewtonGLVisualizerCfg()]
+    depth_view: list[VisualizerCfg] = [
+        NewtonGLVisualizerCfg(
+            streaming_view=True,
+            streaming_sensor_prim_path=_STUDENT_DEPTH_CAMERA_STREAM_PATTERN,
+            streaming_gt_types=("rgb",),
+            # The task publishes a grayscale rendering of the exact normalized student tensor
+            # under ``rgb``. The native metric render remains available under
+            # ``distance_to_image_plane`` for observation assembly and diagnostics.
+        )
+    ]
 
 
 @configclass
@@ -301,10 +291,10 @@ class G1WujiTableVirtualForceCfg:
 
 @configclass
 class G1WujiTableVirtualForcePresetCfg(PresetCfg):
-    """Keep virtual force disabled unless a force-student preset explicitly enables it."""
+    """Keep virtual force disabled unless the independent force overlay enables it."""
 
     default: G1WujiTableVirtualForceCfg = G1WujiTableVirtualForceCfg()
-    force_distill: G1WujiTableVirtualForceCfg = default.replace(enabled=True)
+    force: G1WujiTableVirtualForceCfg = default.replace(enabled=True)
 
 
 @configclass
@@ -313,10 +303,8 @@ class G1WujiTableAdrCfg:
 
     enabled: bool = False
     """Whether the success-gated adaptive domain-randomization schedule is active."""
-    drives_gravity: bool = True
-    """Whether ADR strength drives whole-scene gravity from ``gravity_start`` to full strength."""
     gravity_start: float = 0.0
-    """Whole-scene gravity fraction at ADR strength zero when :attr:`drives_gravity` is enabled."""
+    """Whole-scene gravity fraction at ADR strength zero."""
     max_level: int = 50
     """Number of levels the adaptive schedule can advance through."""
     success_threshold: float = 0.40
@@ -518,11 +506,11 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
     virtual_force: G1WujiTableVirtualForceCfg = G1WujiTableVirtualForcePresetCfg()
-    """Virtual Wuji actuator-torque sensing, enabled only by ``presets=force_distill``."""
+    """Virtual Wuji actuator-torque sensing, enabled only by the ``force`` overlay."""
     adr_debug_spawn_area_vis: bool = False
     """Legacy opt-in alias for :attr:`debug.adr_spawn_area_marker`."""
-    debug: G1WujiTableDebugCfg = G1WujiTableDebugPresetCfg()
-    """Viewer diagnostics; headless ``train`` and ``eval`` turn them off."""
+    debug: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True, adr_spawn_area_marker=True)
+    """Viewer diagnostics; headless run profiles turn them off."""
     depth_preview: G1WujiTableDepthPreviewCfg = G1WujiTableDepthPreviewPresetCfg()
     """Composable grayscale preview of the exact student depth input."""
     contact_debug: bool = False
@@ -632,10 +620,6 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Whether to include dense lift reward in either reward formulation; disabled by default."""
     lift_reward_scale = 3.0
     """Per-step reward for carrying the apple the full way from its rest height to the goal."""
-    gravity_curriculum_start: float = 0.0
-    """Fraction of configured scene gravity at the start of training; 1.0 disables the curriculum."""
-    gravity_curriculum_steps: int = 19_200
-    """Env steps for whole-scene gravity to ramp from :attr:`gravity_curriculum_start` to full gravity."""
     contact_force_threshold = 0.3
     """Per-group normal force [N] counted as contact.
 
@@ -659,29 +643,11 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         physics_material=PhysxRigidBodyMaterialCfg(
             static_friction=_FRICTION, dynamic_friction=_FRICTION, friction_combine_mode="max"
         ),
-        # The Newton viewer, except for the headless ``train`` and ``eval`` presets.  An explicit ``--viz``
-        # still takes precedence.
-        # ``depth_view`` is an overlay: it adds the streaming panel while preserving the selected
-        # run preset's physics, environment count, and diagnostic markers.
-        visualizer_cfgs=preset(
-            default=[NewtonGLVisualizerCfg()],
-            train=[],
-            eval=[],
-            distill=[],
-            force_distill=[],
-            depth_view=[
-                NewtonGLVisualizerCfg(
-                    streaming_view=True,
-                    streaming_sensor_prim_path=_STUDENT_DEPTH_CAMERA_STREAM_PATTERN,
-                    streaming_gt_types=("rgb",),
-                    # The task publishes a grayscale rendering of the exact normalized student tensor
-                    # under ``rgb``. The native metric render remains available under
-                    # ``distance_to_image_plane`` for observation assembly and diagnostics.
-                )
-            ],
-        ),
+        # Run profiles may replace the normal viewer with a headless default. ``depth_view`` remains
+        # an independent overlay in either case, and an explicit ``--viz`` still takes precedence.
+        visualizer_cfgs=G1WujiTableVisualizerPresetCfg(),
     )
-    scene: InteractiveSceneCfg = G1WujiTableSceneCfg()
+    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=1, env_spacing=3.0, replicate_physics=True)
 
     robot_cfg = G1_WUJI_CFG.replace(prim_path="{ENV_REGEX_NS}/G1Wuji")
     table_cfg: RigidObjectCfg = RigidObjectCfg(
@@ -730,3 +696,37 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         if unknown:
             paths = "\n".join(f"  - {path}" for path in unknown)
             raise ValueError(f"Undeclared environment config field(s):\n{paths}")
+
+
+def _run_profile_cfg(
+    *, num_envs: int, headless: bool, load_visual_shapes: bool, depth_camera: bool = False
+) -> G1WujiTableEnvCfg:
+    """Build one complete run profile while retaining independent feature overlays."""
+    cfg = G1WujiTableEnvCfg()
+    cfg.scene = cfg.scene.replace(num_envs=num_envs)
+    cfg.sim = cfg.sim.replace(
+        physics=G1WujiTablePhysicsCfg(default=_mjwarp_physics_cfg(load_visual_shapes=load_visual_shapes)),
+        visualizer_cfgs=G1WujiTableVisualizerPresetCfg(default=[] if headless else [NewtonGLVisualizerCfg()]),
+    )
+    cfg.debug = (
+        G1WujiTableDebugCfg() if headless else G1WujiTableDebugCfg(keypoint_markers=True, adr_spawn_area_marker=True)
+    )
+    if depth_camera:
+        cfg.depth_camera = G1WujiTableDepthCameraPresetCfg(default=_student_depth_camera_cfg())
+    return cfg
+
+
+@configclass
+class G1WujiTableRunPresetCfg(PresetCfg):
+    """Mutually exclusive run profiles with stackable depth, force, and DR overlays."""
+
+    default: G1WujiTableEnvCfg = _run_profile_cfg(num_envs=1, headless=False, load_visual_shapes=True)
+    train: G1WujiTableEnvCfg = _run_profile_cfg(num_envs=2048, headless=True, load_visual_shapes=False)
+    debug: G1WujiTableEnvCfg = _run_profile_cfg(num_envs=4, headless=False, load_visual_shapes=True)
+    eval: G1WujiTableEnvCfg = _run_profile_cfg(num_envs=16, headless=True, load_visual_shapes=False)
+    distill: G1WujiTableEnvCfg = _run_profile_cfg(
+        num_envs=1024,
+        headless=True,
+        load_visual_shapes=True,
+        depth_camera=True,
+    )

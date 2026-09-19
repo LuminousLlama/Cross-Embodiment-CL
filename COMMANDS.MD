@@ -1,173 +1,192 @@
-# COMMANDS
+# G1 + Wuji Table Commands
 
-reference for commands we commonly run
+Use these commands directly in the primary checkout. In a linked worktree, prefix them with `./worktree-local`.
 
+## Train
 
-## Isaac sim kit GUI
-```
-uv run isaacsim
-```
+Training and distillation use full domain randomization with `dr_full`.
 
-## Launch with full kit experience
-```
-uv run isaaclab zero_agent --task CrossEmbodimentCl-G1-Wuji-Table-Direct --viz kit --experience isaacsim.exp.full.kit
-```
+### PPO
 
-
-## Run presets
-
-The G1 + Wuji task bundles its launch settings into run presets, selected with
-`presets=NAME` (defined in `g1_wuji_table/env_cfg.py`):
-
-| preset  | physics          | envs | visualizer  | keypoint markers | Newton visual shapes |
-|---------|------------------|------|-------------|------------------|----------------------|
-| (none)  | `newton_mjwarp`  | 1    | `newton_gl` | on               | on                   |
-| `train` | `newton_mjwarp`  | 2048 | none        | off              | off                  |
-| `debug` | `newton_mjwarp`  | 4    | `newton_gl` | on               | on                   |
-| `eval`  | `newton_mjwarp`  | 16   | none        | off              | off                  |
-| `distill` | `newton_mjwarp` | 1024 | none        | off              | on, student camera   |
-| `force_distill` | `newton_mjwarp` | 1024 | none | off | on, student camera + virtual force |
-| `depth_view` overlay | preserves selected run preset | preserves selected run preset | adds streaming `newton_gl` | preserves selected run preset | on, depth stream |
-
-Anything given explicitly still wins over the preset: `--num_envs 64`, `--viz none`
-(headless eval), `--viz kit`, `env.debug.keypoint_markers=False`,
-`env.sim.physics.load_visual_shapes=True`.  Without a preset a viewer opens, so pass `--viz none`
-for a headless run on the server.  `physics=isaacsim_physx` swaps the backend with no preset or
-with `debug`; `train` and `eval` pick their own headless physics config, so combining them with
-`physics=` errors with "Conflicting global presets" -- use the path selector
-`env.sim.physics=isaacsim_physx` there.
-
-## Train the G1 + Wuji tabletop task
-
-```
+```bash
 uv run isaaclab train --rl_library rsl_rl \
   --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
-  --max_iterations 5000 --run_name g1_wuji_table_2048 \
-  presets=train
+  --num_envs <envs> \
+  --seed <seed> \
+  --max_iterations <iterations> \
+  --run_name <run-name> \
+  presets=train,dr_full
 ```
 
-Add `env.sim.physics=ovphysx` to train the same task on PhysX without Kit
-(needs `uv sync --extra ovphysx`), or `env.sim.physics=physx` to let the backend resolve
-automatically (Isaac Sim PhysX where installed, otherwise OvPhysX).
+### Resume PPO
 
-Useful override:
-
-```
-# Newton solver capacity. Memory grows quickly with njmax; lower it when environment
-# count matters more than constraint headroom, raise it if the sim diverges into NaN.
-env.sim.physics.solver_cfg.njmax=256 env.sim.physics.solver_cfg.nconmax=128
-```
-
-## Debug the scene
-
-Zero actions, 4 environments, Newton viewer and keypoint markers:
-
-```
-uv run isaaclab zero_agent --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets=debug
+```bash
+uv run isaaclab train --rl_library rsl_rl \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --checkpoint <absolute-checkpoint> \
+  --num_envs <envs> \
+  --seed <seed> \
+  --max_iterations <additional-iterations> \
+  --run_name <run-name> \
+  presets=train,dr_full
 ```
 
-## Inspect the student depth camera
+### Depth-student distillation
 
-`depth_view` is an overlay that adds a Newton GL stream panel for the full-width D435 output. The
-observation path resizes it to 224x127 and adds 48 zero rows above and 49 below for the student's
-224x224 tensor. Combine it with a run preset such as `debug` to retain that preset's environment
-count and markers.
-
-In a linked worktree, use the root launcher to reuse the primary checkout's prepared environment
-while importing this worktree's source:
-
-```
-./worktree-local uv run isaaclab zero_agent \
-  --task CrossEmbodimentCl-G1-Wuji-Table-Direct presets=debug,depth_view
-```
-
-## Depth-student distillation
-
-`presets=distill` trains the baseline student from 141-D proprioception, a 9-D pelvis-frame goal pose,
-and one normalized 224x224 D435 depth image. `presets=force_distill` adds the 20-D virtual Wuji
-actuator-torque packet. The valid
-224x127 image region retains the full horizontal field of view and is padded vertically. Use the same
-preset for training and playback because the two student checkpoints have different input dimensions.
-
-Train either student by selecting its preset:
-
-```
-PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab train --rl_library rsl_rl \
+```bash
+uv run isaaclab train --rl_library rsl_rl \
   --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
   --agent rsl_rl_distillation_cfg_entry_point \
-  --checkpoint <absolute-teacher-checkpoint.pt> presets=distill
+  --checkpoint <absolute-teacher-checkpoint> \
+  --num_envs <envs> \
+  --seed <seed> \
+  --max_iterations <iterations> \
+  --run_name <run-name> \
+  presets=distill,dr_full
+```
 
-PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab train --rl_library rsl_rl \
+### Depth-and-force-student distillation
+
+```bash
+uv run isaaclab train --rl_library rsl_rl \
   --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
   --agent rsl_rl_distillation_cfg_entry_point \
-  --checkpoint <absolute-teacher-checkpoint.pt> presets=force_distill
+  --checkpoint <absolute-teacher-checkpoint> \
+  --num_envs <envs> \
+  --seed <seed> \
+  --max_iterations <iterations> \
+  --run_name <run-name> \
+  presets=distill,force,dr_full
 ```
 
-Use the depth distillation runner to play a student checkpoint in the camera viewer:
+## Play
 
-```
-PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/isaaclab play --rl_library rsl_rl \
-  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
-  --agent rsl_rl_distillation_cfg_entry_point \
-  --checkpoint <student-checkpoint.pt> --num_envs 1 presets=debug,depth_view
-```
+### PPO checkpoint
 
-For a force-student checkpoint, replace the final selector with
-`presets=force_distill,depth_view`.
-
-Evaluate deterministically, headlessly, at full gravity with an absolute checkpoint path:
-
-```
-PYTHONPATH=$PWD/src ../Cross-Embodiment-CL/.venv/bin/python scripts/eval_policy.py \
-  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
-  --agent rsl_rl_distillation_cfg_entry_point \
-  --checkpoint <absolute-student-checkpoint.pt> presets=distill --num_envs 2 --episodes 64
-```
-
-Evaluate a force-student checkpoint with `presets=force_distill` instead.
-
-## Evaluate a checkpoint
-
-Headless, for eval-time success analysis: 16 environments, no viewer, markers, or visual shapes.
-
-```
+```bash
 uv run isaaclab play --rl_library rsl_rl \
   --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
-  --checkpoint logs/rsl_rl/g1_wuji_table_direct/<run>/model_<n>.pt \
-  presets=eval
+  --checkpoint <absolute-checkpoint> \
+  --num_envs <envs> \
+  --real-time \
+  presets=debug
 ```
 
-## Watch a checkpoint
+### Depth-student checkpoint
 
-No preset: 1 environment in the `newton_gl` viewer with keypoint markers (add `presets=debug`
-for 4).  The Newton viewer renders without Isaac Sim; pass `--viz kit` only where Isaac Sim is
-installed.
-
-```
+```bash
 uv run isaaclab play --rl_library rsl_rl \
-  --task CrossEmbodimentCl-G1-Wuji-Table-Direct --real-time \
-  --checkpoint logs/rsl_rl/g1_wuji_table_direct/<run>/model_<n>.pt
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --agent rsl_rl_distillation_cfg_entry_point \
+  --checkpoint <absolute-student-checkpoint> \
+  --num_envs <envs> \
+  --real-time \
+  presets=debug,depth_view
 ```
 
+### Depth-and-force-student checkpoint
 
-
-## Tensorboard
+```bash
+uv run isaaclab play --rl_library rsl_rl \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --agent rsl_rl_distillation_cfg_entry_point \
+  --checkpoint <absolute-student-checkpoint> \
+  --num_envs <envs> \
+  --real-time \
+  presets=debug,depth_view,force
 ```
-uv run tensorboard --logdir <path>
 
-# on remote server
-uv run tensorboard --logdir <path>
+## Evaluate
+
+Evaluation uses `dr_full`. Results default to `<checkpoint-directory>/eval/<checkpoint-name>.json`.
+Add `--enable-train-time-noise` to sample the saved training-time action distribution.
+
+### PPO checkpoint
+
+```bash
+uv run python scripts/eval_policy.py \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --checkpoint <absolute-checkpoint> \
+  --num_envs <envs> \
+  --episodes <episodes> \
+  presets=eval,dr_full
 ```
 
+### Depth-student checkpoint
 
-## Reading TensorBoard logs without launching TensorBoard
-
-`scripts/analyze_run.py` caches a run's scalars to `<run>/analysis/scalars.csv` and
-queries them; `scripts/run_summary.py` prints the key tags of one or two runs as a
-binned table, which is what comparing experiments needs.
-
+```bash
+uv run python scripts/eval_policy.py \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --agent rsl_rl_distillation_cfg_entry_point \
+  --checkpoint <absolute-student-checkpoint> \
+  --num_envs <envs> \
+  --episodes <episodes> \
+  presets=distill,dr_full
 ```
-scripts/analyze_run.py tags   logs/rsl_rl/g1_wuji_table_direct/<run>
-scripts/analyze_run.py curve  logs/rsl_rl/g1_wuji_table_direct/<run> --tag Task/success --bins 10
-scripts/run_summary.py logs/rsl_rl/g1_wuji_table_direct/<run_a> logs/rsl_rl/g1_wuji_table_direct/<run_b>
+
+### Depth-and-force-student checkpoint
+
+```bash
+uv run python scripts/eval_policy.py \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  --agent rsl_rl_distillation_cfg_entry_point \
+  --checkpoint <absolute-student-checkpoint> \
+  --num_envs <envs> \
+  --episodes <episodes> \
+  presets=distill,force,dr_full
+```
+
+## Inspect
+
+### Scene with zero actions
+
+```bash
+uv run isaaclab zero_agent \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  presets=debug
+```
+
+### Student depth input
+
+```bash
+uv run isaaclab zero_agent \
+  --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+  presets=debug,depth_view
+```
+
+## Common ADR overrides
+
+Append overrides after the preset selector.
+
+### Keep gravity at 1g throughout ADR
+
+```bash
+env.adr.gravity_start=1.0
+```
+
+### Gravity-only ADR from 0g to 1g
+
+Replace the existing preset selector with:
+
+```bash
+presets=<run-profile>,dr_none env.adr.initial_level=0
+```
+
+### Gravity-only ADR from a nonzero offset to 1g
+
+Replace the existing preset selector with:
+
+```bash
+presets=<run-profile>,dr_none env.adr.initial_level=0 env.adr.gravity_start=<gravity-fraction>
+```
+
+## Miscellaneous
+
+### TensorBoard
+
+```bash
+uv run tensorboard \
+  --logdir logs/rsl_rl/g1_wuji_table_direct \
+  --port <port> \
+  --bind_all
 ```

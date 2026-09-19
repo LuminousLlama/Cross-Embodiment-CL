@@ -27,7 +27,7 @@ def test_task_registrations():
         "CrossEmbodimentCl-G1-Wuji-Table-Direct": {
             "entry_point": "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env:G1WujiTableEnv",
             "env_cfg_entry_point": (
-                "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg:G1WujiTableEnvCfg"
+                "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg:G1WujiTableRunPresetCfg"
             ),
             "rsl_rl_cfg_entry_point": (
                 "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents."
