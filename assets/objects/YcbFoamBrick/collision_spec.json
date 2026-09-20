@@ -1,3 +1,5 @@
 {
-  "mode": "hull"
+  "mode": "coacd",
+  "threshold": 0.015,
+  "max_hulls": 24
 }
