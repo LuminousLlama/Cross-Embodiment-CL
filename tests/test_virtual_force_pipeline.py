@@ -5,16 +5,80 @@
 
 """Pure-Torch contracts for the virtual Wuji force pipeline."""
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import torch
 
+from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (
+    G1WujiTableEnv,
+    resolve_target_contact_column,
+)
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.virtual_force import (
     VirtualForcePipeline,
     VirtualForcePipelineConfig,
     WujiForceSystemIdModel,
     contact_wrenches_to_actuator_torque,
 )
+
+
+@pytest.mark.unit
+def test_contact_group_forces_follow_target_full_path_across_counterpart_order() -> None:
+    """Contact loads must follow the apple column, not a backend-specific column zero."""
+    target = "/World/envs/env_0/Object/apple"
+    distractor = "/World/envs/env_0/Props/apple"
+    robot = "/World/envs/env_0/Robot/g1_simplified/pelvis"
+    table = "/World/envs/env_0/Table/table"
+    counterpart_orders = (
+        (target,),
+        (robot, target, table),
+        (table, target, robot),
+        (distractor, robot, table, target),
+    )
+
+    expected = torch.tensor([[10.0, 6.0], [20.0, 12.0]])
+    actual_forces = []
+    for counterpart_paths in counterpart_orders:
+        target_column = resolve_target_contact_column(counterpart_paths, target)
+        force_matrices = []
+        for hand_body_forces in (
+            torch.tensor([[[3.0, 4.0, 0.0], [-3.0, -4.0, 0.0]], [[6.0, 8.0, 0.0], [-6.0, -8.0, 0.0]]]),
+            torch.tensor([[[0.0, 3.0, 0.0], [0.0, -3.0, 0.0]], [[0.0, 6.0, 0.0], [0.0, -6.0, 0.0]]]),
+        ):
+            matrix = torch.full((2, 2, len(counterpart_paths), 3), 99.0)
+            matrix[:, :, target_column] = hand_body_forces
+            force_matrices.append(
+                SimpleNamespace(data=SimpleNamespace(normal_force_matrix_w=SimpleNamespace(torch=matrix)))
+            )
+        fake_env = SimpleNamespace(
+            contact_sensors=dict(zip(("thumb", "index"), force_matrices, strict=True)),
+            _target_contact_columns={"thumb": target_column, "index": target_column},
+        )
+        actual_forces.append(G1WujiTableEnv._contact_group_forces(fake_env))
+
+    for actual in actual_forces:
+        torch.testing.assert_close(actual, expected)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("counterpart_paths", "target"),
+    [
+        (("/World/envs/env_0/Robot/g1",), "/World/envs/env_0/Object/apple"),
+        (
+            ("/World/envs/env_0/Object/apple", "/World/envs/env_0/Object/apple"),
+            "/World/envs/env_0/Object/apple",
+        ),
+    ],
+    ids=("missing", "ambiguous"),
+)
+def test_resolve_target_contact_column_rejects_non_unique_full_path(
+    counterpart_paths: tuple[str, ...], target: str
+) -> None:
+    """A missing or duplicated counterpart makes the force mapping unsafe."""
+    with pytest.raises(ValueError):
+        resolve_target_contact_column(counterpart_paths, target)
 
 
 @pytest.mark.unit

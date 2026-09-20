@@ -567,20 +567,21 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_[^/]+/G1Wuji/wujihand/right_palm_link",
         update_period=0.0,
         history_length=0,
-        filter_prim_paths_expr=["/World/envs/env_[^/]+/Apple"],
+        # PHYSX INCOMPATIBILITY: this broad many-to-many filter currently requires Newton.
+        filter_prim_paths_expr=["/World/envs/env_[^/]+/.*"],
         max_contact_data_count_per_prim=64,
     )
-    """Template for a hand-to-apple force sensor; the environment creates one per contact group.
+    """Shared hand-to-scene sensor template, independent of student force observations.
 
     The groups are the palm and the five fingers, each covering every body that owns a collision shape.
+    Target-object columns are resolved after initialization; torque estimation includes all counterparts.
     """
     torso_contact_sensor_cfg = ContactSensorCfg(
         prim_path="/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link",
         update_period=0.0,
         history_length=0,
-        filter_prim_paths_expr=["/World/envs/env_[^/]+/Apple"],
     )
-    """Filtered torso-to-apple sensor for the collision termination."""
+    """Torso collision sensor; setup derives its target filter from ``object_cfg.prim_path``."""
     keypoint_extent = 0.15
     """Half-side length [m] of the virtual object-frame cube used for pose reward."""
     reward_mode: str = "adept"

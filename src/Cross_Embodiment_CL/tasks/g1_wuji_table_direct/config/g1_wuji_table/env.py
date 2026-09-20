@@ -53,6 +53,14 @@ from .virtual_force import (
 )
 
 
+def resolve_target_contact_column(counterpart_body_paths: Sequence[str], target_body_path: str) -> int:
+    """Resolve a target rigid body's full path to its reported contact-matrix column."""
+    matches = [index for index, path in enumerate(counterpart_body_paths) if path == target_body_path]
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one contact counterpart for {target_body_path!r}, found {matches}.")
+    return matches[0]
+
+
 def sample_spawn_offsets(
     n: int, strength: float, box_x: float, box_y: float, device: torch.device | str = "cpu"
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -298,37 +306,6 @@ class G1WujiTableEnv(DirectRLEnv):
             f"finger{finger}": tuple(f"right_finger{finger}_link{link}" for link in (2, 3, 4)) for finger in range(2, 6)
         },
     }
-    # PhysX requires every filtered-contact expression to resolve to one body per environment.
-    # Keep this list explicit instead of using ``G1Wuji/.*`` so the same configuration also works
-    # with Newton's many-to-many contact implementation.  These are all active rigid bodies in the
-    # fixed-base G1 and Wuji layers, including non-colliding tip frames (which simply report zero).
-    _G1_BODY_NAMES = (
-        "pelvis",
-        "waist_yaw_link",
-        "waist_roll_link",
-        "torso_link",
-        "right_shoulder_pitch_link",
-        "right_shoulder_roll_link",
-        "right_shoulder_yaw_link",
-        "right_elbow_link",
-        "right_wrist_roll_link",
-        "right_wrist_pitch_link",
-        "right_wrist_yaw_link",
-    )
-    _WUJI_BODY_NAMES = (
-        "right_palm_link",
-        "right_finger1_link1",
-        "right_finger1_link2",
-        "right_finger1_link2_softbody",
-        "right_finger1_link3",
-        "right_finger1_link4",
-        "right_finger1_tip_link",
-        *tuple(
-            f"right_finger{finger}_{suffix}"
-            for finger in range(2, 6)
-            for suffix in ("link1", "link2", "link3", "link4", "tip_link")
-        ),
-    )
     _THUMB_CONTACT_GROUP = "finger1"
     _OBSERVATION_DIM = 171
     # gravity, ADR strength, goal alpha, robot offset, hand target scale, action delay,
@@ -368,6 +345,7 @@ class G1WujiTableEnv(DirectRLEnv):
                     f"Contact group '{group_name}' expects bodies {self._CONTACT_BODY_GROUPS[group_name]}, "
                     f"but its sensor resolved {sensor.num_sensors}."
                 )
+        self._initialize_target_contact_columns()
         self._virtual_force_sensor_body_ids: dict[str, torch.Tensor] = {}
         if self.cfg.virtual_force.enabled:
             for group_name, sensor in self.contact_sensors.items():
@@ -560,21 +538,13 @@ class G1WujiTableEnv(DirectRLEnv):
         self.robot = Articulation(self.cfg.robot_cfg)
         self.table = RigidObject(self.cfg.table_cfg)
         self.apple = RigidObject(self.cfg.object_cfg)
-        # One multi-body sensor per group; its force matrix is (envs, bodies, 1 apple, 3).
+        # Both modes sense hand-to-scene contacts; only torque estimation needs points and friction.
         self.contact_sensors: dict[str, ContactSensor] = {}
         contact_sensor_template = self.cfg.contact_sensor_cfg
         if self.cfg.virtual_force.enabled:
             if self.cfg.virtual_force.max_contact_data_count_per_prim < 1:
                 raise ValueError("virtual_force.max_contact_data_count_per_prim must be positive.")
-            # Keep the apple first: reward and termination logic retain filter index zero. The force
-            # pipeline sums all filters so that table and robot self-contact are observable too.
             contact_sensor_template = contact_sensor_template.replace(
-                filter_prim_paths_expr=[
-                    "/World/envs/env_[^/]+/Apple",
-                    "/World/envs/env_[^/]+/Table",
-                    *(f"/World/envs/env_[^/]+/G1Wuji/g1_simplified/{name}" for name in self._G1_BODY_NAMES),
-                    *(f"/World/envs/env_[^/]+/G1Wuji/wujihand/{name}" for name in self._WUJI_BODY_NAMES),
-                ],
                 track_contact_points=True,
                 track_friction_forces=True,
                 max_contact_data_count_per_prim=self.cfg.virtual_force.max_contact_data_count_per_prim,
@@ -584,7 +554,9 @@ class G1WujiTableEnv(DirectRLEnv):
                 prim_path=f"/World/envs/env_[^/]+/G1Wuji/wujihand/({'|'.join(body_names)})"
             )
             self.contact_sensors[group_name] = ContactSensor(sensor_cfg)
-        self.torso_contact_sensor = ContactSensor(self.cfg.torso_contact_sensor_cfg)
+        self.torso_contact_sensor = ContactSensor(
+            self.cfg.torso_contact_sensor_cfg.replace(filter_prim_paths_expr=[self.cfg.object_cfg.prim_path])
+        )
         # The student's head depth camera exists only when a preset configures one (presets=distill).
         self.depth_camera = _StudentDepthCamera(self.cfg.depth_camera) if self.cfg.depth_camera is not None else None
 
@@ -1404,8 +1376,33 @@ class G1WujiTableEnv(DirectRLEnv):
         goal_height = self.goal_position[:, 2] + self.scene.env_origins[:, 2]
         return torch.clamp((object_position[:, 2] - rest_height) / (goal_height - rest_height), 0.0, 1.0)
 
+    def _initialize_target_contact_columns(self) -> None:
+        """Cache target columns from resolved rigid-body identities after sensor initialization."""
+        # PHYSX INCOMPATIBILITY: broad many-to-many filtering and counterpart body identities below
+        # use Newton APIs. Revisit backend parity here; never substitute a guessed column on PhysX.
+        if not hasattr(self.apple, "root_view") or any(
+            not hasattr(sensor.contact_view, "counterpart_indices") for sensor in self.contact_sensors.values()
+        ):
+            raise NotImplementedError(
+                "Shared broad contact sensing currently requires Newton; PhysX parity is pending."
+            )
+        from isaaclab_newton.physics import NewtonManager
+
+        model_body_paths = NewtonManager.get_model().body_label
+        # RigidObject has one body. Views and sensors describe the first of the homogeneous envs.
+        (target_body_path,) = self.apple.root_view.link_labels
+        self._target_contact_columns: dict[str, int] = {}
+        for group_name, sensor in self.contact_sensors.items():
+            view = sensor.contact_view
+            if view.counterpart_type != "body":
+                raise ValueError(f"Contact group '{group_name}' must report body-level counterparts.")
+            counterpart_paths = [model_body_paths[index] for index in view.counterpart_indices[0]]
+            self._target_contact_columns[group_name] = resolve_target_contact_column(
+                counterpart_paths, target_body_path
+            )
+
     def _contact_group_forces(self) -> torch.Tensor:
-        """Return each contact group's apple normal force [N], summed over the group's bodies.
+        """Return each contact group's target-object normal force [N], summed over the group's bodies.
 
         Summing makes a finger that holds with several phalanges read as its total load.
 
@@ -1414,8 +1411,10 @@ class G1WujiTableEnv(DirectRLEnv):
         """
         return torch.stack(
             [
-                torch.linalg.vector_norm(sensor.data.normal_force_matrix_w.torch[:, :, 0], dim=-1).sum(dim=1)
-                for sensor in self.contact_sensors.values()
+                torch.linalg.vector_norm(
+                    sensor.data.normal_force_matrix_w.torch[:, :, self._target_contact_columns[group_name]], dim=-1
+                ).sum(dim=1)
+                for group_name, sensor in self.contact_sensors.items()
             ],
             dim=-1,
         )
