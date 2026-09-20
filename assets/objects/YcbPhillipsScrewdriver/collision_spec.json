@@ -1,5 +1,5 @@
 {
-  "mode": "coacd",
-  "threshold": 0.05,
-  "max_hulls": 6
+  "mode": "slices",
+  "slice_boundaries": [0.258, 0.512, 0.557, 0.706, 0.854],
+  "slice_overlaps": [0.1, 0.0, 0.0, 0.1, 0.1]
 }

@@ -4,9 +4,10 @@
 """Build the reviewed offline collision asset for one task object.
 
 The source object directory must contain ``textured.usda`` and a
-``collision_spec.json``. The spec selects either one convex hull for a
-near-convex object or a CoACD decomposition for a concave one, with an
-optional ``max_hulls`` cap on the CoACD hull count. The generated
+``collision_spec.json``. The spec selects one convex hull for a near-convex
+object, a CoACD decomposition for a concave one, or overlapping longitudinal
+slices for an elongated object whose CoACD boundaries leave visible divots.
+The generated
 ``textured_collision.usda`` keeps the source visual mesh, physics material,
 and explicit mass, while replacing its collision geometry with invisible,
 explicit convex hulls.
@@ -23,7 +24,9 @@ from pathlib import Path
 
 import coacd
 import numpy as np
+import trimesh
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
+from scipy.spatial import ConvexHull
 
 _COLLISION_MESH_PATH = "/Object/geometry"
 _OBJECT_PATH = "/Object"
@@ -78,14 +81,86 @@ def _load_spec(object_dir: Path) -> dict[str, object]:
         raise RuntimeError(f"Expected collision spec at {spec_path}") from error
     except json.JSONDecodeError as error:
         raise RuntimeError(f"Invalid JSON in {spec_path}: {error}") from error
-    if not isinstance(spec, dict) or spec.get("mode") not in {"hull", "coacd"}:
-        raise RuntimeError(f"{spec_path} must set mode to 'hull' or 'coacd'")
+    if not isinstance(spec, dict) or spec.get("mode") not in {"hull", "coacd", "slices"}:
+        raise RuntimeError(f"{spec_path} must set mode to 'hull', 'coacd', or 'slices'")
     if "threshold" in spec and (not isinstance(spec["threshold"], (int, float)) or isinstance(spec["threshold"], bool)):
         raise RuntimeError(f"{spec_path} threshold must be a number")
     max_hulls = spec.get("max_hulls")
     if max_hulls is not None and (not isinstance(max_hulls, int) or isinstance(max_hulls, bool) or max_hulls < 1):
         raise RuntimeError(f"{spec_path} max_hulls must be a positive integer")
+    slice_count = spec.get("slice_count")
+    if slice_count is not None and (
+        not isinstance(slice_count, int) or isinstance(slice_count, bool) or slice_count < 2
+    ):
+        raise RuntimeError(f"{spec_path} slice_count must be an integer of at least 2")
+    slice_overlap = spec.get("slice_overlap")
+    if slice_overlap is not None and (
+        not isinstance(slice_overlap, (int, float)) or isinstance(slice_overlap, bool) or not 0.0 <= slice_overlap < 0.5
+    ):
+        raise RuntimeError(f"{spec_path} slice_overlap must be in [0, 0.5)")
+    slice_boundaries = spec.get("slice_boundaries")
+    if slice_boundaries is not None and (
+        not isinstance(slice_boundaries, list)
+        or not all(isinstance(value, (int, float)) and not isinstance(value, bool) for value in slice_boundaries)
+        or slice_boundaries != sorted(slice_boundaries)
+        or any(not 0.0 < value < 1.0 for value in slice_boundaries)
+    ):
+        raise RuntimeError(f"{spec_path} slice_boundaries must be an increasing list of fractions in (0, 1)")
+    slice_overlaps = spec.get("slice_overlaps")
+    if slice_overlaps is not None and (
+        not isinstance(slice_overlaps, list)
+        or not all(
+            isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value < 0.5
+            for value in slice_overlaps
+        )
+        or slice_boundaries is None
+        or len(slice_overlaps) != len(slice_boundaries)
+    ):
+        raise RuntimeError(f"{spec_path} slice_overlaps must match slice_boundaries with values in [0, 0.5)")
     return spec
+
+
+def _slice_convex_hulls(
+    points: np.ndarray,
+    count: int,
+    overlap: float,
+    boundary_fractions: list[float] | None = None,
+    boundary_overlaps: list[float] | None = None,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Build overlapping convex hulls along the mesh's principal axis."""
+    principal_axis = np.linalg.eigh(np.cov(points.T))[1][:, -1]
+    projections = points @ principal_axis
+    if boundary_fractions is None:
+        boundary_fractions = np.linspace(0.0, 1.0, count + 1)[1:-1].tolist()
+    fractions = np.array([0.0, *boundary_fractions, 1.0])
+    boundaries = projections.min() + fractions * np.ptp(projections)
+    widths = np.diff(boundaries)
+    overlaps = boundary_overlaps or [overlap] * (len(boundaries) - 2)
+    hulls = []
+    for index in range(len(boundaries) - 1):
+        lower_overlap = 0.0 if index == 0 else overlaps[index - 1] * min(widths[index - 1 : index + 1])
+        upper_overlap = 0.0 if index == len(boundaries) - 2 else overlaps[index] * min(widths[index : index + 2])
+        lower = boundaries[index] - lower_overlap
+        upper = boundaries[index + 1] + upper_overlap
+        slice_points = points[(projections >= lower) & (projections <= upper)]
+        source_hull = ConvexHull(slice_points)
+        source_vertices = slice_points[source_hull.vertices]
+        source_remap = {old: new for new, old in enumerate(source_hull.vertices)}
+        source_faces = np.array(
+            [[source_remap[vertex] for vertex in face] for face in source_hull.simplices], dtype=np.int64
+        )
+
+        simplified = trimesh.Trimesh(source_vertices, source_faces, process=False).simplify_quadric_decimation(
+            face_count=124
+        )
+        final_hull = ConvexHull(simplified.vertices)
+        final_vertices = np.asarray(simplified.vertices)[final_hull.vertices]
+        final_remap = {old: new for new, old in enumerate(final_hull.vertices)}
+        final_faces = np.array(
+            [[final_remap[vertex] for vertex in face] for face in final_hull.simplices], dtype=np.int64
+        )
+        hulls.append((final_vertices, final_faces))
+    return hulls
 
 
 def _write_decomposed_asset(src_usd_path: Path, output_path: Path, hulls: list[tuple[np.ndarray, np.ndarray]]) -> None:
@@ -144,16 +219,25 @@ def main() -> None:
     spec = _load_spec(object_dir)
     points, faces = _load_collision_mesh(Usd.Stage.Open(str(src_usd_path)))
     mode = spec["mode"]
-    max_convex_hull = 1 if mode == "hull" else spec.get("max_hulls", -1)
-    hulls = coacd.run_coacd(
-        coacd.Mesh(points, faces),
-        threshold=spec.get("threshold", 0.05),
-        max_convex_hull=max_convex_hull,
-        merge=True,
-        decimate=True,
-        max_ch_vertex=64,
-        seed=0,
-    )
+    if mode == "slices":
+        hulls = _slice_convex_hulls(
+            points,
+            spec.get("slice_count", 5),
+            spec.get("slice_overlap", 0.15),
+            spec.get("slice_boundaries"),
+            spec.get("slice_overlaps"),
+        )
+    else:
+        max_convex_hull = 1 if mode == "hull" else spec.get("max_hulls", -1)
+        hulls = coacd.run_coacd(
+            coacd.Mesh(points, faces),
+            threshold=spec.get("threshold", 0.05),
+            max_convex_hull=max_convex_hull,
+            merge=True,
+            decimate=True,
+            max_ch_vertex=64,
+            seed=0,
+        )
     output_path = object_dir / _OUTPUT_FILENAME
     _write_decomposed_asset(src_usd_path, output_path, hulls)
     print(f"Hulls: {len(hulls)}")
