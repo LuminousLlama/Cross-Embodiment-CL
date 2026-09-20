@@ -1175,12 +1175,12 @@ class G1WujiTableEnv(DirectRLEnv):
             if self.cfg.depth_preview.enabled:
                 self._publish_student_depth_preview(student_depth)
         if self.virtual_force_output is not None:
-            # Same clamp-then-log1p compression as the teacher's ``contact_force`` term (both bound
-            # outliers and keep small near-zero changes close to linear), applied to the magnitude
-            # since actuator torque is signed while the teacher's contact-force term is not.
-            raw_torque = self.virtual_force_output.observed_actuator_torque_nm
-            clamped_torque = torch.clamp(raw_torque.abs(), max=self.cfg.contact_force_observation_max)
-            observations["force"] = torch.sign(raw_torque) * torch.log1p(clamped_torque)
+            # Keep signed torque [N m], with the observation cap but no log compression.
+            observations["force"] = torch.clamp(
+                self.virtual_force_output.observed_actuator_torque_nm,
+                min=-self.cfg.contact_force_observation_max,
+                max=self.cfg.contact_force_observation_max,
+            )
         return observations
 
     def _publish_student_depth_preview(self, student_depth: torch.Tensor) -> None:
