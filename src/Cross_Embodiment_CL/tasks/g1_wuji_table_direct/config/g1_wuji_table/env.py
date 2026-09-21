@@ -536,6 +536,11 @@ class G1WujiTableEnv(DirectRLEnv):
             ):
                 if not 0.0 <= half_width < 1.0:
                     raise ValueError(f"{name} must be in [0, 1), received {half_width}.")
+            if self.cfg.adr.depth_randomization_batch_size <= 0:
+                raise ValueError(
+                    "adr.depth_randomization_batch_size must be positive, received "
+                    f"{self.cfg.adr.depth_randomization_batch_size}."
+                )
 
             camera_data = self.depth_camera.data
             self._adr_camera_nominal_pos_w = camera_data.pos_w.torch.clone()
@@ -793,20 +798,29 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         if not measurement_enabled:
             return depth
-        return randomize_depth_measurement(
-            depth,
-            self._adr_depth_scale,
-            self._adr_depth_bias,
-            noise_std_at_1m_m=(self.cfg.adr.depth_noise_std_at_1m if self.cfg.adr.depth_pixel_noise_enabled else 0.0),
-            boundary_corruption_prob=(
-                self.cfg.adr.depth_boundary_corruption_prob if self.cfg.adr.depth_boundary_corruption_enabled else 0.0
-            ),
-            edge_dropout_prob=(
-                self.cfg.adr.depth_edge_dropout_prob if self.cfg.adr.depth_edge_dropout_enabled else 0.0
-            ),
-            boundary_threshold_m=self.cfg.adr.depth_boundary_threshold,
-            strength=self.adr.strength,
-        )
+        randomized = torch.empty_like(depth)
+        batch_size = self.cfg.adr.depth_randomization_batch_size
+        for start in range(0, depth.shape[0], batch_size):
+            stop = min(start + batch_size, depth.shape[0])
+            randomized[start:stop] = randomize_depth_measurement(
+                depth[start:stop],
+                self._adr_depth_scale[start:stop],
+                self._adr_depth_bias[start:stop],
+                noise_std_at_1m_m=(
+                    self.cfg.adr.depth_noise_std_at_1m if self.cfg.adr.depth_pixel_noise_enabled else 0.0
+                ),
+                boundary_corruption_prob=(
+                    self.cfg.adr.depth_boundary_corruption_prob
+                    if self.cfg.adr.depth_boundary_corruption_enabled
+                    else 0.0
+                ),
+                edge_dropout_prob=(
+                    self.cfg.adr.depth_edge_dropout_prob if self.cfg.adr.depth_edge_dropout_enabled else 0.0
+                ),
+                boundary_threshold_m=self.cfg.adr.depth_boundary_threshold,
+                strength=self.adr.strength,
+            )
+        return randomized
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
         """Map normalized arm positions and Wuji latent actions onto speed-capped physical joint targets."""

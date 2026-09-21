@@ -408,6 +408,8 @@ class G1WujiTableAdrCfg:
     """Full-strength probability that each pixel in the thin depth-edge outline is invalid."""
     depth_boundary_threshold: float = 0.02
     """Neighboring metric-depth difference [m] that marks a silhouette boundary."""
+    depth_randomization_batch_size: int = 128
+    """Maximum camera frames processed together to bound depth-DR temporary memory."""
     physics_update_every_steps: int = 32
     """Env steps between batched physics-model writes."""
 
