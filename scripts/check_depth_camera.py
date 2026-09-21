@@ -10,7 +10,7 @@ known scene points projected onto it.  The JSON summary records:
 - the camera's read-back intrinsic matrix against the one derived from the D435 crop;
 - rendered depth at projected table-top points against their camera-frame depth.  A wrong field of
   view, mount pose, frame convention, or ray-versus-planar depth each breaks this agreement;
-- the apple centre's projected pixel and rendered depth, to confirm the apple stays in frame.
+- the object centre's projected pixel and rendered depth, to confirm the object stays in frame.
 
 Usage:
     python scripts/check_depth_camera.py --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
@@ -107,18 +107,18 @@ def _inspect_frame(env, step: int, max_depth_m: float) -> tuple[dict, Image.Imag
     unoccluded = in_view & (rendered > table_uvz[:, 2] - _OCCLUSION_MARGIN_M)
     table_error = (rendered - table_uvz[:, 2])[unoccluded].abs()
 
-    apple_uvz = _project(camera, env.apple.data.root_pos_w.torch[:1])
-    apple_row, apple_column, apple_in_view = _pixels(apple_uvz, height, width)
+    object_uvz = _project(camera, env.object.data.root_pos_w.torch[:1])
+    object_row, object_column, object_in_view = _pixels(object_uvz, height, width)
     goal_uvz = _project(camera, (env.goal_position[0] + env.scene.env_origins[0])[None])
 
     record = {
         "step": step,
-        "apple_height_m": float(env.apple.data.root_pos_w.torch[0, 2] - env.scene.env_origins[0, 2]),
-        "apple_pixel_uv": [float(apple_uvz[0, 0]), float(apple_uvz[0, 1])],
-        "apple_in_view": bool(apple_in_view[0]),
-        "apple_center_camera_z_m": float(apple_uvz[0, 2]),
-        # Negative by about the apple's radius when the apple's near surface is what the pixel sees.
-        "apple_rendered_minus_center_z_m": float(depth[apple_row[0], apple_column[0]] - apple_uvz[0, 2]),
+        "object_height_m": float(env.object.data.root_pos_w.torch[0, 2] - env.scene.env_origins[0, 2]),
+        "object_pixel_uv": [float(object_uvz[0, 0]), float(object_uvz[0, 1])],
+        "object_in_view": bool(object_in_view[0]),
+        "object_center_camera_z_m": float(object_uvz[0, 2]),
+        # Negative when the object's near surface is what the pixel sees.
+        "object_rendered_minus_center_z_m": float(depth[object_row[0], object_column[0]] - object_uvz[0, 2]),
         "goal_pixel_uv": [float(goal_uvz[0, 0]), float(goal_uvz[0, 1])],
         "table_points_in_view": int(in_view.sum()),
         "table_points_unoccluded": int(unoccluded.sum()),
@@ -143,12 +143,12 @@ def _inspect_frame(env, step: int, max_depth_m: float) -> tuple[dict, Image.Imag
         u, v = (table_uvz[index, :2] * _TILE_SCALE).tolist()
         color = (0, 220, 0) if unoccluded[index] else (255, 150, 0)
         draw.ellipse((u - 2, v - 2, u + 2, v + 2), outline=color)
-    for uvz, color in ((apple_uvz[0], (255, 0, 0)), (goal_uvz[0], (60, 120, 255))):
+    for uvz, color in ((object_uvz[0], (255, 0, 0)), (goal_uvz[0], (60, 120, 255))):
         u, v = (uvz[:2] * _TILE_SCALE).tolist()
         draw.line((u - 5, v, u + 5, v), fill=color)
         draw.line((u, v - 5, u, v + 5), fill=color)
     draw.rectangle((0, 0, tile.width, 12), fill=(0, 0, 0))
-    draw.text((2, 0), f"step {step}  apple h={record['apple_height_m'] * 100:.1f}cm", fill=(255, 255, 0))
+    draw.text((2, 0), f"step {step}  object h={record['object_height_m'] * 100:.1f}cm", fill=(255, 255, 0))
     return record, tile, depth.cpu().numpy()
 
 

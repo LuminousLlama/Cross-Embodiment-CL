@@ -8,14 +8,14 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Callable, Sequence
 
+import numpy as np
 import torch
 import warp as wp
 
 import isaaclab.sim as sim_utils
-from isaaclab import cloner
-from isaaclab.assets import Articulation, RigidObject
 from isaaclab.envs import DirectRLEnv
 from isaaclab.envs.mdp.events import randomize_rigid_body_mass, randomize_rigid_body_material
 from isaaclab.managers import EventTermCfg, SceneEntityCfg
@@ -50,7 +50,14 @@ from .depth_camera import (
     resize_and_pad_depth,
     warp_depth_intrinsics,
 )
-from .env_cfg import _FRICTION, STUDENT_DEPTH_LETTERBOX, G1WujiTableEnvCfg, _g1_hand_robot_cfg
+from .env_cfg import (
+    _FRICTION,
+    OBJECT_COLLISION_SHAPE_COUNTS,
+    OBJECT_REST_HEIGHTS,
+    STUDENT_DEPTH_LETTERBOX,
+    G1WujiTableEnvCfg,
+    _g1_hand_robot_cfg,
+)
 from .virtual_force import (
     VirtualForceOutput,
     VirtualForcePipeline,
@@ -70,7 +77,7 @@ def resolve_target_contact_column(counterpart_body_paths: Sequence[str], target_
 def sample_spawn_offsets(
     n: int, strength: float, box_x: float, box_y: float, device: torch.device | str = "cpu"
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Sample center-relative per-env apple spawn offsets [m] within the ADR box.
+    """Sample center-relative per-env object spawn offsets [m] within the ADR box.
 
     ``dx`` and ``dy`` are independent ``U(-box_x * strength / 2, box_x * strength / 2)`` /
     ``U(-box_y * strength / 2, box_y * strength / 2)`` draws.  The reset path adds the
@@ -82,8 +89,71 @@ def sample_spawn_offsets(
 
 
 def object_spawn_height(object_rest_height: float, offset_cm: float) -> float:
-    """Calculate the apple root spawn height [m] from its rest height and offset [cm]."""
+    """Calculate an object root spawn height [m] from its rest height and offset [cm]."""
     return object_rest_height + offset_cm / 100.0
+
+
+def balanced_random_clone_strategy(combinations: np.ndarray, num_clones: int, *, seed: int | None) -> np.ndarray:
+    """Assign clone variants evenly, then shuffle their environment placement."""
+    assignments = combinations[np.arange(num_clones) % len(combinations)].copy()
+    np.random.default_rng(seed).shuffle(assignments)
+    return assignments
+
+
+_object_clone_seed: int | None = None
+
+
+def balanced_random_object_clone_strategy(combinations: np.ndarray, num_clones: int) -> np.ndarray:
+    """Named, config-serializable object-bank strategy using the current scene seed."""
+    return balanced_random_clone_strategy(combinations, num_clones, seed=_object_clone_seed)
+
+
+def per_object_success_metrics(
+    episode_success: torch.Tensor,
+    object_variant_ids: torch.Tensor,
+    active_objects: Sequence[str],
+) -> dict[str, torch.Tensor]:
+    """Return final episode-success means for object variants represented in this reset batch."""
+    metrics: dict[str, torch.Tensor] = {}
+    for variant_id, object_name in enumerate(active_objects):
+        selected = object_variant_ids == variant_id
+        if selected.any():
+            qualifier = re.sub(r"(?<!^)(?=[A-Z])", "_", object_name).lower()
+            metrics[f"Task/success_{qualifier}_ep"] = episode_success[selected].float().mean()
+    return metrics
+
+
+def make_newton_shape_padding_hook(
+    object_names_by_env: Sequence[str], target_shape_count: int
+) -> Callable[[object, int, np.ndarray, np.ndarray], None]:
+    """Create inert shape slots so heterogeneous Newton worlds retain uniform strides."""
+    from newton import Mesh, ModelBuilder
+
+    padding_cfg = ModelBuilder.ShapeConfig(
+        density=0.0,
+        has_shape_collision=False,
+        has_particle_collision=False,
+        is_visible=False,
+    )
+    padding_mesh = Mesh(
+        vertices=((0.0, 0.0, 0.0), (1.0e-6, 0.0, 0.0), (0.0, 1.0e-6, 0.0), (0.0, 0.0, 1.0e-6)),
+        indices=(0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3),
+        compute_inertia=False,
+    )
+
+    def pad_world(builder, world_id: int, _position: np.ndarray, _orientation: np.ndarray) -> None:
+        object_bodies = [
+            body_id
+            for body_id, (label, body_world) in enumerate(zip(builder.body_label, builder.body_world, strict=True))
+            if body_world == world_id and label.endswith("/Object")
+        ]
+        if len(object_bodies) != 1:
+            raise ValueError(f"Expected one object body in Newton world {world_id}, found {object_bodies}.")
+        missing = target_shape_count - OBJECT_COLLISION_SHAPE_COUNTS[object_names_by_env[world_id]]
+        for _ in range(missing):
+            builder.add_shape_convex_hull(body=object_bodies[0], mesh=padding_mesh, cfg=padding_cfg)
+
+    return pad_world
 
 
 def goal_pose_in_base_frame(
@@ -111,7 +181,7 @@ def sample_goal_poses_outside_success_threshold(
     """Sample target poses until each is outside the mean-keypoint success radius.
 
     This task reset sampler is intentionally independent of ADR.  It samples each target against
-    its already-sampled apple pose, rejecting only targets that would begin successfully solved.
+    its already-sampled object pose, rejecting only targets that would begin successfully solved.
     """
     num_envs = object_positions.shape[0]
     device = object_positions.device
@@ -305,6 +375,8 @@ class G1WujiTableEnv(DirectRLEnv):
     _GOAL_OBSERVATION_DIM = 9
 
     def __init__(self, cfg: G1WujiTableEnvCfg, render_mode: str | None = None, **kwargs) -> None:
+        global _object_clone_seed
+
         self._student_depth_preview: torch.Tensor | None = None
         self.hand_spec = get_hand_spec(cfg.hand_type)
         self._HAND_POINT_BODY_NAMES = (self.hand_spec.palm_body_name,) + self.hand_spec.tip_body_names
@@ -319,7 +391,36 @@ class G1WujiTableEnv(DirectRLEnv):
         self._hand_point_offsets = (self.hand_spec.palm_offset,) + self.hand_spec.read_tip_offsets(
             cfg.robot_cfg.spawn.usd_path
         )
-        super().__init__(cfg, render_mode, **kwargs)
+        clone_seed = cfg.seed
+        if clone_seed is None:
+            clone_seed = int(np.random.default_rng().integers(np.iinfo(np.int64).max))
+        _object_clone_seed = clone_seed
+        cfg.scene.clone_cfg.clone_strategy = balanced_random_object_clone_strategy
+        cfg.scene.robot = cfg.robot_cfg
+        cfg.scene.table = cfg.table_cfg
+        cfg.scene.object = cfg.object_cfg
+
+        # MJWarp requires identical per-world array strides. Each environment still imports
+        # only its selected object; collision-disabled convex slots pad smaller decompositions
+        # to the largest active object's hull count without adding broadphase work.
+        object_variants = balanced_random_clone_strategy(
+            np.arange(len(cfg.active_objects), dtype=np.int64)[:, None],
+            cfg.scene.num_envs,
+            seed=clone_seed,
+        ).ravel()
+        object_names_by_env = tuple(cfg.active_objects[int(index)] for index in object_variants)
+        padding_hook = make_newton_shape_padding_hook(
+            object_names_by_env,
+            max(OBJECT_COLLISION_SHAPE_COUNTS[name] for name in cfg.active_objects),
+        )
+        from isaaclab_newton.physics import NewtonManager
+
+        NewtonManager._per_world_builder_hooks.append(padding_hook)
+        try:
+            super().__init__(cfg, render_mode, **kwargs)
+        finally:
+            if padding_hook in NewtonManager._per_world_builder_hooks:
+                NewtonManager._per_world_builder_hooks.remove(padding_hook)
 
         self.arm_joint_ids, _ = self.robot.find_joints(self._ARM_JOINT_NAMES, preserve_order=True)
         self.hand_joint_ids, _ = self.robot.find_joints(self._HAND_JOINT_NAMES, preserve_order=True)
@@ -423,6 +524,11 @@ class G1WujiTableEnv(DirectRLEnv):
         self.object_start_position = torch.tensor(self.cfg.object_cfg.init_state.pos, device=self.device).repeat(
             self.num_envs, 1
         )
+        self.object_rest_height = torch.tensor(
+            [OBJECT_REST_HEIGHTS[self.cfg.active_objects[index]] for index in self.object_variant_ids],
+            device=self.device,
+        )
+        self.object_variant_ids_tensor = torch.tensor(self.object_variant_ids, dtype=torch.long, device=self.device)
         self.adr: AdaptiveDomainRandomization | None = None
         if self.cfg.adr.enabled:
             self.adr = AdaptiveDomainRandomization(
@@ -468,7 +574,7 @@ class G1WujiTableEnv(DirectRLEnv):
             for index, (_, nominal) in enumerate(self._adr_friction_terms.values()):
                 self._adr_friction_values[:, index] = nominal
         if self._adr_mass_active:
-            self._adr_mass_asset_cfg = SceneEntityCfg("apple")
+            self._adr_mass_asset_cfg = SceneEntityCfg("object")
             self._adr_mass_term = randomize_rigid_body_mass(
                 EventTermCfg(
                     func=randomize_rigid_body_mass,
@@ -531,11 +637,11 @@ class G1WujiTableEnv(DirectRLEnv):
         if self.cfg.debug.adr_spawn_area_marker or self.cfg.adr_debug_spawn_area_vis:
             self.adr_spawn_area_marker = VisualizationMarkers(self.cfg.adr_spawn_area_marker_cfg)
             marker_thickness = self.cfg.adr_spawn_area_marker_cfg.markers["area"].size[2]
-            apple_x, apple_y = self.cfg.object_cfg.init_state.pos[:2]
+            object_x, object_y = self.cfg.object_cfg.init_state.pos[:2]
             marker_center = torch.tensor(
                 (
-                    apple_x - 0.5 * self.cfg.adr.spawn_box_x,
-                    apple_y - 0.5 * self.cfg.adr.spawn_box_y,
+                    object_x - 0.5 * self.cfg.adr.spawn_box_x,
+                    object_y - 0.5 * self.cfg.adr.spawn_box_y,
                     self.table_top_height + 0.5 * marker_thickness,
                 ),
                 device=self.device,
@@ -551,9 +657,16 @@ class G1WujiTableEnv(DirectRLEnv):
             )
 
     def _setup_scene(self) -> None:
-        self.robot = Articulation(self.cfg.robot_cfg)
-        self.table = RigidObject(self.cfg.table_cfg)
-        self.apple = RigidObject(self.cfg.object_cfg)
+        spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -1.0))
+        self.robot = self.scene.articulations["robot"]
+        self.table = self.scene.rigid_objects["table"]
+        self.object = self.scene.rigid_objects["object"]
+        plan = self.sim.get_clone_plan()
+        if plan is None:
+            raise RuntimeError("Object-bank scene construction requires an active clone plan.")
+        object_rows = plan.cfg_rows[id(self.cfg.object_cfg)]
+        object_assignment = plan.clone_mask[np.asarray(object_rows)].argmax(axis=0)
+        self.object_variant_ids = tuple(int(index) for index in object_assignment)
         # Both modes sense hand-to-scene contacts; only torque estimation needs points and friction.
         self.contact_sensors: dict[str, ContactSensor] = {}
         self.force_sensors: dict[str, ContactSensor] = {}
@@ -590,17 +703,6 @@ class G1WujiTableEnv(DirectRLEnv):
         # The student's head depth camera exists only when a preset configures one (presets=distill).
         self.depth_camera = _StudentDepthCamera(self.cfg.depth_camera) if self.cfg.depth_camera is not None else None
 
-        spawn_ground_plane(prim_path="/World/ground", cfg=GroundPlaneCfg(), translation=(0.0, 0.0, -1.0))
-        source, destination = "/World/envs/env_0", "/World/envs/env_{}"
-        positions = cloner.grid_transforms(self.scene.num_envs, self.scene.cfg.env_spacing)[0]
-        plan = cloner.clone_plan_from_env_0(
-            source, destination, self.scene.num_envs, positions, global_paths=("/World/ground",)
-        )
-        cloner.replicate(plan)
-
-        self.scene.articulations["robot"] = self.robot
-        self.scene.rigid_objects["table"] = self.table
-        self.scene.rigid_objects["apple"] = self.apple
         self.scene.sensors.update({f"{name}_contact": sensor for name, sensor in self.contact_sensors.items()})
         self.scene.sensors.update({f"{name}_force": sensor for name, sensor in self.force_sensors.items()})
         self.scene.sensors["torso_contact"] = self.torso_contact_sensor
@@ -644,7 +746,11 @@ class G1WujiTableEnv(DirectRLEnv):
         hand_asset_cfg = SceneEntityCfg("robot", body_names=hand_body_names)
         hand_asset_cfg.resolve(self.scene)
         terms: dict[str, tuple[randomize_rigid_body_material, float]] = {}
-        asset_cfgs = (("apple", SceneEntityCfg("apple")), ("table", SceneEntityCfg("table")), ("hand", hand_asset_cfg))
+        asset_cfgs = (
+            ("object", SceneEntityCfg("object")),
+            ("table", SceneEntityCfg("table")),
+            ("hand", hand_asset_cfg),
+        )
         for name, asset_cfg in asset_cfgs:
             term_cfg = EventTermCfg(func=randomize_rigid_body_material, mode="reset", params={"asset_cfg": asset_cfg})
             term = randomize_rigid_body_material(term_cfg, self)
@@ -673,7 +779,7 @@ class G1WujiTableEnv(DirectRLEnv):
             impl._newton_manager.add_model_change(impl._notify_shape_properties)
 
     def _apply_adr_mass(self, env_ids: torch.Tensor, strength: float) -> None:
-        """Scale the apple's mass relative to its default mass, ``U(1 - m*strength, 1 + m*strength)``."""
+        """Scale the object's mass relative to its default mass, ``U(1 - m*strength, 1 + m*strength)``."""
         half_width = self.cfg.adr.object_mass_scale * strength
         self._adr_mass_term(
             self,
@@ -684,7 +790,7 @@ class G1WujiTableEnv(DirectRLEnv):
             recompute_inertia=True,
         )
         default_mass = self._adr_mass_term.default_mass[env_ids, 0]
-        self._adr_object_mass_scale[env_ids] = self.apple.data.body_mass.torch[env_ids, 0] / default_mass
+        self._adr_object_mass_scale[env_ids] = self.object.data.body_mass.torch[env_ids, 0] / default_mass
         self._adr_object_inertia_scale[env_ids] = self._adr_object_mass_scale[env_ids]
 
     def _randomize_depth_camera(self, env_ids: torch.Tensor, strength: float) -> None:
@@ -1120,19 +1226,19 @@ class G1WujiTableEnv(DirectRLEnv):
         hand_target = self._pad_hand_slots(hand_target)
         hand_command_limits = self._pad_hand_slots(hand_command_limits)
 
-        clean_object_position = self.apple.data.root_pos_w.torch
+        clean_object_position = self.object.data.root_pos_w.torch
         actor_object_position = clean_object_position
         if self._adr_sensor_noise_active:
-            # Observation-only noise: reward and success computations use the true apple position.
+            # Observation-only noise: reward and success computations use the true object position.
             actor_object_position = (
                 clean_object_position
                 + self._adr_object_pos_obs_bias
                 + torch.randn_like(clean_object_position) * (self.cfg.adr.object_pos_obs_noise * self.adr.strength)
             )
-        object_rotation = self.apple.data.root_quat_w.torch
+        object_rotation = self.object.data.root_quat_w.torch
         object_rotation_6d = matrix_from_quat(object_rotation)[..., :, :2].reshape(self.num_envs, -1)
         object_velocity = torch.cat(
-            (self.apple.data.root_lin_vel_w.torch, self.apple.data.root_ang_vel_w.torch), dim=-1
+            (self.object.data.root_lin_vel_w.torch, self.object.data.root_ang_vel_w.torch), dim=-1
         )
 
         goal_position = self.goal_position + self.scene.env_origins
@@ -1283,7 +1389,7 @@ class G1WujiTableEnv(DirectRLEnv):
         Only randomizations implemented by this environment are represented.  In particular, there are no
         actuator stiffness/damping, joint-friction, armature, torque-limit, or observation-delay randomizers
         to expose.  Newton has one friction coefficient rather than independent static/dynamic coefficients;
-        the three entries are the effective means for apple, table, and hand shapes.
+        the three entries are the effective means for object, table, and hand shapes.
         """
         adr_strength = self.adr.strength if self.cfg.adr.enabled else 0.0
         if self.cfg.reward_mode == "adept":
@@ -1331,7 +1437,7 @@ class G1WujiTableEnv(DirectRLEnv):
             self.robot.data.body_quat_w.torch[:, self.hand_point_body_ids],
             offsets.unsqueeze(0).expand(self.num_envs, -1, -1),
         )
-        object_position = self.apple.data.root_pos_w.torch
+        object_position = self.object.data.root_pos_w.torch
         hand_point_dist = torch.linalg.vector_norm(hand_points - object_position.unsqueeze(1), dim=-1)
         hand_dist = hand_point_dist.max(dim=1).values
         nearest_hand_dist = hand_point_dist.min(dim=1).values
@@ -1339,14 +1445,14 @@ class G1WujiTableEnv(DirectRLEnv):
 
         contact_force_stack = self._contact_group_forces()
 
-        current_keypoints = self._transform_keypoints(object_position, self.apple.data.root_quat_w.torch)
+        current_keypoints = self._transform_keypoints(object_position, self.object.data.root_quat_w.torch)
         goal_keypoints = self._transform_keypoints(self.goal_position + self.scene.env_origins, self.goal_rotation)
         keypoint_error = torch.linalg.vector_norm(current_keypoints - goal_keypoints, dim=-1).mean(dim=1)
         position_error = torch.linalg.vector_norm(
             object_position - (self.goal_position + self.scene.env_origins), dim=-1
         )
         # Angle between the object and goal quaternions, using |dot| for double cover.
-        rotation_dot = (self.apple.data.root_quat_w.torch * self.goal_rotation).sum(dim=-1).abs().clamp(max=1.0)
+        rotation_dot = (self.object.data.root_quat_w.torch * self.goal_rotation).sum(dim=-1).abs().clamp(max=1.0)
         rotation_error = torch.rad2deg(2.0 * torch.acos(rotation_dot))
 
         if self.cfg.reward_mode == "shaped":
@@ -1453,25 +1559,25 @@ class G1WujiTableEnv(DirectRLEnv):
         return reward
 
     def _lift_fraction(self, object_position: torch.Tensor) -> torch.Tensor:
-        """Return the apple's height progress from rest to goal, clamped to ``[0, 1]``.
+        """Return the object's height progress from rest to goal, clamped to ``[0, 1]``.
 
         Rest height is the original tabletop root height, while the default episode spawn is
-        elevated halfway to the goal. The clamp makes a settled tabletop apple score exactly
+        elevated halfway to the goal. The clamp makes a settled tabletop object score exactly
         zero. Shared by the shaped mode's dense lift term and the optional
         ``adept_lift_reward_scale`` term.
         """
-        rest_height = self.cfg.object_rest_height + self.scene.env_origins[:, 2]
+        rest_height = self.object_rest_height + self.scene.env_origins[:, 2]
         goal_height = self.goal_position[:, 2] + self.scene.env_origins[:, 2]
         return torch.clamp((object_position[:, 2] - rest_height) / (goal_height - rest_height), 0.0, 1.0)
 
     def _initialize_target_contact_columns(self) -> None:
-        """Validate the one explicit apple filter and its single counterpart column."""
+        """Validate the one explicit object filter and its single counterpart column."""
         self._target_contact_columns: dict[str, int] = {}
         for sensor_name, sensor in self.contact_sensors.items():
             if sensor.cfg.filter_prim_paths_expr != [self.cfg.object_cfg.prim_path]:
-                raise ValueError(f"Contact sensor {sensor_name!r} must filter only the target apple.")
+                raise ValueError(f"Contact sensor {sensor_name!r} must filter only the target object.")
             if sensor.data.normal_force_matrix_w.torch.shape[2] != 1:
-                raise ValueError(f"Contact sensor {sensor_name!r} must resolve exactly one apple counterpart.")
+                raise ValueError(f"Contact sensor {sensor_name!r} must resolve exactly one object counterpart.")
             self._target_contact_columns[sensor_name] = 0
 
     def _contact_group_forces(self) -> torch.Tensor:
@@ -1499,7 +1605,7 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
     def _init_penetration_probe(self) -> None:
-        """Index the MJWarp geoms of the hand, apple, table, and other robot bodies for the contact diagnostic.
+        """Index the MJWarp geoms of the hand, object, table, and other robot bodies for contact diagnostics.
 
         Isaac Lab contact sensors report forces but not penetration depth, so depth is read from the MJWarp
         contact buffer.  UNTESTED on PhysX: there no MJWarp solver exists, the probe stays off, and the
@@ -1524,7 +1630,7 @@ class G1WujiTableEnv(DirectRLEnv):
         # The shared G1 sub-asset covers non-hand robot geoms used for self-contact.
         (
             self._hand_geoms,
-            self._apple_geoms,
+            self._object_geoms,
             self._table_geoms,
             self._other_robot_geoms,
             self._right_elbow_geoms,
@@ -1533,7 +1639,7 @@ class G1WujiTableEnv(DirectRLEnv):
             torch.tensor([key in label for label in labels], device=self.device)
             for key in (
                 self.hand_spec.hand_prim_path,
-                "Apple",
+                "Object",
                 "Table",
                 "g1_simplified",
                 "right_elbow_link",
@@ -1542,20 +1648,20 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         if not (
             self._hand_geoms.any()
-            and self._apple_geoms.any()
+            and self._object_geoms.any()
             and self._table_geoms.any()
             and self._other_robot_geoms.any()
             and self._right_elbow_geoms.any()
             and self._torso_geoms.any()
         ):
             raise ValueError(
-                "Penetration probe could not find the hand, apple, table, arm, and torso geoms in the MJWarp model."
+                "Penetration probe could not find the hand, object, table, arm, and torso geoms in the MJWarp model."
             )
         self._mjw_data = solver.mjw_data
-        # One-time record of the apple's built collision-shape count, so runs log the real hull
+        # One-time record of the selected objects' built collision-shape count, so runs log the real hull
         # count produced by whatever mesh_approximation_name/max_hull_vertices Hydra selected.
         approximation = self.cfg.object_cfg.spawn.collision_props.mesh_collision_property.mesh_approximation_name
-        print(f"[apple-collision] approximation={approximation} shapes={int(self._apple_geoms.sum())}")
+        print(f"[object-collision] approximation={approximation} shapes={int(self._object_geoms.sum())}")
 
     def _contact_penetration(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Return per-environment hand, table, hand-self, and elbow-torso penetration depths [m].
@@ -1572,10 +1678,10 @@ class G1WujiTableEnv(DirectRLEnv):
         detected = torch.arange(dist.shape[0], device=self.device) < wp.to_torch(self._mjw_data.nacon)
         depth = torch.where(detected, (-dist).clamp_min(0.0), 0.0)
         first, second = geoms[:, 0], geoms[:, 1]
-        apple_first, apple_second = self._apple_geoms[first], self._apple_geoms[second]
+        object_first, object_second = self._object_geoms[first], self._object_geoms[second]
         penetrations = []
         for other in (self._hand_geoms, self._table_geoms):
-            pair = (apple_first & other[second]) | (apple_second & other[first])
+            pair = (object_first & other[second]) | (object_second & other[first])
             penetrations.append(
                 torch.zeros(self.num_envs, device=self.device).scatter_reduce_(
                     0, worlds, torch.where(pair, depth, 0.0), reduce="amax"
@@ -1649,14 +1755,14 @@ class G1WujiTableEnv(DirectRLEnv):
         self._episode_max_hand_penetration = torch.zeros(self.num_envs, device=self.device)
         self._episode_max_self_penetration = torch.zeros(self.num_envs, device=self.device)
         self._episode_max_elbow_torso_penetration = torch.zeros(self.num_envs, device=self.device)
-        self._termination_torso_apple = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self._termination_torso_object = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_below_table = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_workspace_exit = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         self._termination_nonfinite = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
-        # Last known-finite apple linear speed [m/s] and height [m] per environment, used only to
+        # Last known-finite object linear speed [m/s] and height [m] per environment, used only to
         # describe a non-finite episode in the diagnostic print below; updated at the end of _get_dones.
-        self._prev_apple_speed = torch.zeros(self.num_envs, device=self.device)
-        self._prev_apple_height = torch.zeros(self.num_envs, device=self.device)
+        self._prev_object_speed = torch.zeros(self.num_envs, device=self.device)
+        self._prev_object_height = torch.zeros(self.num_envs, device=self.device)
         self._nonfinite_diag_count = 0
 
     def _update_episode_metrics(
@@ -1711,7 +1817,7 @@ class G1WujiTableEnv(DirectRLEnv):
         log = {
             "Task/keypoint_error_step": keypoint_error.mean(),
             "Task/object_height_step": object_height.mean(),
-            # Distances from the apple centre to the palm and active fingertips.
+            # Distances from the object centre to the palm and active fingertips.
             "Reach/hand_distance_farthest_step": hand_distance_farthest.mean(),
             "Reach/hand_distance_nearest_step": hand_distance_nearest.mean(),
             "Contact/force_max_step": contact_force_stack.max(dim=1).values.mean(),
@@ -1778,6 +1884,13 @@ class G1WujiTableEnv(DirectRLEnv):
                 }
             )
             episode_success = keypoint_error[reset_ids] < self.cfg.success_keypoint_error_threshold
+            log.update(
+                per_object_success_metrics(
+                    episode_success,
+                    self.object_variant_ids_tensor[reset_ids],
+                    self.cfg.active_objects,
+                )
+            )
             first_success_steps = self._episode_first_success_step[reset_ids]
             first_successful = first_success_steps >= 0
             if self.cfg.adr.enabled:
@@ -1794,7 +1907,7 @@ class G1WujiTableEnv(DirectRLEnv):
                     "Task/object_height_ep_max": self._episode_max_object_height[reset_ids].mean(),
                     "Reach/hand_distance_farthest_ep_min": self._episode_min_hand_distance[reset_ids].mean(),
                     "Contact/gate_frac_ep": (self._episode_contact_gate_steps[reset_ids] / episode_steps).mean(),
-                    "Terminations/torso_apple": self._termination_torso_apple[reset_ids].float().mean(),
+                    "Terminations/torso_object": self._termination_torso_object[reset_ids].float().mean(),
                     "Terminations/below_table": self._termination_below_table[reset_ids].float().mean(),
                     "Terminations/workspace_exit": self._termination_workspace_exit[reset_ids].float().mean(),
                     "Terminations/nonfinite": self._termination_nonfinite[reset_ids].float().mean(),
@@ -1842,7 +1955,7 @@ class G1WujiTableEnv(DirectRLEnv):
             return
         if current_keypoints is None:
             current_keypoints = self._transform_keypoints(
-                self.apple.data.root_pos_w.torch, self.apple.data.root_quat_w.torch
+                self.object.data.root_pos_w.torch, self.object.data.root_quat_w.torch
             )
         if goal_keypoints is None:
             goal_keypoints = self._transform_keypoints(self.goal_position + self.scene.env_origins, self.goal_rotation)
@@ -1855,7 +1968,7 @@ class G1WujiTableEnv(DirectRLEnv):
             )
 
     def _get_dones(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Terminate on torso-to-apple contact, workspace exit, or a non-finite simulation state.
+        """Terminate on torso-to-object contact, workspace exit, or a non-finite simulation state.
 
         A single bad environment (observed as MJWarp state going NaN with no prior overflow warning)
         would otherwise poison the shared policy observation tensor and kill a multi-hour run through
@@ -1866,7 +1979,7 @@ class G1WujiTableEnv(DirectRLEnv):
         torso_contact = (
             torch.linalg.vector_norm(self.torso_contact_sensor.data.normal_force_matrix_w.torch[:, 0, 0], dim=-1) > 0.0
         )
-        object_position = self.apple.data.root_pos_w.torch
+        object_position = self.object.data.root_pos_w.torch
         table_top_height = self.scene.env_origins[:, 2] + self.table_top_height
         object_below_table = object_position[:, 2] < table_top_height
         object_start_position = self.object_start_position + self.scene.env_origins
@@ -1880,17 +1993,17 @@ class G1WujiTableEnv(DirectRLEnv):
 
         joint_pos = self.robot.data.joint_pos.torch
         joint_vel = self.robot.data.joint_vel.torch
-        object_rotation = self.apple.data.root_quat_w.torch
-        object_lin_vel = self.apple.data.root_lin_vel_w.torch
-        object_ang_vel = self.apple.data.root_ang_vel_w.torch
+        object_rotation = self.object.data.root_quat_w.torch
+        object_lin_vel = self.object.data.root_lin_vel_w.torch
+        object_ang_vel = self.object.data.root_ang_vel_w.torch
         arm_or_hand_joints_nonfinite = ~torch.isfinite(joint_pos).all(dim=-1) | ~torch.isfinite(joint_vel).all(dim=-1)
-        apple_pose_nonfinite = ~torch.isfinite(object_position).all(dim=-1) | ~torch.isfinite(object_rotation).all(
+        object_pose_nonfinite = ~torch.isfinite(object_position).all(dim=-1) | ~torch.isfinite(object_rotation).all(
             dim=-1
         )
-        apple_vel_nonfinite = ~torch.isfinite(object_lin_vel).all(dim=-1) | ~torch.isfinite(object_ang_vel).all(dim=-1)
-        nonfinite = arm_or_hand_joints_nonfinite | apple_pose_nonfinite | apple_vel_nonfinite
+        object_vel_nonfinite = ~torch.isfinite(object_lin_vel).all(dim=-1) | ~torch.isfinite(object_ang_vel).all(dim=-1)
+        nonfinite = arm_or_hand_joints_nonfinite | object_pose_nonfinite | object_vel_nonfinite
 
-        self._termination_torso_apple = torso_contact
+        self._termination_torso_object = torso_contact
         self._termination_below_table = object_below_table
         self._termination_workspace_exit = object_too_far
         self._termination_nonfinite = nonfinite
@@ -1904,29 +2017,29 @@ class G1WujiTableEnv(DirectRLEnv):
                 name
                 for name, group_nonfinite in (
                     ("arm_or_hand_joints", arm_or_hand_joints_nonfinite),
-                    ("apple_pose", apple_pose_nonfinite),
-                    ("apple_vel", apple_vel_nonfinite),
+                    ("object_pose", object_pose_nonfinite),
+                    ("object_vel", object_vel_nonfinite),
                 )
                 if group_nonfinite.any()
             ]
             print(
                 f"[nonfinite-guard] step={self.common_step_counter} bad_envs={bad_envs.numel()} "
-                f"groups={bad_groups} prev_apple_speed_max={self._prev_apple_speed[bad_envs].max().item():.4f} "
-                f"prev_apple_height_max={self._prev_apple_height[bad_envs].max().item():.4f}"
+                f"groups={bad_groups} prev_object_speed_max={self._prev_object_speed[bad_envs].max().item():.4f} "
+                f"prev_object_height_max={self._prev_object_height[bad_envs].max().item():.4f}"
             )
 
-        # Cache the last known-finite apple speed and height for the diagnostic above; a non-finite
+        # Cache the last known-finite object speed and height for the diagnostic above; a non-finite
         # environment keeps whatever it last had until its reset overwrites the underlying sim state.
-        apple_speed = torch.linalg.vector_norm(object_lin_vel, dim=-1)
-        finite_speed = torch.isfinite(apple_speed)
-        self._prev_apple_speed = torch.where(finite_speed, apple_speed, self._prev_apple_speed)
+        object_speed = torch.linalg.vector_norm(object_lin_vel, dim=-1)
+        finite_speed = torch.isfinite(object_speed)
+        self._prev_object_speed = torch.where(finite_speed, object_speed, self._prev_object_speed)
         finite_height = torch.isfinite(object_position[:, 2])
-        self._prev_apple_height = torch.where(finite_height, object_position[:, 2], self._prev_apple_height)
+        self._prev_object_height = torch.where(finite_height, object_position[:, 2], self._prev_object_height)
 
         return terminated, time_out
 
     def _reset_idx(self, env_ids: Sequence[int]) -> None:
-        """Restore the authored robot pose; ADR may perturb the apple spawn."""
+        """Restore the authored robot pose and sample a fresh object pose."""
         super()._reset_idx(env_ids)
         if getattr(self, "virtual_force_pipeline", None) is not None:
             self.virtual_force_pipeline.reset(torch.as_tensor(env_ids, dtype=torch.long, device=self.device))
@@ -1987,19 +2100,21 @@ class G1WujiTableEnv(DirectRLEnv):
         self.table.write_root_velocity_to_sim_index(
             root_velocity=self.table.data.default_root_vel.torch[env_ids], env_ids=env_ids
         )
-        apple_pose = self.apple.data.default_root_pose.torch[env_ids].clone()
+        object_pose = self.object.data.default_root_pose.torch[env_ids].clone()
         # Task reset sampling is deliberately independent of ADR: every episode sees a fresh
         # object and target pose even when all ADR terms are disabled.
-        apple_pose[:, 0] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_x_range)
-        apple_pose[:, 1] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_y_range)
+        object_pose[:, 0] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_x_range)
+        object_pose[:, 1] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_y_range)
         if self.cfg.reset.object_on_table:
-            apple_pose[:, 2] = self.cfg.object_rest_height
+            object_pose[:, 2] = self.object_rest_height[env_ids]
         else:
-            apple_pose[:, 2] = torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_z_range)
-        self.object_start_position[env_ids, :3] = apple_pose[:, :3]
+            object_pose[:, 2] = self.object_rest_height[env_ids] + torch.empty(
+                len(env_ids), device=self.device
+            ).uniform_(0.0, self.cfg.object_spawn_height_above_table)
+        self.object_start_position[env_ids, :3] = object_pose[:, :3]
         goal_positions, goal_rotations = sample_goal_poses_outside_success_threshold(
-            object_positions=apple_pose[:, :3],
-            object_rotations=apple_pose[:, 3:7],
+            object_positions=object_pose[:, :3],
+            object_rotations=object_pose[:, 3:7],
             local_keypoints=self.local_cube_keypoints,
             position_ranges=(
                 self.cfg.goal_spawn_x_range,
@@ -2011,10 +2126,10 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         self.goal_position[env_ids] = goal_positions
         self.goal_rotation[env_ids] = goal_rotations
-        apple_pose[:, :3] += self.scene.env_origins[env_ids]
-        self.apple.write_root_pose_to_sim_index(root_pose=apple_pose, env_ids=env_ids)
-        self.apple.write_root_velocity_to_sim_index(
-            root_velocity=self.apple.data.default_root_vel.torch[env_ids], env_ids=env_ids
+        object_pose[:, :3] += self.scene.env_origins[env_ids]
+        self.object.write_root_pose_to_sim_index(root_pose=object_pose, env_ids=env_ids)
+        self.object.write_root_velocity_to_sim_index(
+            root_velocity=self.object.data.default_root_vel.torch[env_ids], env_ids=env_ids
         )
         self._adr_joint_pos_obs_bias[env_ids] = 0.0
         self._adr_joint_vel_obs_bias[env_ids] = 0.0

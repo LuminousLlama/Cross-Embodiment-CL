@@ -3,16 +3,46 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Unit tests for the ADR apple spawn-offset sampler."""
+"""Unit tests for the ADR object spawn-offset sampler."""
 
+import numpy as np
 import pytest
 import torch
 
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (
+    balanced_random_clone_strategy,
     latch_first_success_steps,
+    per_object_success_metrics,
     sample_goal_poses_outside_success_threshold,
     sample_spawn_offsets,
 )
+
+
+@pytest.mark.unit
+def test_object_clone_strategy_is_seeded_and_balanced():
+    """Initialization must randomize placement without starving a selected object variant."""
+    combinations = np.arange(3)[:, None]
+
+    first = balanced_random_clone_strategy(combinations, 8, seed=7)
+    second = balanced_random_clone_strategy(combinations, 8, seed=7)
+    counts = np.bincount(first[:, 0], minlength=3)
+
+    assert np.array_equal(first, second)
+    assert counts.max() - counts.min() <= 1
+
+
+@pytest.mark.unit
+def test_per_object_success_metrics_groups_only_completed_object_episodes():
+    """Per-object topics must use only that object's resets and omit absent variants."""
+    metrics = per_object_success_metrics(
+        episode_success=torch.tensor((True, False, True, False)),
+        object_variant_ids=torch.tensor((0, 1, 0, 0)),
+        active_objects=("YcbApple", "YcbBanana", "YcbHammer"),
+    )
+
+    assert metrics.keys() == {"Task/success_ycb_apple_ep", "Task/success_ycb_banana_ep"}
+    assert metrics["Task/success_ycb_apple_ep"] == pytest.approx(2 / 3)
+    assert metrics["Task/success_ycb_banana_ep"] == pytest.approx(0.0)
 
 
 @pytest.mark.unit

@@ -7,6 +7,14 @@ independently of `--agent` and `physics`. All hands use 25 actions and the same 
 Checkpoints from the earlier unmasked observation schema must be retrained. The `force` overlay is Wuji-only.
 The environment defaults to seed 42; override it with `env.seed=<seed>` (or `--seed` for training).
 
+Only `YcbApple` is active by default in every run profile. Other reviewed objects require an explicit CLI
+selection; one selected object is assigned per environment at initialization and retained across resets.
+For example, append:
+
+```bash
+env.active_objects=[YcbApple,YcbBanana,YcbTomatoSoupCan]
+```
+
 ## Train
 
 Training and distillation use full domain randomization with `dr_full`.
