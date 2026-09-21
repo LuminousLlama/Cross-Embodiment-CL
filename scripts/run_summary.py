@@ -81,6 +81,7 @@ LEGACY_TAGS = {
     "Metrics/step_contact_gate_fraction": "Contact/gate_frac_step",
     "Contact/step_bodies_over_threshold": "Contact/groups_over_threshold_step",
     "Contact/step_any_touch_fraction": "Contact/touch_frac_any_step",
+    "Terminations/torso_apple": "Terminations/torso_object",
     **{
         f"Contact/step_touch_fraction_{group}": f"Contact/touch_frac_{group}_step"
         for group in ("palm", "finger1", "finger2", "finger3", "finger4", "finger5")

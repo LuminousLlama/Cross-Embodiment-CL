@@ -75,7 +75,7 @@ def _log_scalar(log: dict, tag: str) -> float | None:
 def _write_contact_sheet(frames: list[tuple[int, object, float | None, float | None]], out_path: str) -> None:
     """Tile captured rollout frames into one labeled contact sheet, 4 columns wide.
 
-    Each tile is downscaled to 480x270 and labeled with its policy step, apple height, and
+    Each tile is downscaled to 480x270 and labeled with its policy step, object height, and
     (when available) the max per-group contact force, so a reviewer can judge grasp quality
     from a single image.
     """
@@ -187,7 +187,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
             env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
             if args_cli.frames_dir:
-                # Frame capture needs a single, visible env: the apple's render mesh (Newton
+                # Frame capture needs a single, visible env: the object's render mesh (Newton
                 # visual shapes) and the goal/current keypoint markers, drawn by a headless
                 # Newton GL visualizer at the requested camera pose.
                 env_cfg.scene.num_envs = 1

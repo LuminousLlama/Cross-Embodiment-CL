@@ -2,6 +2,13 @@
 
 Use these commands directly in the primary checkout. In a linked worktree, prefix them with `./worktree-local`.
 
+All 11 reviewed YCB objects are active by default and are assigned one per environment at initialization. Select a
+subset by appending, for example:
+
+```bash
+env.active_objects=[YcbApple,YcbBanana,YcbTomatoSoupCan]
+```
+
 ## Train
 
 Training and distillation use full domain randomization with `dr_full`.

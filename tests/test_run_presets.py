@@ -5,6 +5,8 @@
 
 """Tests for the G1-Wuji run presets, resolved the way ``isaaclab train``/``play`` resolve them."""
 
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -13,6 +15,7 @@ from isaaclab_physx.physics import PhysxCfg
 from isaaclab_tasks.utils import resolve_task_config
 
 import Cross_Embodiment_CL.tasks  # noqa: F401
+from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg import OBJECT_NAMES
 
 TASK = "CrossEmbodimentCl-G1-Wuji-Table-Direct"
 AGENT = "rsl_rl_cfg_entry_point"
@@ -24,7 +27,7 @@ def _visualizer_types(env_cfg) -> list[str]:
 
 @pytest.mark.unit
 def test_default_reset_pose_sampling_is_task_randomization_not_adr():
-    """The apple and target ranges are fixed task settings, independent of ADR."""
+    """The object and target ranges are fixed task settings, independent of ADR."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=train,dr_none"])
 
     assert env_cfg.object_spawn_x_range == pytest.approx((0.25, 0.35))
@@ -48,13 +51,55 @@ def test_default_reset_pose_sampling_is_task_randomization_not_adr():
 
 @pytest.mark.unit
 def test_tabletop_object_reset_override_preserves_the_normal_spawn_range():
-    """The convenience flag fixes only the apple height; task randomization remains configured."""
+    """The convenience flag fixes only object height; task randomization remains configured."""
     env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=debug,dr_none", "env.reset.object_on_table=True"])
 
     assert env_cfg.reset.object_on_table is True
     assert env_cfg.object_spawn_z_range == pytest.approx(
         (env_cfg.object_rest_height, env_cfg.object_rest_height + env_cfg.object_spawn_height_above_table)
     )
+
+
+@pytest.mark.unit
+def test_active_objects_cli_subset_drives_multi_usd_bank():
+    """A CLI subset must select exactly those reviewed USD variants in the requested order."""
+    selected = ["YcbBanana", "YcbTomatoSoupCan"]
+    env_cfg, _ = resolve_task_config(
+        TASK,
+        AGENT,
+        overrides=["env.active_objects=[YcbBanana,YcbTomatoSoupCan]"],
+    )
+
+    env_cfg.validate()
+
+    assert env_cfg.active_objects == selected
+    assert [Path(path).parent.name for path in env_cfg.object_cfg.spawn.usd_path] == selected
+
+
+@pytest.mark.unit
+def test_active_objects_defaults_to_the_complete_bank():
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[])
+
+    env_cfg.validate()
+
+    assert tuple(env_cfg.active_objects) == OBJECT_NAMES
+    assert len(env_cfg.object_cfg.spawn.usd_path) == 11
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ("env.active_objects=[]", "at least one"),
+        ("env.active_objects=[YcbApple,YcbApple]", "duplicate"),
+        ("env.active_objects=[YcbNotReal]", "Unknown"),
+    ],
+)
+def test_active_objects_rejects_invalid_banks(override, message):
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[override])
+
+    with pytest.raises(ValueError, match=message):
+        env_cfg.validate()
 
 
 @pytest.mark.unit

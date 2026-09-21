@@ -199,7 +199,7 @@ def test_nonfinite_state_returns_zero_terminal_reward() -> None:
     try:
         env.reset(seed=42)
         unwrapped = env.unwrapped
-        unwrapped.apple.data.root_pos_w.torch[0, 0] = torch.nan
+        unwrapped.object.data.root_pos_w.torch[0, 0] = torch.nan
 
         terminated, _ = unwrapped._get_dones()
         reward = unwrapped._get_rewards()

@@ -36,9 +36,44 @@ from isaaclab_tasks.utils import PresetCfg
 from .depth_camera import D435_DEPTH_848X480, fit_depth_letterbox
 
 _G1_CONFIG_PATH = Path(__file__).resolve().parents[6] / "assets/g1/g1.py"
-# TODO make a objects CFG file
-_APPLE_USD_PATH = Path(__file__).resolve().parents[6] / "assets/objects/YcbApple/textured_collision.usda"
-# TODO can we not just do from cross embodiment import assets
+_OBJECT_ASSET_ROOT = Path(__file__).resolve().parents[6] / "assets/objects"
+OBJECT_REST_HEIGHTS = {
+    "YcbApple": 0.040000,
+    "YcbBanana": 0.007307,
+    "YcbFoamBrick": 0.022250,
+    "YcbGelatinBox": 0.017299,
+    "YcbHammer": 0.003904,
+    "YcbMediumClamp": -0.024732,
+    "YcbPhillipsScrewdriver": 0.020668,
+    "YcbPottedMeatCan": 0.053536,
+    "YcbStrawberry": 0.005630,
+    "YcbTennisBall": -0.001206,
+    "YcbTomatoSoupCan": 0.060166,
+}
+"""Canonical tabletop root heights [m], retaining the prior default object's clearance."""
+OBJECT_COLLISION_SHAPE_COUNTS = {
+    "YcbApple": 1,
+    "YcbBanana": 5,
+    "YcbFoamBrick": 24,
+    "YcbGelatinBox": 1,
+    "YcbHammer": 5,
+    "YcbMediumClamp": 24,
+    "YcbPhillipsScrewdriver": 6,
+    "YcbPottedMeatCan": 1,
+    "YcbStrawberry": 1,
+    "YcbTennisBall": 1,
+    "YcbTomatoSoupCan": 1,
+}
+"""Authored collision-hull counts used to equalize Newton's per-world shape stride."""
+OBJECT_NAMES = tuple(OBJECT_REST_HEIGHTS)
+"""Canonical object-bank names accepted by :attr:`G1WujiTableEnvCfg.active_objects`."""
+
+
+def _object_usd_path(name: str) -> str:
+    """Return the reviewed collision asset for one canonical object."""
+    return str(_OBJECT_ASSET_ROOT / name / "textured_collision.usda")
+
+
 _g1_config_spec = importlib.util.spec_from_file_location("cross_embodiment_cl_g1_config", _G1_CONFIG_PATH)
 if _g1_config_spec is None or _g1_config_spec.loader is None:
     raise ImportError(f"Unable to load G1 configuration from {_G1_CONFIG_PATH}.")
@@ -47,7 +82,7 @@ _g1_config_spec.loader.exec_module(_g1_config)
 G1_WUJI_CFG = _g1_config.G1_WUJI_CFG
 
 _FRICTION = 0.5
-"""Static and dynamic friction of the hand, table, and apple (whose USD material authors the same value).
+"""Static and dynamic friction of the hand, table, and object (whose USD materials author the same value).
 
 MJWarp resolves a contact's friction as the max of its two shapes and reads only dynamic friction, so friction
 is authored with static equal to dynamic and PhysX materials combine by max.
@@ -139,7 +174,7 @@ class G1WujiTablePhysicsCfg(PresetCfg):
     # reach PhysX on a machine that has no Isaac Sim installation.
     #
     # The stock GPU buffer capacities are sized for far heavier scenes than one fixed-base
-    # arm, one apple and one table.  Measured at 2048 environments, the values below cut
+    # arm, one object and one table.  Measured at 2048 environments, the values below cut
     # PhysX's GPU footprint by ~1.7 GB with byte-identical rollout metrics and no capacity
     # warnings.  Raise them again if this scene ever gains objects.
     ovphysx: OvPhysxCfg = OvPhysxCfg(
@@ -149,12 +184,12 @@ class G1WujiTablePhysicsCfg(PresetCfg):
         gpu_total_aggregate_pairs_capacity=2**19,
     )
     physx: PhysxAutoCfg = PhysxAutoCfg(isaacsim_physx=isaacsim_physx, ovphysx=ovphysx)
-    # The YCB asset intentionally separates an invisible collision mesh
-    # from its render-only textured mesh.  Always import the latter so
-    # either Newton visualizer can display the same apple as Kit/PhysX.
+    # The YCB assets intentionally separate an invisible collision mesh
+    # from its render-only textured mesh. Always import the latter so either
+    # Newton visualizer can display them like Kit/PhysX.
     newton_mjwarp: NewtonCfg = _mjwarp_physics_cfg(load_visual_shapes=True)
     default: NewtonCfg = newton_mjwarp
-    # A depth preview requires the apple's render-only mesh. Run profiles may replace ``default``
+    # A depth preview requires the object's render-only mesh. Run profiles may replace ``default``
     # with a headless Newton config that omits visual shapes, so the overlay restores them.
     depth_view: NewtonCfg = newton_mjwarp
 
@@ -164,7 +199,7 @@ class G1WujiTableResetCfg:
     """Task-reset controls independent of ADR."""
 
     object_on_table: bool = False
-    """When true, fix the apple root at :attr:`G1WujiTableEnvCfg.object_rest_height` on every reset."""
+    """When true, fix each object's root at its canonical tabletop height on every reset."""
 
 
 @configclass
@@ -191,6 +226,15 @@ class G1WujiTableDepthPreviewPresetCfg(PresetCfg):
 
     default: G1WujiTableDepthPreviewCfg = G1WujiTableDepthPreviewCfg()
     depth_view: G1WujiTableDepthPreviewCfg = default.replace(enabled=True)
+
+
+@configclass
+class G1WujiTableSceneCfg(InteractiveSceneCfg):
+    """Scene assets populated by the direct environment before scene construction."""
+
+    robot: object | None = None
+    table: object | None = None
+    object: object | None = None
 
 
 STUDENT_DEPTH_SIZE = 224
@@ -314,11 +358,11 @@ class G1WujiTableAdrCfg:
     update_every_steps: int = 480
     """Env steps between schedule updates; matches one 480-step episode horizon."""
     spawn_box_x: float = 0.11
-    """Full-strength apple spawn-box size along x [m]."""
+    """Full-strength object spawn-box size along x [m]."""
     spawn_box_y: float = 0.20
-    """Full-strength apple spawn-box size along y [m]."""
+    """Full-strength object spawn-box size along y [m]."""
     spawn_enabled: bool = True
-    """Whether ADR strength controls centered continuous apple spawn offsets."""
+    """Whether ADR strength controls centered continuous object spawn offsets."""
     # Robot-position DR is intentionally unavailable for now. Keep the former
     # configuration here as a record until the feature is reconsidered.
     # robot_position_enabled: bool = False
@@ -338,7 +382,7 @@ class G1WujiTableAdrCfg:
     friction_enabled: bool = True
     """Whether the extra ADR master enables friction randomization."""
     mass_enabled: bool = True
-    """Whether the extra ADR master enables apple mass randomization."""
+    """Whether the extra ADR master enables object mass randomization."""
     joint_pos_obs_bias: float = 0.01
     """Per-episode joint-position observation bias half-width [rad]."""
     joint_pos_obs_noise: float = 0.003
@@ -348,17 +392,17 @@ class G1WujiTableAdrCfg:
     joint_vel_obs_noise: float = 0.03
     """Per-step joint-velocity noise standard deviation [rad/s]."""
     object_pos_obs_bias: float = 0.01
-    """Per-episode apple-position observation bias half-width [m]."""
+    """Per-episode object-position observation bias half-width [m]."""
     object_pos_obs_noise: float = 0.005
-    """Per-step apple-position observation noise standard deviation [m]."""
+    """Per-step object-position observation noise standard deviation [m]."""
     action_latency_max_steps: int = 3
     """Full-strength maximum per-env action delay [policy steps]."""
     hand_target_scale: float = 0.10
     """Full-strength half-width of the per-env multiplicative Wuji hand-target scale."""
     friction_range: tuple[float, float] = (0.1, 0.4)
-    """Full-strength friction range for the apple, table, and Wuji hand links."""
+    """Full-strength friction range for the object, table, and Wuji hand links."""
     object_mass_scale: float = 0.20
-    """Full-strength half-width of the apple's per-env mass scale relative to its default mass."""
+    """Full-strength half-width of the object's per-env mass scale relative to its default mass."""
     camera_position_enabled: bool = False
     """Whether per-episode camera translation DR is enabled."""
     camera_position_range: float = 0.03
@@ -450,10 +494,17 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     # simulator tensor plus the fixed-width DR state appended by ``_get_critic_privileged_state``.
     observation_space = 171
     state_space = 247
+    active_objects: list[str] = list(OBJECT_NAMES)
+    """Object-bank subset assigned one-per-environment at initialization.
+
+    Override from the CLI with, for example,
+    ``env.active_objects=[YcbApple,YcbBanana]``. Assignment is balanced across the selected
+    names and shuffled from the environment seed; an environment keeps its object across resets.
+    """
     log_control_metrics: bool = False
     """Whether to emit all ``Control/*`` TensorBoard/extras topics."""
     contact_force_observation_max = 20.0
-    """Maximum apple contact-force magnitude [N] before the log1p observation transform."""
+    """Maximum object contact-force magnitude [N] before the log1p observation transform."""
     arm_action_ema_alpha = 0.25
     """Weight of the current arm target in the policy-rate EMA."""
     wuji_action_ema_alpha = 0.1
@@ -476,17 +527,17 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     any configured action latency.
     """
     goal_position = (0.35, -0.05, 0.24)
-    """Legacy nominal apple goal position [m] in the environment frame."""
+    """Legacy nominal object goal position [m] in the environment frame."""
     object_rest_height = 0.04
-    """Original tabletop apple root height [m], used as the lift-progress baseline."""
+    """Nominal tabletop root height [m]; runtime uses the selected object's bank metadata."""
     object_spawn_x_range = (0.25, 0.35)
-    """Uniform apple reset x-coordinate range [m] in the environment frame."""
+    """Uniform object reset x-coordinate range [m] in the environment frame."""
     object_spawn_y_range = (-0.30, -0.10)
-    """Uniform apple reset y-coordinate range [m] in the environment frame."""
+    """Uniform object reset y-coordinate range [m] in the environment frame."""
     object_spawn_height_above_table = 0.20
-    """Apple and target-region ceiling above the normal tabletop apple root height [m]."""
+    """Object reset ceiling above each object's canonical tabletop root height [m]."""
     object_spawn_z_range = (object_rest_height, object_rest_height + object_spawn_height_above_table)
-    """Uniform apple reset z-coordinate range [m] in the environment/world frame."""
+    """Nominal object reset z range; runtime offsets it from each object's rest height."""
     goal_spawn_x_range = (0.25, 0.35)
     """Uniform target-frame x-coordinate range [m] in the environment frame."""
     goal_spawn_y_range = (-0.30, -0.10)
@@ -500,7 +551,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     goal_yaw_range = (-math.radians(30.0), math.radians(30.0))
     """Uniform target-frame yaw range [rad] about the nominal world frame."""
     object_spawn_height_offset_cm = 5.0
-    """Legacy vertical apple spawn offset [cm]; randomized reset uses :attr:`object_spawn_z_range`."""
+    """Legacy vertical object spawn offset [cm]; randomized reset uses per-object rest heights."""
     reset: G1WujiTableResetCfg = G1WujiTableResetCfg()
     """Task-reset controls; unlike ADR, these apply at every reset."""
     adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
@@ -620,7 +671,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     lift_reward_enabled: bool = False
     """Whether to include dense lift reward in either reward formulation; disabled by default."""
     lift_reward_scale = 3.0
-    """Per-step reward for carrying the apple the full way from its rest height to the goal."""
+    """Per-step reward for carrying the object the full way from its rest height to the goal."""
     contact_force_threshold = 0.3
     """Per-group normal force [N] counted as contact.
 
@@ -631,9 +682,9 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     success_keypoint_error_threshold = 0.10
     """Terminal mean virtual-keypoint error threshold [m] (10 cm) for the success metric."""
     workspace_termination_enabled: bool = False
-    """Whether to terminate when the apple leaves its horizontal reset workspace."""
+    """Whether to terminate when the object leaves its horizontal reset workspace."""
     object_max_horizontal_displacement = 0.20
-    """Maximum horizontal displacement [m] from the authored apple reset pose."""
+    """Maximum horizontal displacement [m] from the sampled object reset pose."""
 
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,
@@ -648,7 +699,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         # an independent overlay in either case, and an explicit ``--viz`` still takes precedence.
         visualizer_cfgs=G1WujiTableVisualizerPresetCfg(),
     )
-    scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=1, env_spacing=3.0, replicate_physics=True)
+    scene: G1WujiTableSceneCfg = G1WujiTableSceneCfg(num_envs=1, env_spacing=3.0, replicate_physics=True)
 
     robot_cfg = G1_WUJI_CFG.replace(prim_path="{ENV_REGEX_NS}/G1Wuji")
     table_cfg: RigidObjectCfg = RigidObjectCfg(
@@ -668,22 +719,19 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         init_state=RigidObjectCfg.InitialStateCfg(pos=(_TABLE_NEAR_EDGE_X + 0.5 * _TABLE_LENGTH_X, 0.0, -0.02)),
     )
     object_cfg: RigidObjectCfg = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/Apple",
-        spawn=sim_utils.UsdFileCfg(
-            usd_path=str(_APPLE_USD_PATH),
-            # This reviewed offline asset has one explicit 64-vertex convex hull. It avoids
-            # Newton's runtime convexDecomposition, which expands the source apple into ~61
-            # hulls and inflates hand contact and constraint demand at scale.
-            # NewtonMeshCollisionPropertiesCfg (rather than the generic MeshCollisionPropertiesCfg)
-            # The default mesh_approximation_name="convexHull" remains safe: Isaac Lab and
-            # Newton process each collision-enabled Mesh prim independently.
+        prim_path="{ENV_REGEX_NS}/Object",
+        spawn=sim_utils.MultiUsdFileCfg(
+            usd_path=[_object_usd_path(name) for name in OBJECT_NAMES],
+            random_choice=False,
+            # Every reviewed asset contains explicit collision-enabled convex hull prims. The
+            # default approximation remains safe because Newton processes each hull independently.
             collision_props=sim_utils.CollisionPropertiesCfg(
                 mesh_collision_property=sim_utils.NewtonMeshCollisionPropertiesCfg(
                     mesh_approximation_name="convexHull", max_hull_vertices=None
                 )
             ),
         ),
-        # The reset path applies ``object_spawn_height_offset_cm`` to this rest baseline.
+        # The reset path replaces z with the selected asset's canonical rest-height metadata.
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.35, -0.05, object_rest_height)),
     )
 
@@ -697,6 +745,22 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         if unknown:
             paths = "\n".join(f"  - {path}" for path in unknown)
             raise ValueError(f"Undeclared environment config field(s):\n{paths}")
+        # Hydra preserves an unquoted ``[Name,Name]`` override as one string for this external
+        # configclass. Normalize that documented CLI form while retaining native list values.
+        if isinstance(self.active_objects, str):
+            value = self.active_objects.strip()
+            if value.startswith("[") and value.endswith("]"):
+                value = value[1:-1]
+            self.active_objects = [name.strip().strip("'\"") for name in value.split(",") if name.strip()]
+        if not self.active_objects:
+            raise ValueError("active_objects must contain at least one object name.")
+        duplicates = sorted({name for name in self.active_objects if self.active_objects.count(name) > 1})
+        if duplicates:
+            raise ValueError(f"active_objects contains duplicate names: {duplicates}.")
+        unknown_objects = sorted(set(self.active_objects) - set(OBJECT_NAMES))
+        if unknown_objects:
+            raise ValueError(f"Unknown active_objects {unknown_objects}; expected a subset of {list(OBJECT_NAMES)}.")
+        self.object_cfg.spawn.usd_path = [_object_usd_path(name) for name in self.active_objects]
 
 
 def _run_profile_cfg(
