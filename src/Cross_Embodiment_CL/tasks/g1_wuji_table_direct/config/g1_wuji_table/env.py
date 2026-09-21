@@ -51,6 +51,7 @@ from .env_cfg import (
     STUDENT_DEPTH_LETTERBOX,
     G1WujiTableEnvCfg,
 )
+from .openusd_work import limit_openusd_scene_import, restore_openusd_concurrency
 from .virtual_force import (
     VirtualForceOutput,
     VirtualForcePipeline,
@@ -391,6 +392,11 @@ class G1WujiTableEnv(DirectRLEnv):
         global _object_clone_seed
 
         self._student_depth_preview: torch.Tensor | None = None
+        try:
+            cfg.validate_config()
+        except Exception:
+            restore_openusd_concurrency()
+            raise
         clone_seed = cfg.seed
         if clone_seed is None:
             clone_seed = int(np.random.default_rng().integers(np.iinfo(np.int64).max))
@@ -415,12 +421,14 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         from isaaclab_newton.physics import NewtonManager
 
+        limit_openusd_scene_import()
         NewtonManager._per_world_builder_hooks.append(padding_hook)
         try:
             super().__init__(cfg, render_mode, **kwargs)
         finally:
             if padding_hook in NewtonManager._per_world_builder_hooks:
                 NewtonManager._per_world_builder_hooks.remove(padding_hook)
+            restore_openusd_concurrency()
 
         self.arm_joint_ids, _ = self.robot.find_joints(self._ARM_JOINT_NAMES, preserve_order=True)
         self.wuji_joint_ids, _ = self.robot.find_joints(self._WUJI_JOINT_NAMES, preserve_order=True)

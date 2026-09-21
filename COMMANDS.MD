@@ -6,7 +6,7 @@ All 11 reviewed YCB objects are active by default and are assigned one per envir
 subset by appending, for example:
 
 ```bash
-env.active_objects=[YcbApple,YcbBanana,YcbTomatoSoupCan]
+env.active_objects=YcbApple,YcbBanana,YcbTomatoSoupCan
 ```
 
 ## Train

@@ -12,6 +12,9 @@ import math
 from collections.abc import Mapping
 from pathlib import Path
 
+# This import must precede Isaac Lab imports so OpenUSD's worker arena is still configurable.
+from . import openusd_work as _openusd_work  # isort: skip  # noqa: F401
+
 from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
 
 import isaaclab.sim as sim_utils
@@ -498,7 +501,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Object-bank subset assigned one-per-environment at initialization.
 
     Override from the CLI with, for example,
-    ``env.active_objects=[YcbApple,YcbBanana]``. Assignment is balanced across the selected
+    ``env.active_objects=YcbApple,YcbBanana``. Assignment is balanced across the selected
     names and shuffled from the environment seed; an environment keeps its object across resets.
     """
     log_control_metrics: bool = False
@@ -745,8 +748,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         if unknown:
             paths = "\n".join(f"  - {path}" for path in unknown)
             raise ValueError(f"Undeclared environment config field(s):\n{paths}")
-        # Hydra preserves an unquoted ``[Name,Name]`` override as one string for this external
-        # configclass. Normalize that documented CLI form while retaining native list values.
+        # Hydra preserves the documented comma-separated override as one string for this external
+        # configclass. Normalize it while retaining native list values and bracket compatibility.
         if isinstance(self.active_objects, str):
             value = self.active_objects.strip()
             if value.startswith("[") and value.endswith("]"):

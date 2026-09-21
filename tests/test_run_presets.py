@@ -67,7 +67,7 @@ def test_active_objects_cli_subset_drives_multi_usd_bank():
     env_cfg, _ = resolve_task_config(
         TASK,
         AGENT,
-        overrides=["env.active_objects=[YcbBanana,YcbTomatoSoupCan]"],
+        overrides=["env.active_objects=YcbBanana,YcbTomatoSoupCan"],
     )
 
     env_cfg.validate()
