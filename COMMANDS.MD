@@ -180,6 +180,12 @@ Replace the existing preset selector with:
 presets=<run-profile>,dr_none env.adr.initial_level=0 env.adr.gravity_start=<gravity-fraction>
 ```
 
+### Disable actuator dynamics DR
+
+```bash
+env.adr.actuator_dynamics_enabled=False
+```
+
 ## Miscellaneous
 
 ### TensorBoard

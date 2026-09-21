@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import importlib.util
-import math
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -328,7 +327,7 @@ class G1WujiTableAdrCfg:
     goal_alpha_enabled: bool = True
     """Whether ADR strength increases the shaped goal-reward sharpness."""
     extra_enabled: bool = False
-    """Whether the extra observation-noise, latency, hand-scale, friction, and mass terms are active."""
+    """Whether observation, action, contact, object, camera, and actuator randomization is active."""
     sensor_noise_enabled: bool = True
     """Whether the extra ADR master enables observation noise and bias."""
     action_latency_enabled: bool = True
@@ -339,6 +338,18 @@ class G1WujiTableAdrCfg:
     """Whether the extra ADR master enables friction randomization."""
     mass_enabled: bool = True
     """Whether the extra ADR master enables apple mass randomization."""
+    actuator_dynamics_enabled: bool = True
+    """Whether the extra ADR master enables controlled-joint dynamics randomization."""
+    actuator_stiffness_scale_range: tuple[float, float] = (0.5, 1.5)
+    """Full-strength multiplicative stiffness range for the right arm and Wuji actuators."""
+    actuator_damping_scale_range: tuple[float, float] = (0.5, 1.5)
+    """Full-strength multiplicative damping range for the right arm and Wuji actuators."""
+    actuator_armature_scale_range: tuple[float, float] = (0.75, 1.25)
+    """Full-strength multiplicative armature range for the right arm and Wuji joints."""
+    actuator_effort_limit_scale_range: tuple[float, float] = (0.8, 1.2)
+    """Full-strength multiplicative effort-limit range for the right arm and Wuji joints."""
+    actuator_joint_friction_range: tuple[float, float] = (0.0, 0.1)
+    """Full-strength additive joint-friction range for the right arm and Wuji joints."""
     joint_pos_obs_bias: float = 0.01
     """Per-episode joint-position observation bias half-width [rad]."""
     joint_pos_obs_noise: float = 0.003
@@ -419,6 +430,7 @@ class G1WujiTableAdrPresetCfg(PresetCfg):
         hand_target_scale_enabled=False,
         friction_enabled=False,
         mass_enabled=False,
+        actuator_dynamics_enabled=False,
     )
     dr_full: G1WujiTableAdrCfg = default.replace(
         enabled=True,
@@ -433,6 +445,7 @@ class G1WujiTableAdrPresetCfg(PresetCfg):
         hand_target_scale_enabled=True,
         friction_enabled=True,
         mass_enabled=True,
+        actuator_dynamics_enabled=True,
     )
 
 
@@ -493,12 +506,6 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Uniform target-frame y-coordinate range [m] in the environment frame."""
     goal_spawn_z_range = (0.10, object_spawn_z_range[1])
     """Uniform target-frame z-coordinate range [m] in the environment frame."""
-    goal_roll_range = (-math.radians(30.0), math.radians(30.0))
-    """Uniform target-frame roll range [rad] about the nominal world frame."""
-    goal_pitch_range = (-math.radians(30.0), math.radians(30.0))
-    """Uniform target-frame pitch range [rad] about the nominal world frame."""
-    goal_yaw_range = (-math.radians(30.0), math.radians(30.0))
-    """Uniform target-frame yaw range [rad] about the nominal world frame."""
     object_spawn_height_offset_cm = 5.0
     """Legacy vertical apple spawn offset [cm]; randomized reset uses :attr:`object_spawn_z_range`."""
     reset: G1WujiTableResetCfg = G1WujiTableResetCfg()
@@ -549,7 +556,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     goal_frame_marker_cfg = FRAME_MARKER_CFG.copy()
     goal_frame_marker_cfg.prim_path = "/Visuals/CrossEmbodiment/goal_frame"
     goal_frame_marker_cfg.markers["frame"].scale = (0.1, 0.1, 0.1)
-    """Uniformly scaled axis-frame marker for the randomized target orientation."""
+    """Uniformly scaled axis-frame marker for the fixed target orientation."""
     adr_spawn_area_marker_cfg = VisualizationMarkersCfg(
         prim_path="/Visuals/CrossEmbodiment/adr_spawn_area",
         markers={
@@ -697,6 +704,20 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         if unknown:
             paths = "\n".join(f"  - {path}" for path in unknown)
             raise ValueError(f"Undeclared environment config field(s):\n{paths}")
+        scale_ranges = {
+            "adr.actuator_stiffness_scale_range": self.adr.actuator_stiffness_scale_range,
+            "adr.actuator_damping_scale_range": self.adr.actuator_damping_scale_range,
+            "adr.actuator_armature_scale_range": self.adr.actuator_armature_scale_range,
+            "adr.actuator_effort_limit_scale_range": self.adr.actuator_effort_limit_scale_range,
+        }
+        invalid_scales = {
+            name: bounds for name, bounds in scale_ranges.items() if bounds[0] <= 0.0 or bounds[1] < bounds[0]
+        }
+        friction = self.adr.actuator_joint_friction_range
+        if friction[0] < 0.0 or friction[1] < friction[0]:
+            invalid_scales["adr.actuator_joint_friction_range"] = friction
+        if invalid_scales:
+            raise ValueError(f"Actuator DR ranges must be ordered and nonnegative: {invalid_scales}.")
 
 
 def _run_profile_cfg(

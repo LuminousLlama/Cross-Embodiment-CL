@@ -6,7 +6,6 @@
 """Tests for the G1-Wuji run presets, resolved the way ``isaaclab train``/``play`` resolve them."""
 
 import pytest
-import torch
 
 from isaaclab_physx.physics import PhysxCfg
 
@@ -37,9 +36,6 @@ def test_default_reset_pose_sampling_is_task_randomization_not_adr():
     assert env_cfg.goal_spawn_x_range == pytest.approx((0.25, 0.35))
     assert env_cfg.goal_spawn_y_range == pytest.approx((-0.30, -0.10))
     assert env_cfg.goal_spawn_z_range == pytest.approx((0.10, env_cfg.object_spawn_z_range[1]))
-    assert env_cfg.goal_roll_range == pytest.approx((-torch.pi / 6, torch.pi / 6))
-    assert env_cfg.goal_pitch_range == pytest.approx((-torch.pi / 6, torch.pi / 6))
-    assert env_cfg.goal_yaw_range == pytest.approx((-torch.pi / 6, torch.pi / 6))
     assert env_cfg.success_keypoint_error_threshold == pytest.approx(0.10)
     assert env_cfg.adr.spawn_enabled is False
     assert env_cfg.adept_gate_force == pytest.approx(0.3)
@@ -137,6 +133,7 @@ def test_train_and_dr_none_select_nominal_gravity_without_randomized_terms():
             adr.hand_target_scale_enabled,
             adr.friction_enabled,
             adr.mass_enabled,
+            adr.actuator_dynamics_enabled,
         )
     )
 
@@ -162,8 +159,14 @@ def test_eval_and_dr_full_enable_all_randomized_terms_at_full_level():
             adr.hand_target_scale_enabled,
             adr.friction_enabled,
             adr.mass_enabled,
+            adr.actuator_dynamics_enabled,
         )
     )
+    assert adr.actuator_stiffness_scale_range == pytest.approx((0.5, 1.5))
+    assert adr.actuator_damping_scale_range == pytest.approx((0.5, 1.5))
+    assert adr.actuator_armature_scale_range == pytest.approx((0.75, 1.25))
+    assert adr.actuator_effort_limit_scale_range == pytest.approx((0.8, 1.2))
+    assert adr.actuator_joint_friction_range == pytest.approx((0.0, 0.1))
 
 
 @pytest.mark.unit

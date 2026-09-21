@@ -189,6 +189,91 @@ def test_sensor_noise_is_actor_only_and_critic_gets_dr_state() -> None:
 
 
 @pytest.mark.integration
+def test_full_dr_randomizes_controlled_joint_dynamics_within_configured_ranges() -> None:
+    """Catch actuator DR that misses a controlled joint or configured physical bound."""
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    env_cfg = resolve_presets(env_cfg, selected=("newton_mjwarp", "dr_full"))
+    env_cfg.scene.num_envs = 32
+    env_cfg.sim.visualizer_cfgs = []
+    env_cfg.debug.keypoint_markers = False
+    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    try:
+        env.reset(seed=42)
+        unwrapped = env.unwrapped
+        robot = unwrapped.robot
+        joint_ids = torch.as_tensor(
+            unwrapped.arm_joint_ids + unwrapped.wuji_joint_ids, dtype=torch.long, device=unwrapped.device
+        )
+        waist_ids = unwrapped.waist_joint_ids
+        nominal_properties = tuple(
+            values[:, joint_ids].clone()
+            for values in (
+                robot.data.joint_stiffness.torch,
+                robot.data.joint_damping.torch,
+                robot.data.joint_armature.torch,
+                robot.data.joint_effort_limits.torch,
+            )
+        )
+        nominal_waist_properties = tuple(
+            values[:, waist_ids].clone()
+            for values in (
+                robot.data.joint_stiffness.torch,
+                robot.data.joint_damping.torch,
+                robot.data.joint_armature.torch,
+                robot.data.joint_effort_limits.torch,
+                robot.data.joint_friction_coeff.torch,
+            )
+        )
+
+        actions = torch.zeros((unwrapped.num_envs, unwrapped.cfg.action_space), device=unwrapped.device)
+        for _ in range(env_cfg.adr.physics_update_every_steps):
+            observations, rewards, _, _, _ = env.step(actions)
+
+        for actual, nominal, bounds in zip(
+            (
+                robot.data.joint_stiffness.torch[:, joint_ids],
+                robot.data.joint_damping.torch[:, joint_ids],
+                robot.data.joint_armature.torch[:, joint_ids],
+                robot.data.joint_effort_limits.torch[:, joint_ids],
+            ),
+            nominal_properties,
+            (
+                env_cfg.adr.actuator_stiffness_scale_range,
+                env_cfg.adr.actuator_damping_scale_range,
+                env_cfg.adr.actuator_armature_scale_range,
+                env_cfg.adr.actuator_effort_limit_scale_range,
+            ),
+            strict=True,
+        ):
+            ratio = actual / nominal
+            assert torch.all(ratio >= bounds[0] - 1.0e-5)
+            assert torch.all(ratio <= bounds[1] + 1.0e-5)
+            assert not torch.allclose(ratio, torch.ones_like(ratio))
+
+        joint_friction = robot.data.joint_friction_coeff.torch[:, joint_ids]
+        friction_low, friction_high = env_cfg.adr.actuator_joint_friction_range
+        assert torch.all(joint_friction >= friction_low - 1.0e-6)
+        assert torch.all(joint_friction <= friction_high + 1.0e-6)
+        assert torch.count_nonzero(joint_friction) > 0
+        for actual, nominal in zip(
+            (
+                robot.data.joint_stiffness.torch,
+                robot.data.joint_damping.torch,
+                robot.data.joint_armature.torch,
+                robot.data.joint_effort_limits.torch,
+                robot.data.joint_friction_coeff.torch,
+            ),
+            nominal_waist_properties,
+            strict=True,
+        ):
+            assert torch.equal(actual[:, waist_ids], nominal)
+        assert torch.isfinite(observations["policy"]).all()
+        assert torch.isfinite(rewards).all()
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
 def test_nonfinite_state_returns_zero_terminal_reward() -> None:
     """A state rejected by the done guard must not leak a NaN reward to the trainer."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")

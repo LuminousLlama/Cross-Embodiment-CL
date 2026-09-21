@@ -8,6 +8,8 @@
 import pytest
 import torch
 
+from isaaclab.utils.math import quat_apply
+
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (
     latch_first_success_steps,
     sample_goal_poses_outside_success_threshold,
@@ -41,23 +43,52 @@ def test_sample_spawn_offsets_reaches_the_full_strength_box():
 
 @pytest.mark.unit
 def test_goal_sampler_rejects_initially_successful_target_poses():
-    object_positions = torch.zeros((128, 3))
-    object_rotations = torch.tensor((0.0, 0.0, 0.0, 1.0)).repeat(128, 1)
+    num_samples = 20_000
+    object_positions = torch.stack(
+        (
+            torch.empty(num_samples).uniform_(0.25, 0.35),
+            torch.empty(num_samples).uniform_(-0.30, -0.10),
+            torch.empty(num_samples).uniform_(0.04, 0.24),
+        ),
+        dim=-1,
+    )
+    object_rotations = torch.tensor((1.0, 0.0, 0.0, 0.0)).repeat(num_samples, 1)
     local_keypoints = torch.cartesian_prod(*(3 * [torch.tensor((-0.15, 0.15))]))
     goals, rotations = sample_goal_poses_outside_success_threshold(
         object_positions,
         object_rotations,
         local_keypoints,
-        position_ranges=((0.0, 0.10), (0.0, 0.10), (0.0, 0.10)),
-        euler_ranges=((0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+        position_ranges=((0.25, 0.35), (-0.30, -0.10), (0.10, 0.24)),
         success_threshold=0.10,
     )
-    keypoint_error = torch.linalg.vector_norm(
-        goals.unsqueeze(1) - local_keypoints.unsqueeze(0) + local_keypoints.unsqueeze(0), dim=-1
-    ).mean(dim=1)
+    object_keypoints = quat_apply(
+        object_rotations.unsqueeze(1).expand(-1, local_keypoints.shape[0], -1),
+        local_keypoints.unsqueeze(0).expand(num_samples, -1, -1),
+    ) + object_positions.unsqueeze(1)
+    goal_keypoints = quat_apply(
+        rotations.unsqueeze(1).expand(-1, local_keypoints.shape[0], -1),
+        local_keypoints.unsqueeze(0).expand(num_samples, -1, -1),
+    ) + goals.unsqueeze(1)
+    keypoint_error = torch.linalg.vector_norm(object_keypoints - goal_keypoints, dim=-1).mean(dim=1)
 
     assert torch.all(keypoint_error > 0.10)
     assert torch.allclose(rotations, object_rotations)
+
+
+@pytest.mark.unit
+def test_goal_sampler_rejects_an_infeasible_position_range_without_hanging():
+    object_positions = torch.zeros((4, 3))
+    object_rotations = torch.tensor((1.0, 0.0, 0.0, 0.0)).repeat(4, 1)
+    local_keypoints = torch.cartesian_prod(*(3 * [torch.tensor((-0.15, 0.15))]))
+
+    with pytest.raises(RuntimeError, match="Unable to sample 4 target poses"):
+        sample_goal_poses_outside_success_threshold(
+            object_positions,
+            object_rotations,
+            local_keypoints,
+            position_ranges=((0.0, 0.0), (0.0, 0.0), (0.0, 0.0)),
+            success_threshold=0.10,
+        )
 
 
 @pytest.mark.unit

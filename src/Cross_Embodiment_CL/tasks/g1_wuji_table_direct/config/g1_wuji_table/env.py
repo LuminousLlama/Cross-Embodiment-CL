@@ -17,7 +17,12 @@ import isaaclab.sim as sim_utils
 from isaaclab import cloner
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.envs import DirectRLEnv
-from isaaclab.envs.mdp.events import randomize_rigid_body_mass, randomize_rigid_body_material
+from isaaclab.envs.mdp.events import (
+    randomize_actuator_gains,
+    randomize_joint_parameters,
+    randomize_rigid_body_mass,
+    randomize_rigid_body_material,
+)
 from isaaclab.managers import EventTermCfg, SceneEntityCfg
 from isaaclab.markers import VisualizationMarkers
 from isaaclab.sensors import Camera, CameraCfg, ContactSensor
@@ -99,13 +104,13 @@ def sample_goal_poses_outside_success_threshold(
     object_rotations: torch.Tensor,
     local_keypoints: torch.Tensor,
     position_ranges: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
-    euler_ranges: tuple[tuple[float, float], tuple[float, float], tuple[float, float]],
     success_threshold: float,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Sample target poses until each is outside the mean-keypoint success radius.
+    """Sample fixed-orientation target poses outside the mean-keypoint success radius.
 
     This task reset sampler is intentionally independent of ADR.  It samples each target against
-    its already-sampled apple pose, rejecting only targets that would begin successfully solved.
+    its already-sampled apple pose, copies the apple's fixed spawn orientation, and rejects targets
+    that would begin successfully solved.
     """
     num_envs = object_positions.shape[0]
     device = object_positions.device
@@ -116,12 +121,13 @@ def sample_goal_poses_outside_success_threshold(
         local_keypoints.unsqueeze(0).expand(num_envs, -1, -1),
     ) + object_positions.unsqueeze(1)
     pending = torch.arange(num_envs, device=device)
-    while pending.numel() > 0:
+    for _ in range(128):
+        if pending.numel() == 0:
+            break
         candidate_positions = torch.stack(
             [torch.empty(len(pending), device=device).uniform_(*bounds) for bounds in position_ranges], dim=-1
         )
-        candidate_euler = [torch.empty(len(pending), device=device).uniform_(*bounds) for bounds in euler_ranges]
-        candidate_rotations = quat_from_euler_xyz(*candidate_euler)
+        candidate_rotations = object_rotations[pending]
         candidate_keypoints = quat_apply(
             candidate_rotations.unsqueeze(1).expand(-1, local_keypoints.shape[0], -1),
             local_keypoints.unsqueeze(0).expand(len(pending), -1, -1),
@@ -132,6 +138,11 @@ def sample_goal_poses_outside_success_threshold(
         goal_positions[accepted_ids] = candidate_positions[accepted]
         goal_rotations[accepted_ids] = candidate_rotations[accepted]
         pending = pending[~accepted]
+    if pending.numel() > 0:
+        raise RuntimeError(
+            f"Unable to sample {pending.numel()} target poses outside the {success_threshold:.6g} m "
+            "success threshold after 128 batches."
+        )
     return goal_positions, goal_rotations
 
 
@@ -310,7 +321,7 @@ class G1WujiTableEnv(DirectRLEnv):
     _OBSERVATION_DIM = 171
     # gravity, ADR strength, goal alpha, robot offset, hand target scale, action delay,
     # joint position/velocity biases, object-position bias, three effective friction values,
-    # and object mass/inertia scales.  There is no observation delay or actuator DR in this task.
+    # and object mass/inertia scales. Actuator DR stays hidden to preserve the teacher-checkpoint contract.
     _CRITIC_PRIVILEGED_DIM = 76
     _CRITIC_OBSERVATION_DIM = _OBSERVATION_DIM + _CRITIC_PRIVILEGED_DIM
     # The deployable proprioceptive prefix of the privileged observation: joint positions and
@@ -402,7 +413,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._action_substep = 0
         self.waist_joint_targets = torch.zeros((self.num_envs, len(self.waist_joint_ids)), device=self.device)
         self.goal_position = torch.tensor(self.cfg.goal_position, device=self.device).repeat(self.num_envs, 1)
-        self.goal_rotation = torch.tensor((0.0, 0.0, 0.0, 1.0), device=self.device).repeat(self.num_envs, 1)
+        self.goal_rotation = torch.tensor((1.0, 0.0, 0.0, 0.0), device=self.device).repeat(self.num_envs, 1)
         self.object_start_position = torch.tensor(self.cfg.object_cfg.init_state.pos, device=self.device).repeat(
             self.num_envs, 1
         )
@@ -440,6 +451,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._adr_hand_target_scale_active = bool(self._adr_extra_active and self.cfg.adr.hand_target_scale_enabled)
         self._adr_friction_active = bool(self._adr_extra_active and self.cfg.adr.friction_enabled)
         self._adr_mass_active = bool(self._adr_extra_active and self.cfg.adr.mass_enabled)
+        self._adr_actuator_dynamics_active = bool(self._adr_extra_active and self.cfg.adr.actuator_dynamics_enabled)
         if self._adr_action_latency_active:
             self._adr_action_buffer = ActionDelayBuffer(
                 capacity=self.cfg.adr.action_latency_max_steps + 1,
@@ -461,7 +473,41 @@ class G1WujiTableEnv(DirectRLEnv):
                 ),
                 self,
             )
-        if self._adr_friction_active or self._adr_mass_active:
+        if self._adr_actuator_dynamics_active:
+            self._adr_actuator_asset_cfg = SceneEntityCfg(
+                "robot", joint_names=list(self._ARM_JOINT_NAMES + self._WUJI_JOINT_NAMES)
+            )
+            self._adr_actuator_asset_cfg.resolve(self.scene)
+            self._adr_actuator_gain_term = randomize_actuator_gains(
+                EventTermCfg(
+                    func=randomize_actuator_gains,
+                    mode="reset",
+                    params={
+                        "asset_cfg": self._adr_actuator_asset_cfg,
+                        "stiffness_distribution_params": self.cfg.adr.actuator_stiffness_scale_range,
+                        "damping_distribution_params": self.cfg.adr.actuator_damping_scale_range,
+                        "operation": "scale",
+                    },
+                ),
+                self,
+            )
+            self._adr_actuator_friction_term = randomize_joint_parameters(
+                EventTermCfg(
+                    func=randomize_joint_parameters,
+                    mode="reset",
+                    params={
+                        "asset_cfg": self._adr_actuator_asset_cfg,
+                        "friction_distribution_params": self.cfg.adr.actuator_joint_friction_range,
+                        "operation": "add",
+                    },
+                ),
+                self,
+            )
+            joint_ids = torch.as_tensor(self._adr_actuator_asset_cfg.joint_ids, dtype=torch.long, device=self.device)
+            self._adr_actuator_joint_ids = joint_ids
+            self._adr_default_armature = self.robot.data.joint_armature.torch[:, joint_ids].clone()
+            self._adr_default_effort_limits = self.robot.data.joint_effort_limits.torch[:, joint_ids].clone()
+        if self._adr_friction_active or self._adr_mass_active or self._adr_actuator_dynamics_active:
             self._adr_physics_pending = PendingPhysicsRandomization(
                 self.num_envs, self.cfg.adr.physics_update_every_steps, device=self.device
             )
@@ -633,6 +679,53 @@ class G1WujiTableEnv(DirectRLEnv):
         default_mass = self._adr_mass_term.default_mass[env_ids, 0]
         self._adr_object_mass_scale[env_ids] = self.apple.data.body_mass.torch[env_ids, 0] / default_mass
         self._adr_object_inertia_scale[env_ids] = self._adr_object_mass_scale[env_ids]
+
+    @staticmethod
+    def _scale_range_from_nominal(bounds: tuple[float, float], strength: float) -> tuple[float, float]:
+        """Interpolate a multiplicative range from one to its full-strength endpoints."""
+        return 1.0 + strength * (bounds[0] - 1.0), 1.0 + strength * (bounds[1] - 1.0)
+
+    def _apply_adr_actuator_dynamics(self, env_ids: torch.Tensor, strength: float) -> None:
+        """Randomize controlled-joint gains, armature, effort, and friction from nominal values."""
+        stiffness_range = self._scale_range_from_nominal(self.cfg.adr.actuator_stiffness_scale_range, strength)
+        damping_range = self._scale_range_from_nominal(self.cfg.adr.actuator_damping_scale_range, strength)
+        self._adr_actuator_gain_term(
+            self,
+            env_ids,
+            asset_cfg=self._adr_actuator_asset_cfg,
+            stiffness_distribution_params=stiffness_range,
+            damping_distribution_params=damping_range,
+            operation="scale",
+            distribution="uniform",
+        )
+        armature_range = self._scale_range_from_nominal(self.cfg.adr.actuator_armature_scale_range, strength)
+        armature_scale = torch.empty((len(env_ids), len(self._adr_actuator_joint_ids)), device=self.device).uniform_(
+            *armature_range
+        )
+        self.robot.write_joint_armature_to_sim_index(
+            armature=self._adr_default_armature[env_ids] * armature_scale,
+            joint_ids=self._adr_actuator_joint_ids,
+            env_ids=env_ids,
+        )
+        friction = self.cfg.adr.actuator_joint_friction_range
+        self._adr_actuator_friction_term(
+            self,
+            env_ids,
+            asset_cfg=self._adr_actuator_asset_cfg,
+            friction_distribution_params=(strength * friction[0], strength * friction[1]),
+            operation="add",
+            distribution="uniform",
+        )
+        effort_range = self._scale_range_from_nominal(self.cfg.adr.actuator_effort_limit_scale_range, strength)
+        effort_scale = torch.empty((len(env_ids), len(self._adr_actuator_joint_ids)), device=self.device).uniform_(
+            *effort_range
+        )
+        effort_limits = self._adr_default_effort_limits[env_ids] * effort_scale
+        self.robot.write_joint_effort_limit_to_sim_index(
+            limits=effort_limits,
+            joint_ids=self._adr_actuator_joint_ids,
+            env_ids=env_ids,
+        )
 
     def _randomize_depth_camera(self, env_ids: torch.Tensor, strength: float) -> None:
         """Sample fixed-per-episode student-camera extrinsics, intrinsics, and calibration."""
@@ -1197,10 +1290,9 @@ class G1WujiTableEnv(DirectRLEnv):
     def _get_critic_privileged_state(self) -> torch.Tensor:
         """Return clean, per-environment DR state for the asymmetric value function.
 
-        Only randomizations implemented by this environment are represented.  In particular, there are no
-        actuator stiffness/damping, joint-friction, armature, torque-limit, or observation-delay randomizers
-        to expose.  Newton has one friction coefficient rather than independent static/dynamic coefficients;
-        the three entries are the effective means for apple, table, and hand shapes.
+        The fixed-width state intentionally omits actuator dynamics DR so existing teacher checkpoints remain
+        loadable for distillation. Newton has one contact-friction coefficient rather than independent
+        static/dynamic coefficients; the three entries are the effective means for apple, table, and hand shapes.
         """
         adr_strength = self.adr.strength if self.cfg.adr.enabled else 0.0
         if self.cfg.reward_mode == "adept":
@@ -1351,9 +1443,9 @@ class G1WujiTableEnv(DirectRLEnv):
             self.adr.update(self._adr_successful_episodes, self._adr_completed_episodes)
             self._adr_successful_episodes = 0
             self._adr_completed_episodes = 0
-        if (self._adr_friction_active or self._adr_mass_active) and self._adr_physics_pending.due(
-            self.common_step_counter
-        ):
+        if (
+            self._adr_friction_active or self._adr_mass_active or self._adr_actuator_dynamics_active
+        ) and self._adr_physics_pending.due(self.common_step_counter):
             pending_ids = self._adr_physics_pending.take()
             if len(pending_ids) > 0:
                 strength = self.adr.strength
@@ -1361,6 +1453,8 @@ class G1WujiTableEnv(DirectRLEnv):
                     self._apply_adr_friction(pending_ids, strength)
                 if self._adr_mass_active:
                     self._apply_adr_mass(pending_ids, strength)
+                if self._adr_actuator_dynamics_active:
+                    self._apply_adr_actuator_dynamics(pending_ids, strength)
         self._update_keypoint_markers(current_keypoints=current_keypoints, goal_keypoints=goal_keypoints)
         return reward
 
@@ -1921,7 +2015,6 @@ class G1WujiTableEnv(DirectRLEnv):
                 self.cfg.goal_spawn_y_range,
                 self.cfg.goal_spawn_z_range,
             ),
-            euler_ranges=(self.cfg.goal_roll_range, self.cfg.goal_pitch_range, self.cfg.goal_yaw_range),
             success_threshold=self.cfg.success_keypoint_error_threshold,
         )
         self.goal_position[env_ids] = goal_positions
@@ -1965,8 +2058,8 @@ class G1WujiTableEnv(DirectRLEnv):
                 self._adr_action_buffer.reset(env_ids)
             if self._adr_camera_active:
                 self._randomize_depth_camera(env_ids, strength)
-        if self._adr_friction_active or self._adr_mass_active:
-            # Friction/mass are physics-model writes; batch them (see PendingPhysicsRandomization)
+        if self._adr_friction_active or self._adr_mass_active or self._adr_actuator_dynamics_active:
+            # Physics properties are batched (see PendingPhysicsRandomization)
             # instead of writing per reset, to avoid a Newton model-change notification per step.
             self._adr_physics_pending.mark(env_ids)
         self._update_keypoint_markers()
