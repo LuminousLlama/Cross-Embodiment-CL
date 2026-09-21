@@ -12,6 +12,9 @@ import math
 from collections.abc import Mapping
 from pathlib import Path
 
+# This import must precede Isaac Lab imports so OpenUSD's worker arena is still configurable.
+from . import openusd_work as _openusd_work  # isort: skip  # noqa: F401
+
 from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
 
 import isaaclab.sim as sim_utils
@@ -509,7 +512,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Object-bank subset assigned one-per-environment at initialization.
 
     Override from the CLI with, for example,
-    ``env.active_objects=[YcbApple,YcbBanana]``. Assignment is balanced across the selected
+    ``env.active_objects=YcbApple,YcbBanana``. Assignment is balanced across the selected
     names and shuffled from the environment seed; an environment keeps its object across resets.
     """
     log_control_metrics: bool = False
@@ -629,14 +632,14 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_[^/]+/G1Wuji/wujihand/right_palm_link",
         update_period=0.0,
         history_length=0,
-        # Setup replaces this with the configured apple's exact path.
+        # Setup replaces this with the configured object's exact path.
         filter_prim_paths_expr=[],
         max_contact_data_count_per_prim=64,
     )
     """Shared hand-to-scene sensor template, independent of student force observations.
 
     The groups are the palm and the five fingers, each covering every body that owns a collision shape.
-    Each sensor filters one explicit apple. Optional force sensors separately enumerate scene counterparts.
+    Each sensor filters one explicit object. Optional force sensors separately enumerate scene counterparts.
     """
     torso_contact_sensor_cfg = ContactSensorCfg(
         prim_path="/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link",
@@ -760,8 +763,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         if unknown:
             paths = "\n".join(f"  - {path}" for path in unknown)
             raise ValueError(f"Undeclared environment config field(s):\n{paths}")
-        # Hydra preserves an unquoted ``[Name,Name]`` override as one string for this external
-        # configclass. Normalize that documented CLI form while retaining native list values.
+        # Hydra preserves the documented comma-separated override as one string for this external
+        # configclass. Normalize it while retaining native list values and bracket compatibility.
         if isinstance(self.active_objects, str):
             value = self.active_objects.strip()
             if value.startswith("[") and value.endswith("]"):
@@ -775,7 +778,8 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         unknown_objects = sorted(set(self.active_objects) - set(OBJECT_NAMES))
         if unknown_objects:
             raise ValueError(f"Unknown active_objects {unknown_objects}; expected a subset of {list(OBJECT_NAMES)}.")
-        self.object_cfg.spawn.usd_path = [_object_usd_path(name) for name in self.active_objects]
+        if isinstance(self.object_cfg.spawn, sim_utils.MultiUsdFileCfg):
+            self.object_cfg.spawn.usd_path = [_object_usd_path(name) for name in self.active_objects]
 
 
 def _run_profile_cfg(

@@ -54,6 +54,7 @@ def test_contact_group_forces_follow_target_full_path_across_counterpart_order()
         fake_env = SimpleNamespace(
             contact_sensors=dict(zip(("thumb", "index"), force_matrices, strict=True)),
             _target_contact_columns={"thumb": target_column, "index": target_column},
+            contact_groups={"thumb": ("thumb",), "index": ("index",)},
         )
         actual_forces.append(G1WujiTableEnv._contact_group_forces(fake_env))
 

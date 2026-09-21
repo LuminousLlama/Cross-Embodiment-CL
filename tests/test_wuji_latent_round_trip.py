@@ -53,11 +53,16 @@ def test_goal_pose_observation_is_expressed_in_the_robot_base_frame() -> None:
 @pytest.mark.integration
 @pytest.mark.parametrize("physics_preset", ["newton_mjwarp", "isaacsim_physx"])
 @pytest.mark.parametrize("hand_type", ["wuji", "inspire", "dex3"])
-def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset: str, hand_type: str) -> None:
+@pytest.mark.parametrize("object_bank", [False, True])
+def test_observation_uses_raw_joint_positions_and_command_limits(
+    physics_preset: str, hand_type: str, object_bank: bool
+) -> None:
     """Joint order and padding stay correct across different simulator topologies."""
     env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
     env_cfg = resolve_presets(env_cfg, selected=(physics_preset,))
     env_cfg.hand_type = hand_type
+    if object_bank:
+        env_cfg.active_objects = ["YcbApple", "YcbBanana", "YcbTomatoSoupCan"]
     env_cfg.scene.num_envs = 4
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = False
@@ -67,6 +72,10 @@ def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset:
         unwrapped = env.unwrapped
         robot = unwrapped.robot
         observations = unwrapped._get_observations()
+        variants = unwrapped.object_variant_ids
+        assert set(variants) == set(range(len(env_cfg.active_objects)))
+        counts = [variants.count(index) for index in range(len(env_cfg.active_objects))]
+        assert max(counts) - min(counts) <= 1
 
         assert observations["policy"].shape == (4, 191)
         assert observations["student"].shape == (4, 161)
@@ -118,6 +127,12 @@ def test_observation_uses_raw_joint_positions_and_command_limits(physics_preset:
         if hand_type == "wuji":
             assert (wuji_asset_limits[..., 0][:, zero_floor] < 0.0).any()
         assert torch.all(wuji_command_limits[..., 0][:, zero_floor] >= 0.0)
+        for _ in range(4):
+            obs, reward, _, _, _ = env.step(torch.zeros((4, 25), device=unwrapped.device))
+            assert torch.isfinite(obs["policy"]).all()
+            assert torch.isfinite(reward).all()
+        env.reset(seed=42)
+        assert unwrapped.object_variant_ids == variants
     finally:
         env.close()
 
@@ -189,8 +204,8 @@ def test_every_hand_body_sensor_reports_real_target_contact_and_clears(hand_type
         def probe_step(position):
             pose[:, :3] = away
             pose[0, :3] = position
-            task.apple.write_root_pose_to_sim_index(root_pose=pose)
-            task.apple.write_root_velocity_to_sim_index(root_velocity=torch.zeros((2, 6), device=task.device))
+            task.object.write_root_pose_to_sim_index(root_pose=pose)
+            task.object.write_root_velocity_to_sim_index(root_velocity=torch.zeros((2, 6), device=task.device))
             task.scene.write_data_to_sim()
             task.sim.step(render=False)
             task.scene.update(task.physics_dt)

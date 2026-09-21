@@ -58,6 +58,7 @@ from .env_cfg import (
     G1WujiTableEnvCfg,
     _g1_hand_robot_cfg,
 )
+from .openusd_work import limit_openusd_scene_import, restore_openusd_concurrency
 from .virtual_force import (
     VirtualForceOutput,
     VirtualForcePipeline,
@@ -378,6 +379,11 @@ class G1WujiTableEnv(DirectRLEnv):
         global _object_clone_seed
 
         self._student_depth_preview: torch.Tensor | None = None
+        try:
+            cfg.validate_config()
+        except Exception:
+            restore_openusd_concurrency()
+            raise
         self.hand_spec = get_hand_spec(cfg.hand_type)
         self._HAND_POINT_BODY_NAMES = (self.hand_spec.palm_body_name,) + self.hand_spec.tip_body_names
         self._CONTACT_BODY_GROUPS = self.hand_spec.contact_body_groups
@@ -415,12 +421,14 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         from isaaclab_newton.physics import NewtonManager
 
+        limit_openusd_scene_import()
         NewtonManager._per_world_builder_hooks.append(padding_hook)
         try:
             super().__init__(cfg, render_mode, **kwargs)
         finally:
             if padding_hook in NewtonManager._per_world_builder_hooks:
                 NewtonManager._per_world_builder_hooks.remove(padding_hook)
+            restore_openusd_concurrency()
 
         self.arm_joint_ids, _ = self.robot.find_joints(self._ARM_JOINT_NAMES, preserve_order=True)
         self.hand_joint_ids, _ = self.robot.find_joints(self._HAND_JOINT_NAMES, preserve_order=True)

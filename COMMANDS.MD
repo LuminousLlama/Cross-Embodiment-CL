@@ -12,8 +12,11 @@ selection; one selected object is assigned per environment at initialization and
 For example, append:
 
 ```bash
-env.active_objects=[YcbApple,YcbBanana,YcbTomatoSoupCan]
+env.active_objects=YcbApple,YcbBanana,YcbTomatoSoupCan
 ```
+
+For multi-object PhysX runs, append `physics=isaacsim_physx` explicitly. The installed OVPhysX
+runtime does not support this heterogeneous clone plan; `physics=physx` may select OVPhysX automatically.
 
 ## Train
 
