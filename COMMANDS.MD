@@ -138,6 +138,35 @@ uv run python scripts/eval_policy.py \
 
 ## Inspect
 
+### Rebuild Inspire hand USD
+
+```bash
+uv run python scripts/make_hand_colliders.py --hand inspire
+uv run isaaclab -p scripts/export_hand_asset.py --hand inspire --visualizer none
+```
+
+### Inspire hand full-ROM sweep
+
+```bash
+uv run isaaclab -p scripts/sweep_hand_rom.py --hand inspire --visualizer none --device cpu
+uv run python scripts/sweep_hand_newton_rom.py --hand inspire
+```
+
+### Rebuild and sweep Dex3-1 hand
+
+```bash
+uv run python scripts/make_hand_colliders.py --hand dex3
+uv run isaaclab -p scripts/export_hand_asset.py --hand dex3 --visualizer none
+uv run isaaclab -p scripts/sweep_hand_rom.py --hand dex3 --visualizer none --device cpu
+uv run python scripts/sweep_hand_newton_rom.py --hand dex3
+```
+
+Abrupt 0-to-70-degree regression:
+
+```bash
+uv run isaaclab -p scripts/test_inspire_hand_step.py --visualizer none --device cpu
+```
+
 ### Scene with zero actions
 
 ```bash

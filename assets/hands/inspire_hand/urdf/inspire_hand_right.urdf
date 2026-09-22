@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot name="inspire_hand_right">
+  <!-- Extracted from franka_inspire_combined.urdf: Inspire hand only. -->
+  <!-- ======================== -->
+  <!-- Inspire Hand (joints)    -->
+  <!-- ======================== -->
+  <joint name="base_joint" type="fixed">
+    <origin xyz="0. 0. 0.09" rpy="1.57 -0. -1.57"/>
+    <parent link="inspire_hand_base"/>
+    <child link="hand_base_link"/>
+  </joint>
+  <joint name="right_index_1_joint" type="revolute">
+    <origin xyz="-0.040005 0.064623 -0.00345 " rpy="-1.5369525 -1.5707927 -3.1405327"/>
+    <parent link="hand_base_link"/>
+    <child link="right_index_1"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0." upper="1.47" effort="6." velocity="0.7"/>
+  </joint>
+  <joint name="right_index_2_joint" type="revolute">
+    <origin xyz="-0.0016312 -0.00055 -0.032734 " rpy="0. 0. 0."/>
+    <parent link="right_index_1"/>
+    <child link="right_index_2"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0." upper="1.5435" effort="6." velocity="0.7"/>
+    <mimic joint="right_index_1_joint" multiplier="1.05" offset="0.0"/>
+  </joint>
+  <joint name="index_tip_joint" type="fixed">
+    <origin xyz="0. -0.006 -0.053575" rpy="0. 0. 0."/>
+    <parent link="right_index_2"/>
+    <child link="index_tip"/>
+  </joint>
+  <joint name="right_middle_1_joint" type="revolute">
+    <origin xyz="-0.018426 0.065223 -0.00345 " rpy="-1.5544026 -1.5707927 3.1252024"/>
+    <parent link="hand_base_link"/>
+    <child link="right_middle_1"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0." upper="1.47" effort="6." velocity="0.7"/>
+  </joint>
+  <joint name="right_middle_2_joint" type="revolute">
+    <origin xyz="-0.0028436 -0.00055 -0.032651 " rpy="0. 0. 0."/>
+    <parent link="right_middle_1"/>
+    <child link="right_middle_2"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0." upper="1.5435" effort="6." velocity="0.7"/>
+    <mimic joint="right_middle_1_joint" multiplier="1.05" offset="0.0"/>
+  </joint>
+  <joint name="middle_tip_joint" type="fixed">
+    <origin xyz="0. -0.006 -0.0572" rpy="0. 0. 0."/>
+    <parent link="right_middle_2"/>
+    <child link="middle_tip"/>
+  </joint>
+  <joint name="right_ring_1_joint" type="revolute">
+    <origin xyz="0.0032044 0.065057 -0.00345 " rpy="-1.6217828 -1.5707927 3.1401827"/>
+    <parent link="hand_base_link"/>
+    <child link="right_ring_1"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0." upper="1.47" effort="6." velocity="0.7"/>
+  </joint>
+  <joint name="right_ring_2_joint" type="revolute">
+    <origin xyz="-0.0031431 -0.00055 -0.032624 " rpy="0. 0. 0."/>
+    <parent link="right_ring_1"/>
+    <child link="right_ring_2"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0." upper="1.5435" effort="6." velocity="0.7"/>
+    <mimic joint="right_ring_1_joint" multiplier="1.05" offset="0.0"/>
+  </joint>
+  <joint name="ring_tip_joint" type="fixed">
+    <origin xyz="0. -0.006 -0.05365" rpy="0. 0. 0."/>
+    <parent link="right_ring_2"/>
+    <child link="ring_tip"/>
+  </joint>
+  <joint name="right_little_1_joint" type="revolute">
+    <origin xyz="0.02459 0.061875 -0.00345 " rpy="-1.6722852 -1.5707927 3.1383853"/>
+    <parent link="hand_base_link"/>
+    <child link="right_little_1"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0." upper="1.47" effort="6." velocity="0.7"/>
+  </joint>
+  <joint name="right_little_2_joint" type="revolute">
+    <origin xyz="-0.005182 -0.00055 -0.032363" rpy="0. 0.0000036 0."/>
+    <parent link="right_little_1"/>
+    <child link="right_little_2"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0." upper="1.5435" effort="6." velocity="0.7"/>
+    <mimic joint="right_little_1_joint" multiplier="1.05" offset="0.0"/>
+  </joint>
+  <joint name="little_tip_joint" type="fixed">
+    <origin xyz="0.0045 -0.006 -0.04365" rpy="0. 1.5707963 0."/>
+    <parent link="right_little_2"/>
+    <child link="little_tip"/>
+  </joint>
+  <joint name="right_thumb_1_joint" type="revolute">
+    <origin xyz="-0.028226 -0.0227776 -0.0239 " rpy="0. 0. 0."/>
+    <parent link="hand_base_link"/>
+    <child link="right_thumb_1"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="-1.2" upper="-0.3" effort="6." velocity="0.7"/>
+  </joint>
+  <joint name="right_thumb_2_joint" type="revolute">
+    <origin xyz="-0.0063016 0.003 -0.011924 " rpy="-1.5707928 0.3490927 3.1065927"/>
+    <parent link="right_thumb_1"/>
+    <child link="right_thumb_2"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0.14" upper="0.56" effort="6." velocity="0.7"/>
+  </joint>
+  <joint name="right_thumb_3_joint" type="revolute">
+    <origin xyz="0.038292 -0.0015 -0.014535" rpy="0. -0.25 0."/>
+    <parent link="right_thumb_2"/>
+    <child link="right_thumb_3"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0.056" upper="0.224" effort="6." velocity="0.7"/>
+    <mimic joint="right_thumb_2_joint" multiplier="0.4" offset="0.0"/>
+  </joint>
+  <joint name="right_thumb_4_joint" type="revolute">
+    <origin xyz="0.018189 -0.0002 -0.012576" rpy="0. -0.15 0."/>
+    <parent link="right_thumb_3"/>
+    <child link="right_thumb_4"/>
+    <axis xyz="0. 1. 0."/>
+    <limit lower="0.084" upper="0.336" effort="6." velocity="0.7"/>
+    <mimic joint="right_thumb_2_joint" multiplier="0.6" offset="0.0"/>
+  </joint>
+  <joint name="thumb_tip_joint" type="fixed">
+    <origin xyz="0.0268 -0.007 -0.023 " rpy="0. 0. 0."/>
+    <parent link="right_thumb_4"/>
+    <child link="thumb_tip"/>
+  </joint>
+  <!-- ======================== -->
+  <!-- Inspire Hand (links)     -->
+  <!-- ======================== -->
+  <link name="inspire_hand_base"/>
+  <link name="hand_base_link">
+    <inertial>
+      <origin xyz="-0.001272623093 -0.009142889064 0.0007918971564" rpy="0. 0. 0."/>
+      <mass value="0.2"/>
+      <inertia ixx="0.0003335118612" ixy="0.000004305697899" ixz="0.000001961083063" iyy="0.0001393655463" iyz="-0.00003154632444" izz="0.000387288915"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/hand_base_link_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="hand_base_link_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/hand_base_link_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+    <collision name="hand_base_link_hull_1">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/hand_base_link_hull_1.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+    <collision name="hand_base_link_hull_2">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/hand_base_link_hull_2.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+    <collision name="hand_base_link_hull_3">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/hand_base_link_hull_3.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+    <collision name="hand_base_link_hull_4">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/hand_base_link_hull_4.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+    <collision name="hand_base_link_hull_5">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/hand_base_link_hull_5.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_index_1">
+    <inertial>
+      <origin xyz="-0.001838811796 -0.006651373776 -0.01236268848" rpy="0. 0. 0."/>
+      <mass value="0.0063589"/>
+      <inertia ixx="0.000001132039696" ixy="0.00000000008538271612" ixz="-0.00000003733508368" iyy="0.000001171761833" iyz="-0.0000000000567945811" izz="0.0000005109349196"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_index_1_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_index_1_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_index_1_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_index_2">
+    <inertial>
+      <origin xyz="0.0004053353345 -0.006093274507 -0.02568713569" rpy="0. 0. 0."/>
+      <mass value="0.00645"/>
+      <inertia ixx="0.00000150135064" ixy="-0.0000000002609566413" ixz="-0.0000002737421637" iyy="0.000001532400017" iyz="-0.00000000181552815" izz="0.0000002598660911"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_index_2_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_index_2_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_index_2_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="index_tip"/>
+  <link name="right_middle_1">
+    <inertial>
+      <origin xyz="-0.002295852088 -0.006651373749 -0.01228602297" rpy="0. 0. 0."/>
+      <mass value="0.0063589"/>
+      <inertia ixx="0.000001128419883" ixy="0.00000000008321837241" ixz="-0.00000006024195728" iyy="0.000001171761838" iyz="-0.00000000005992508311" izz="0.0000005145547415"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_middle_1_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_middle_1_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_middle_1_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_middle_2">
+    <inertial>
+      <origin xyz="0.00007509781862 -0.006100610723 -0.02743848538" rpy="0. 0. 0."/>
+      <mass value="0.00645"/>
+      <inertia ixx="0.000001699851379" ixy="0.000000000005522714887" ixz="-0.0000002875735786" iyy="0.000001729870717" iyz="0.00000000002990495876" izz="0.000000259746994"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_middle_2_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_middle_2_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_middle_2_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="middle_tip"/>
+  <link name="right_ring_1">
+    <inertial>
+      <origin xyz="-0.002408515478 -0.006651373778 -0.01226443421" rpy="0. 0. 0."/>
+      <mass value="0.0063589"/>
+      <inertia ixx="0.000001127262429" ixy="0.00000000008266481729" ixz="-0.00000006586558252" iyy="0.000001171761845" iyz="-0.00000000006068204785" izz="0.0000005157121956"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_ring_1_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_ring_1_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_ring_1_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_ring_2">
+    <inertial>
+      <origin xyz="0.0006669307643 -0.006093274516 -0.02568167475" rpy="0. 0. 0."/>
+      <mass value="0.00645"/>
+      <inertia ixx="0.000001506797535" ixy="-0.0000000002424515799" ixz="-0.0000002610418565" iyy="0.000001532400007" iyz="-0.000000001818088755" izz="0.0000002544191848"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_ring_2_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_ring_2_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_ring_2_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="ring_tip"/>
+  <link name="right_little_1">
+    <inertial>
+      <origin xyz="-0.003172583099 -0.006651373786 -0.01208933465" rpy="0. 0. 0."/>
+      <mass value="0.0063589"/>
+      <inertia ixx="0.00000111661793" ixy="0.00000000007869901144" ixz="-0.0000001036079896" iyy="0.00000117176184" iyz="-0.00000000006574484667" izz="0.0000005263566951"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_little_1_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_little_1_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_little_1_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_little_2">
+    <inertial>
+      <origin xyz="0.004694169403 -0.006100496151 -0.02042666272" rpy="0. 0. 0."/>
+      <mass value="0.00645"/>
+      <inertia ixx="0.000001083844886" ixy="0.000000000001602751011" ixz="-0.00000006162328869" iyy="0.000001052011652" iyz="0.00000000001494746228" izz="0.0000001962101104"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_little_2_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_little_2_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_little_2_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="little_tip"/>
+  <link name="right_thumb_1">
+    <inertial>
+      <origin xyz="-0.001781081397 0.0048786005 -0.0006484801959" rpy="0. 0. 0."/>
+      <mass value="0.0026834"/>
+      <inertia ixx="0.000000138831593" ixy="-0.000000007637620939" ixz="0.00000001870258345" iyy="0.0000001433507694" iyz="-0.000000002774766228" izz="0.00000009426260374"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_thumb_1_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_thumb_1_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_thumb_1_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_thumb_2">
+    <inertial>
+      <origin xyz="0.01611338217 -0.009052591214 -0.01032677082" rpy="0. 0. 0."/>
+      <mass value="0.0055"/>
+      <inertia ixx="0.0000008887993502" ixy="-0.0000000003327784141" ixz="0.00000007611838453" iyy="0.000001209688959" iyz="0.0000000003066556666" izz="0.0000009446557027"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_thumb_2_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_thumb_2_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_thumb_2_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_thumb_3">
+    <inertial>
+      <origin xyz="0.009242462082 -0.007542657185 -0.004822035958" rpy="0. 0. 0."/>
+      <mass value="0.0055"/>
+      <inertia ixx="0.0000006563657091" ixy="0.00000000004993958488" ixz="0.00000006307553361" iyy="0.000000593877729" iyz="0.0000000003535885375" izz="0.000000538400183"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_thumb_3_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_thumb_3_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_thumb_3_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="right_thumb_4">
+    <inertial>
+      <origin xyz="0.01358746243 -0.007343488624 -0.01051329036" rpy="0. 0. 0."/>
+      <mass value="0.0055"/>
+      <inertia ixx="0.0000004757767845" ixy="0.0000000003618054049" ixz="0.0000001504579347" iyy="0.0000005575197595" iyz="-0.0000000005534531146" izz="0.0000003709507118"/>
+    </inertial>
+<visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="./meshes/right_thumb_4_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision name="right_thumb_4_hull_0">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="./meshes/collision_hulls/right_thumb_4_hull_0.obj" scale="1 1 1"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="thumb_tip"/>
+</robot>
