@@ -1731,7 +1731,20 @@ class G1WujiTableEnv(DirectRLEnv):
             self.episode_length_buf,
         )
 
+        # Computed here (rather than inside the reset-only block below) so the two tags are
+        # present on every step. rsl_rl's Logger takes an unweighted mean of a tag over the
+        # rollout window; with both tags present every step (0 on no-reset steps), the ratio
+        # mean(success_count_step) / mean(episodes_done_step) recovers the per-episode success
+        # rate weighted by how many episodes actually finished, matching eval_policy.py. This
+        # complements "Task/success" below, which is a mean over only the envs resetting that
+        # step and is therefore a mean-of-ratios across the window, not a weighted mean.
+        reset_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        success_count_step = (keypoint_error[reset_ids] < self.cfg.success_keypoint_error_threshold).float().sum()
+        episodes_done_step = torch.tensor(float(len(reset_ids)), device=self.device)
+
         log = {
+            "Task/success_count_step": success_count_step,
+            "Task/episodes_done_step": episodes_done_step,
             "Task/keypoint_error_step": keypoint_error.mean(),
             "Task/object_height_step": object_height.mean(),
             # Distances from the apple centre to the six hand points (palm and fingertips).
@@ -1791,7 +1804,6 @@ class G1WujiTableEnv(DirectRLEnv):
             log["Contact/elbow_torso_penetrating_frac_step"] = (elbow_torso_penetration > 0.0005).float().mean()
         log.update(self._contact_demand_metrics())
 
-        reset_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(reset_ids) > 0:
             episode_steps = self.episode_length_buf[reset_ids].clamp_min(1).float()
             log.update(
