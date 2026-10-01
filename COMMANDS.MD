@@ -167,6 +167,13 @@ Abrupt 0-to-70-degree regression:
 uv run isaaclab -p scripts/test_inspire_hand_step.py --visualizer none --device cpu
 ```
 
+### G1 hand assembly validation
+
+```bash
+uv run isaaclab -p scripts/test_g1_hand_assembly.py --hand inspire --visualizer none --device cpu
+uv run isaaclab -p scripts/test_g1_hand_assembly.py --hand dex3 --visualizer none --device cpu
+```
+
 ### Scene with zero actions
 
 ```bash

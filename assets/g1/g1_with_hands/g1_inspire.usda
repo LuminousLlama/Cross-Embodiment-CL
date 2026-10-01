@@ -1,0 +1,60 @@
+#usda 1.0
+(
+    # Reusable G1 + Inspire RH56 assembly. Renderer and editor-session state
+    # belongs in a scene, not in this robot asset.
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def Xform "g1_simplified" (
+        prepend payload = @../g1_simplified/g1_simplified.usda@
+    )
+    {
+        prepend rel isaac:physics:robotJoints = </World/inspire_hand_right>
+        prepend rel isaac:physics:robotLinks = </World/inspire_hand_right>
+    }
+
+    def Xform "inspire_hand_right" (
+        prepend payload = @../../hands/inspire_hand/inspire_hand_right.usda@
+    )
+    {
+        quatd xformOp:orient = (0.5, 0.5, 0.5, 0.5)
+        double3 xformOp:translate = (0.244400492847789, -0.1519215239830377, 0.09605489119154072)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+
+        over "Geometry"
+        {
+            over "inspire_hand_base"
+            {
+                over "hand_base_link" (
+                    delete apiSchemas = ["PhysicsArticulationRootAPI", "PhysxArticulationAPI", "NewtonArticulationRootAPI"]
+                )
+                {
+                    def PhysicsFixedJoint "AssemblerFixedJoint"
+                    {
+                        rel physics:body0 = </World/g1_simplified/right_wrist_yaw_link>
+                        rel physics:body1 = </World/inspire_hand_right/Geometry/inspire_hand_base/hand_base_link>
+                        point3f physics:localPos0 = (0.1346262, -0.0032698198, 0.00082206173)
+                        point3f physics:localPos1 = (1.5279944e-11, -8.965301e-12, 9.528511e-10)
+                        quatf physics:localRot0 = (0.5, 0.5, 0.500398, -0.4996017)
+                        quatf physics:localRot1 = (1, 0, 0, 0)
+                    }
+                }
+            }
+        }
+
+        over "Physics"
+        {
+            # The hand is attached to G1 through AssemblerFixedJoint, not the
+            # standalone hand's independent world-fixed joint.
+            over "base_joint" (
+                active = false
+            )
+            {
+            }
+        }
+    }
+}

@@ -63,6 +63,16 @@ def _author_portable_defaults(spec: HandAssetSpec, generated_dir: Path) -> None:
         else:
             drive.GetTargetPositionAttr().Clear()
 
+    root_joint_prim = stage.GetPrimAtPath(f"{spec.root_prim}/Physics/{spec.root_joint_name}")
+    root_joint = UsdPhysics.FixedJoint(root_joint_prim)
+    if not root_joint:
+        raise RuntimeError(f"Missing fixed root joint {spec.root_joint_name}")
+    # A world-fixed joint is represented by an empty body0. Targeting the
+    # package Xform happens to simulate as a world weld, but Robot Assembler
+    # cannot recognize and disable that non-canonical form.
+    root_joint.GetBody0Rel().SetTargets([])
+    root_joint.GetBody1Rel().SetTargets([Sdf.Path(spec.root_body_path)])
+
     for body_path, filtered_body_path in spec.collision_filter_pairs:
         body = stage.GetPrimAtPath(body_path)
         filtered_body = stage.GetPrimAtPath(filtered_body_path)
@@ -90,6 +100,81 @@ def _author_physx_defaults(spec: HandAssetSpec, generated_dir: Path) -> None:
         _ensure_api_schema(prim, "PhysxJointAPI")
         prim.CreateAttribute("physxJoint:armature", Sdf.ValueTypeNames.Float).Set(spec.armature)
     stage.GetRootLayer().Save()
+
+
+def _author_display_pose(spec: HandAssetSpec, generated_dir: Path) -> None:
+    """Bake nonzero initial joint positions into stopped-timeline link transforms."""
+    base_stage = Usd.Stage.Open(str(generated_dir / "payloads/base.usda"))
+    physics_stage = Usd.Stage.Open(str(generated_dir / "payloads/Physics/physics.usda"))
+    if base_stage is None or physics_stage is None:
+        raise RuntimeError("Could not open generated layers for display-pose authoring")
+
+    axis_vectors = {
+        "X": Gf.Vec3d(1.0, 0.0, 0.0),
+        "Y": Gf.Vec3d(0.0, 1.0, 0.0),
+        "Z": Gf.Vec3d(0.0, 0.0, 1.0),
+    }
+    for joint_name, position in spec.open_joint_pos.items():
+        if abs(position) < 1.0e-12:
+            continue
+        joint = UsdPhysics.RevoluteJoint(physics_stage.GetPrimAtPath(f"{spec.root_prim}/Physics/{joint_name}"))
+        body1_targets = joint.GetBody1Rel().GetTargets()
+        if len(body1_targets) != 1:
+            raise RuntimeError(f"Expected one child body for {joint_name}, got {body1_targets}")
+        local_pos1 = joint.GetLocalPos1Attr().Get()
+        local_rot1 = Gf.Quatd(joint.GetLocalRot1Attr().Get())
+        local_rot1_is_identity = (
+            abs(abs(local_rot1.GetReal()) - 1.0) <= 1.0e-9 and local_rot1.GetImaginary().GetLength() <= 1.0e-9
+        )
+        if local_pos1.GetLength() > 1.0e-9 or not local_rot1_is_identity:
+            raise RuntimeError(f"Display-pose authoring requires an identity child joint frame: {joint_name}")
+
+        body = base_stage.GetPrimAtPath(body1_targets[0])
+        orientation = body.GetAttribute("xformOp:orient")
+        if not orientation:
+            raise RuntimeError(f"Missing xformOp:orient on child body for {joint_name}")
+        imported_orientation = Gf.Quatd(orientation.Get())
+        axis = axis_vectors[str(joint.GetAxisAttr().Get())]
+        delta = Gf.Rotation(axis, math.degrees(position)).GetQuat()
+        orientation.Set(Gf.Quatf(imported_orientation * delta))
+
+    base_stage.GetRootLayer().Save()
+
+
+def _author_robot_relationships(spec: HandAssetSpec, generated_path: Path) -> None:
+    composed_stage = Usd.Stage.Open(str(generated_path))
+    if composed_stage is None:
+        raise RuntimeError(f"Could not open generated asset {generated_path}")
+
+    def paths_with_schema(schema_name: str) -> list[Sdf.Path]:
+        paths = []
+        for prim in composed_stage.Traverse():
+            schemas = prim.GetMetadata("apiSchemas")
+            if schemas and schema_name in schemas.GetAppliedItems():
+                paths.append(prim.GetPath())
+        return paths
+
+    link_paths = paths_with_schema("IsaacLinkAPI")
+    joint_paths = paths_with_schema("IsaacJointAPI")
+    if not link_paths or not joint_paths:
+        raise RuntimeError(
+            f"Importer produced incomplete Robot API metadata: {len(link_paths)} links, {len(joint_paths)} joints"
+        )
+
+    base_stage = Usd.Stage.Open(str(generated_path.parent / "payloads/base.usda"))
+    if base_stage is None:
+        raise RuntimeError("Could not open generated base layer")
+    root = base_stage.GetPrimAtPath(spec.root_prim)
+    root.GetRelationship("isaac:physics:robotLinks").SetTargets(link_paths)
+    root.GetRelationship("isaac:physics:robotJoints").SetTargets(joint_paths)
+    # The importer may embed its disposable temporary directory in this field.
+    base_stage.GetRootLayer().documentation = ""
+    base_stage.GetRootLayer().Save()
+
+
+def _normalize_usda_files(directory: Path) -> None:
+    for path in directory.rglob("*.usda"):
+        path.write_text(path.read_text().rstrip() + "\n")
 
 
 def _validate_asset(spec: HandAssetSpec, asset_path: Path) -> None:
@@ -126,6 +211,17 @@ def _validate_asset(spec: HandAssetSpec, asset_path: Path) -> None:
     root_body = stage.GetPrimAtPath(spec.root_body_path)
     if root_body.GetAttribute("physxArticulation:enabledSelfCollisions").Get() is not True:
         raise RuntimeError("PhysX self-collision is not enabled")
+    robot_links = root.GetRelationship("isaac:physics:robotLinks").GetTargets()
+    robot_joints = root.GetRelationship("isaac:physics:robotJoints").GetTargets()
+    if len(robot_links) != len(spec.joint_names) + 1 or Sdf.Path(spec.root_body_path) not in robot_links:
+        raise RuntimeError(f"Incomplete Robot API link targets: {robot_links}")
+    if len(robot_joints) != len(spec.joint_names) + 1:
+        raise RuntimeError(f"Incomplete Robot API joint targets: {robot_joints}")
+    root_joint = UsdPhysics.FixedJoint(stage.GetPrimAtPath(f"{spec.root_prim}/Physics/{spec.root_joint_name}"))
+    if root_joint.GetBody0Rel().GetTargets() or root_joint.GetBody1Rel().GetTargets() != [
+        Sdf.Path(spec.root_body_path)
+    ]:
+        raise RuntimeError(f"Root joint {spec.root_joint_name} is not a canonical world-fixed joint")
     for body_path, filtered_body_path in spec.collision_filter_pairs:
         targets = UsdPhysics.FilteredPairsAPI.Get(stage, body_path).GetFilteredPairsRel().GetTargets()
         if Sdf.Path(filtered_body_path) not in targets:
@@ -153,8 +249,8 @@ def _validate_asset(spec: HandAssetSpec, asset_path: Path) -> None:
 
 
 def main() -> None:
-    global Sdf, UrdfConverter, UrdfConverterCfg, Usd, UsdPhysics  # noqa: PLW0603
-    from pxr import Sdf, Usd, UsdPhysics
+    global Gf, Sdf, UrdfConverter, UrdfConverterCfg, Usd, UsdPhysics  # noqa: PLW0603
+    from pxr import Gf, Sdf, Usd, UsdPhysics
 
     from isaaclab.sim.converters import UrdfConverter, UrdfConverterCfg
 
@@ -193,14 +289,17 @@ def main() -> None:
         generated_dir = generated_path.parent
         _author_portable_defaults(spec, generated_dir)
         _author_physx_defaults(spec, generated_dir)
+        _author_display_pose(spec, generated_dir)
+        _author_robot_relationships(spec, generated_path)
         _validate_asset(spec, generated_path)
 
         configuration_dir = output_dir / "configuration"
         if configuration_dir.exists():
             shutil.rmtree(configuration_dir)
         shutil.copytree(generated_dir / "payloads", configuration_dir)
+        _normalize_usda_files(configuration_dir)
         root_text = generated_path.read_text().replace("@./payloads/", "@./configuration/")
-        (output_dir / spec.usd_name).write_text(root_text)
+        (output_dir / spec.usd_name).write_text(root_text.rstrip() + "\n")
 
     _validate_asset(spec, output_dir / spec.usd_name)
     print(f"PASS exported {output_dir / spec.usd_name}")

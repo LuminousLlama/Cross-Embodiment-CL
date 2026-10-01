@@ -488,10 +488,8 @@ over "inspire_hand_right"
 
         def PhysicsFixedJoint "base_joint"
         {
-            custom rel physics:body0
-            append rel physics:body0 = </inspire_hand_right>
-            custom rel physics:body1
-            append rel physics:body1 = </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link>
+            custom rel physics:body0 = None
+            custom rel physics:body1 = </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link>
             point3f physics:localPos0 = (0, 0, 0.09)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (0.50039816, 0.49999985, -0.49960184, -0.49999985)

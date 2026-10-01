@@ -23,8 +23,36 @@ def Xform "inspire_hand_right" (
 )
 {
     float3[] extentsHint = [(-0.032226093, -0.0474947, -0.0018030814), (0.069686264, 0.13019735, 0.24514262), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (-0.03287193, -0.047455255, -0.0026850842), (0.06945574, 0.1297385, 0.24497664)]
-    custom rel isaac:physics:robotJoints
-    custom rel isaac:physics:robotLinks
+    custom rel isaac:physics:robotJoints = [
+        </inspire_hand_right/Physics/right_index_1_joint>,
+        </inspire_hand_right/Physics/right_middle_1_joint>,
+        </inspire_hand_right/Physics/right_ring_1_joint>,
+        </inspire_hand_right/Physics/right_little_1_joint>,
+        </inspire_hand_right/Physics/right_thumb_1_joint>,
+        </inspire_hand_right/Physics/base_joint>,
+        </inspire_hand_right/Physics/right_index_2_joint>,
+        </inspire_hand_right/Physics/right_middle_2_joint>,
+        </inspire_hand_right/Physics/right_ring_2_joint>,
+        </inspire_hand_right/Physics/right_little_2_joint>,
+        </inspire_hand_right/Physics/right_thumb_2_joint>,
+        </inspire_hand_right/Physics/right_thumb_3_joint>,
+        </inspire_hand_right/Physics/right_thumb_4_joint>,
+    ]
+    custom rel isaac:physics:robotLinks = [
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_index_1>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_index_1/right_index_2>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_middle_1>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_middle_1/right_middle_2>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_ring_1>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_ring_1/right_ring_2>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_little_1>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_little_1/right_little_2>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_thumb_1>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_thumb_1/right_thumb_2>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_thumb_1/right_thumb_2/right_thumb_3>,
+        </inspire_hand_right/Geometry/inspire_hand_base/hand_base_link/right_thumb_1/right_thumb_2/right_thumb_3/right_thumb_4>,
+    ]
     custom token isaac:robotType = "End Effector"
 
     def Scope "Geometry"
@@ -417,7 +445,7 @@ def Xform "inspire_hand_right" (
                     prepend apiSchemas = ["IsaacLinkAPI"]
                 )
                 {
-                    quatf xformOp:orient = (1, 0, 0, 0)
+                    quatf xformOp:orient = (0.9887711, 0, -0.14943813, 0)
                     float3 xformOp:scale = (1, 1, 1)
                     double3 xformOp:translate = (-0.028226, -0.0227776, -0.0239)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -448,7 +476,7 @@ def Xform "inspire_hand_right" (
                         prepend apiSchemas = ["IsaacLinkAPI"]
                     )
                     {
-                        quatf xformOp:orient = (-0.1105924, -0.13496426, -0.6941059, 0.69840604)
+                        quatf xformOp:orient = (-0.061773818, -0.18348223, -0.7001412, 0.68725586)
                         float3 xformOp:scale = (1, 1, 1)
                         double3 xformOp:translate = (-0.0063016, 0.003, -0.011924)
                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -479,7 +507,7 @@ def Xform "inspire_hand_right" (
                             prepend apiSchemas = ["IsaacLinkAPI"]
                         )
                         {
-                            quatf xformOp:orient = (0.9921977, 0, -0.12467454, 0)
+                            quatf xformOp:orient = (0.9952993, 0, -0.096847266, 0)
                             float3 xformOp:scale = (1, 1, 1)
                             double3 xformOp:translate = (0.038292, -0.0015, -0.014535)
                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -510,7 +538,7 @@ def Xform "inspire_hand_right" (
                                 prepend apiSchemas = ["IsaacLinkAPI"]
                             )
                             {
-                                quatf xformOp:orient = (0.9971888, 0, -0.07492986, 0)
+                                quatf xformOp:orient = (0.9994556, 0, -0.032993667, 0)
                                 float3 xformOp:scale = (1, 1, 1)
                                 double3 xformOp:translate = (0.018189, -0.0002, -0.012576)
                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]

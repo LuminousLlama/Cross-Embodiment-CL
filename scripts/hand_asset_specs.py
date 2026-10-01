@@ -17,6 +17,7 @@ class HandAssetSpec:
     root_prim: str
     root_body_path: str
     root_body_name: str
+    root_joint_name: str
     rom_contract_key: str
     rom_contract: str
     joint_names: tuple[str, ...]
@@ -80,6 +81,7 @@ INSPIRE = HandAssetSpec(
     root_prim="/inspire_hand_right",
     root_body_path=_INSPIRE_BODY_ROOT,
     root_body_name="hand_base_link",
+    root_joint_name="base_joint",
     rom_contract_key="inspireHandRomContract",
     rom_contract="inspire_rh56_safe_rom_v1",
     joint_names=_INSPIRE_ACTIVE + _INSPIRE_FOLLOWERS,
@@ -154,6 +156,7 @@ DEX3 = HandAssetSpec(
     root_prim="/dex3_1_r",
     root_body_path="/dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link",
     root_body_name="right_hand_palm_link",
+    root_joint_name="right_hand_wrist_to_palm_joint",
     rom_contract_key="dex3RomContract",
     rom_contract="unitree_dex3_1_urdf_rom_v1",
     joint_names=_DEX3_JOINTS,

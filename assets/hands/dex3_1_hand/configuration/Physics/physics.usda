@@ -301,10 +301,8 @@ over "dex3_1_r"
 
         def PhysicsFixedJoint "right_hand_wrist_to_palm_joint"
         {
-            custom rel physics:body0
-            append rel physics:body0 = </dex3_1_r>
-            custom rel physics:body1
-            append rel physics:body1 = </dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link>
+            custom rel physics:body0 = None
+            custom rel physics:body1 = </dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link>
             point3f physics:localPos0 = (0, 0, 0)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (0.69176596, -0.28901932, -0.55520093, -0.36011058)

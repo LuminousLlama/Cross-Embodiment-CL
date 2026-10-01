@@ -4,8 +4,6 @@
         string creator = "URDF USD Converter v0.3.2"
     }
     defaultPrim = "dex3_1_r"
-    doc = """Generated from Composed Stage of root layer /home/keyush/coding/ARC_lab/cross-embodiment/Cross-Embodiment-CL/assets/hands/dex3_export_pgykuk0n/dex3_1_r/payloads/base.usd
-"""
     endTimeCode = 1000000
     kilogramsPerUnit = 1
     metersPerUnit = 1
@@ -25,8 +23,26 @@ def Xform "dex3_1_r" (
 )
 {
     float3[] extentsHint = [(-0.042124003, -0.07041159, -0.009501206), (0.107059315, 0.075123936, 0.1802631), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (-0.042105023, -0.07072465, -0.009709908), (0.10682821, 0.07506616, 0.180312)]
-    custom rel isaac:physics:robotJoints
-    custom rel isaac:physics:robotLinks
+    custom rel isaac:physics:robotJoints = [
+        </dex3_1_r/Physics/right_hand_thumb_0_joint>,
+        </dex3_1_r/Physics/right_hand_middle_0_joint>,
+        </dex3_1_r/Physics/right_hand_index_0_joint>,
+        </dex3_1_r/Physics/right_hand_wrist_to_palm_joint>,
+        </dex3_1_r/Physics/right_hand_thumb_1_joint>,
+        </dex3_1_r/Physics/right_hand_thumb_2_joint>,
+        </dex3_1_r/Physics/right_hand_middle_1_joint>,
+        </dex3_1_r/Physics/right_hand_index_1_joint>,
+    ]
+    custom rel isaac:physics:robotLinks = [
+        </dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link>,
+        </dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link/right_hand_thumb_0_link>,
+        </dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link/right_hand_thumb_0_link/right_hand_thumb_1_link>,
+        </dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link/right_hand_thumb_0_link/right_hand_thumb_1_link/right_hand_thumb_2_link>,
+        </dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link/right_hand_middle_0_link>,
+        </dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link/right_hand_middle_0_link/right_hand_middle_1_link>,
+        </dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link/right_hand_index_0_link>,
+        </dex3_1_r/Geometry/right_hand_wrist_link/right_hand_palm_link/right_hand_index_0_link/right_hand_index_1_link>,
+    ]
     custom token isaac:robotType = "End Effector"
 
     def Scope "Materials"
@@ -101,7 +117,7 @@ def Xform "dex3_1_r" (
                             prepend apiSchemas = ["IsaacLinkAPI"]
                         )
                         {
-                            quatf xformOp:orient = (1, 0, 0, 0)
+                            quatf xformOp:orient = (0.9996875, 0, 0, -0.024997396)
                             float3 xformOp:scale = (1, 1, 1)
                             double3 xformOp:translate = (0, 0.0458, 0)
                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -169,7 +185,7 @@ def Xform "dex3_1_r" (
                     prepend apiSchemas = ["IsaacLinkAPI"]
                 )
                 {
-                    quatf xformOp:orient = (1, 0, 0, 0)
+                    quatf xformOp:orient = (0.9996875, 0, 0, 0.024997396)
                     float3 xformOp:scale = (1, 1, 1)
                     double3 xformOp:translate = (0.0777, -0.0016, -0.0285)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -189,7 +205,7 @@ def Xform "dex3_1_r" (
                         prepend apiSchemas = ["IsaacLinkAPI"]
                     )
                     {
-                        quatf xformOp:orient = (1, 0, 0, 0)
+                        quatf xformOp:orient = (0.9996875, 0, 0, 0.024997396)
                         float3 xformOp:scale = (1, 1, 1)
                         double3 xformOp:translate = (0.0458, 0, 0)
                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -243,7 +259,7 @@ def Xform "dex3_1_r" (
                     prepend apiSchemas = ["IsaacLinkAPI"]
                 )
                 {
-                    quatf xformOp:orient = (1, 0, 0, 0)
+                    quatf xformOp:orient = (0.9996875, 0, 0, 0.024997396)
                     float3 xformOp:scale = (1, 1, 1)
                     double3 xformOp:translate = (0.0777, -0.0016, 0.0285)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
@@ -263,7 +279,7 @@ def Xform "dex3_1_r" (
                         prepend apiSchemas = ["IsaacLinkAPI"]
                     )
                     {
-                        quatf xformOp:orient = (1, 0, 0, 0)
+                        quatf xformOp:orient = (0.9996875, 0, 0, 0.024997396)
                         float3 xformOp:scale = (1, 1, 1)
                         double3 xformOp:translate = (0.0458, 0, 0)
                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]

@@ -1,0 +1,60 @@
+#usda 1.0
+(
+    # Reusable G1 + Dex3 assembly. Renderer and editor-session state belongs
+    # in a scene, not in this robot asset.
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def Xform "g1_simplified" (
+        prepend payload = @../g1_simplified/g1_simplified.usda@
+    )
+    {
+        prepend rel isaac:physics:robotJoints = </World/dex3_1_right>
+        prepend rel isaac:physics:robotLinks = </World/dex3_1_right>
+    }
+
+    def Xform "dex3_1_right" (
+        prepend payload = @../../hands/dex3_1_hand/dex3_1_right.usda@
+    )
+    {
+        quatf xformOp:orient = (0.69176596, 0.28901932, 0.55520093, 0.36011058)
+        double3 xformOp:translate = (0.24617701405281273, -0.14865170419215987, 0.09523282945156633)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+
+        over "Geometry"
+        {
+            over "right_hand_wrist_link"
+            {
+                over "right_hand_palm_link" (
+                    delete apiSchemas = ["PhysicsArticulationRootAPI", "PhysxArticulationAPI", "NewtonArticulationRootAPI"]
+                )
+                {
+                    def PhysicsFixedJoint "AssemblerFixedJoint"
+                    {
+                        rel physics:body0 = </World/g1_simplified/right_wrist_yaw_link>
+                        rel physics:body1 = </World/dex3_1_right/Geometry/right_hand_wrist_link/right_hand_palm_link>
+                        point3f physics:localPos0 = (0.04640272, 1.6930901e-15, 5.356826e-15)
+                        point3f physics:localPos1 = (1.3486837e-10, 8.081704e-10, 6.818872e-10)
+                        quatf physics:localRot0 = (1, -1.4342046e-8, 1.9056595e-8, -1.7869818e-8)
+                        quatf physics:localRot1 = (1, 1.4342046e-8, -1.9056595e-8, 1.7869818e-8)
+                    }
+                }
+            }
+        }
+
+        over "Physics"
+        {
+            # The palm is attached to G1 through AssemblerFixedJoint, not the
+            # standalone hand's independent world-fixed joint.
+            over "right_hand_wrist_to_palm_joint" (
+                active = false
+            )
+            {
+            }
+        }
+    }
+}
