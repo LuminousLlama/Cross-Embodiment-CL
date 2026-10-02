@@ -28,7 +28,7 @@ _TEACHER_ACTOR = G1WujiTablePPORunnerCfg().actor
 
 @configclass
 class G1WujiTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
-    """Plumbing check: a student with the teacher's own 171-D privileged observation.
+    """Plumbing check: a student with the teacher's own 191-D privileged observation.
 
     With identical inputs and architecture the student should reach the teacher's success rate, so a
     shortfall here is a pipeline bug rather than an observability limit.
@@ -41,12 +41,14 @@ class G1WujiTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
     obs_groups = {"teacher": ["policy"], "student": ["policy"]}
     # Must match the PPO actor exactly: the checkpoint's actor_state_dict is loaded strictly.
     teacher = RslRlMLPModelCfg(
+        class_name="Cross_Embodiment_CL.models.masked_policy:HandMLPModel",
         hidden_dims=_TEACHER_ACTOR.hidden_dims,
         activation=_TEACHER_ACTOR.activation,
         obs_normalization=_TEACHER_ACTOR.obs_normalization,
         distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=1.0),
     )
     student = RslRlMLPModelCfg(
+        class_name="Cross_Embodiment_CL.models.masked_policy:HandMLPModel",
         hidden_dims=_TEACHER_ACTOR.hidden_dims,
         activation=_TEACHER_ACTOR.activation,
         obs_normalization=True,
@@ -74,6 +76,7 @@ class G1WujiTableDepthDistillationBaseRunnerCfg(G1WujiTableStateDistillationRunn
     max_iterations = 1000
     obs_groups = {"teacher": ["policy"], "student": ["student", "goal", "camera"]}
     student = RslRlCNNModelCfg(
+        class_name="Cross_Embodiment_CL.models.masked_policy:HandCNNModel",
         hidden_dims=_TEACHER_ACTOR.hidden_dims,
         activation=_TEACHER_ACTOR.activation,
         # Normalizes proprioception; the depth image is already scaled to [0, 1].

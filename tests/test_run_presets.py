@@ -5,6 +5,9 @@
 
 """Tests for the G1-Wuji run presets, resolved the way ``isaaclab train``/``play`` resolve them."""
 
+import subprocess
+import sys
+
 import pytest
 import torch
 
@@ -16,6 +19,32 @@ import Cross_Embodiment_CL.tasks  # noqa: F401
 
 TASK = "CrossEmbodimentCl-G1-Wuji-Table-Direct"
 AGENT = "rsl_rl_cfg_entry_point"
+
+
+def test_cli_defers_usd_until_runtime_and_registers_hand_schemas():
+    """Avoid both pre-Kit USD ABI conflicts and permanently incomplete schema definitions."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg import _g1_hand_robot_cfg
+assert 'pxr.Usd' not in sys.modules and 'pxr.Sdf' not in sys.modules
+_g1_hand_robot_cfg('inspire', '/World/Robot')
+from pxr import Usd
+registry = Usd.SchemaRegistry()
+for schema in ('NewtonCollisionAPI', 'NewtonSceneAPI', 'NewtonMimicAPI',
+               'NewtonMaterialAPI', 'NewtonMeshCollisionAPI'):
+    assert registry.FindAppliedAPIPrimDefinition(schema) is not None, schema
+""",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert "Could not find API schema definition" not in result.stderr
 
 
 def _visualizer_types(env_cfg) -> list[str]:

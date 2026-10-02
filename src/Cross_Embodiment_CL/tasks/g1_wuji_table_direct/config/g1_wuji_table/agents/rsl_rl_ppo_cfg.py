@@ -12,7 +12,7 @@ from isaaclab_rl.rsl_rl import RslRlMLPModelCfg, RslRlOnPolicyRunnerCfg, RslRlPp
 
 @configclass
 class G1WujiTablePPORunnerCfg(RslRlOnPolicyRunnerCfg):
-    """Untuned state-based PPO baseline for the 171-D G1-Wuji observation."""
+    """Untuned state-based PPO baseline for the masked 191-D G1-hand observation."""
 
     num_steps_per_env = 32
     max_iterations = 10_000
@@ -22,12 +22,14 @@ class G1WujiTablePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     # exact per-environment DR state appended by the environment.
     obs_groups = {"actor": ["policy"], "critic": ["critic"]}
     actor = RslRlMLPModelCfg(
+        class_name="Cross_Embodiment_CL.models.masked_policy:HandMLPModel",
         hidden_dims=[2048, 1024, 512],
         activation="elu",
         obs_normalization=True,
         distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=1.0),
     )
     critic = RslRlMLPModelCfg(
+        class_name="Cross_Embodiment_CL.models.masked_policy:HandMLPModel",
         hidden_dims=[2048, 1024, 512],
         activation="elu",
         obs_normalization=True,

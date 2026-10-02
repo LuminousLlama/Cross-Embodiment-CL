@@ -15,7 +15,9 @@ repos:
     hooks:
       - id: check-added-large-files
         args: ["--maxkb=2000"]
-        exclude: ^assets/hands/(inspire_hand|dex3_1_hand)/
+        # Reviewed asset/model blobs are intentionally stored in normal Git.
+        exclude: >-
+          ^assets/hands/(inspire_hand|dex3_1_hand)/|^assets/models/retargeting/(inspire/retargeting_nn_inspire_hand_grab_dexpilot_63d|dex3_1/retargeting_nn_dex3_1_hand_dexpilot_63d)\.pth$
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml

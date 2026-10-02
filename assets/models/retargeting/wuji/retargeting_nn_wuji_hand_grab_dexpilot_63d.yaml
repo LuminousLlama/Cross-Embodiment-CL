@@ -1,0 +1,37 @@
+model_type: RetargetingNN
+output_units: rad
+state_dict_path: ../../wuji_latent/retargeting_nn_wuji_hand_grab_dexpilot_63d.pth
+autoencoder_path: ../../autoencoder/mano_pose_autoencoder_63d.pt
+latent_distribution: embedded in mano_pose_autoencoder_63d.pt
+mano_dim: 63
+latent_dim: 18
+robot_dim: 20
+hidden_dim: 512
+hidden_layers: 3
+input_key: mano_pose_63
+target_key: wuji_qpos
+sample_count: 159241
+robot_joint_names:
+- finger1_joint1
+- finger1_joint2
+- finger1_joint3
+- finger1_joint4
+- finger2_joint1
+- finger2_joint2
+- finger2_joint3
+- finger2_joint4
+- finger3_joint1
+- finger3_joint2
+- finger3_joint3
+- finger3_joint4
+- finger4_joint1
+- finger4_joint2
+- finger4_joint3
+- finger4_joint4
+- finger5_joint1
+- finger5_joint2
+- finger5_joint3
+- finger5_joint4
+best_epoch: 100
+val_mse: 0.01539787615976219
+val_mae: 0.07533607870729626

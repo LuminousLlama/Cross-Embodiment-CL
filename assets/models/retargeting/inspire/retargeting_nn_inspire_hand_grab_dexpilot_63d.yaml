@@ -1,0 +1,37 @@
+model_type: RetargetingNN
+output_units: rad
+state_dict_path: retargeting_nn_inspire_hand_grab_dexpilot_63d.pth
+mano_dim: 63
+robot_dim: 6
+hidden_dim: 512
+hidden_layers: 3
+dataset_path: mano/outputs/inspire_dexpilot_retargeted_63d.npz
+input_key: mano_pose_63
+target_key: inspire_qpos
+sample_count: 159241
+input_dim: 63
+robot_joint_names:
+- right_index_1_joint
+- right_middle_1_joint
+- right_ring_1_joint
+- right_little_1_joint
+- right_thumb_1_joint
+- right_thumb_2_joint
+target_joint_names:
+- right_index_1_joint
+- right_middle_1_joint
+- right_ring_1_joint
+- right_little_1_joint
+- right_thumb_1_joint
+- right_thumb_2_joint
+epochs: 100
+batch_size: 1024
+learning_rate: 0.001
+weight_decay: 1e-05
+val_fraction: 0.1
+seed: 42
+best_epoch: 99.0
+train_mse: 0.0030059859845198668
+train_mae: 0.02809723020001252
+val_mse: 0.0030167309437026646
+val_mae: 0.02800903142133016

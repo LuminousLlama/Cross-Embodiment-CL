@@ -90,8 +90,10 @@ LEGACY_TAGS = {
     "Control/step_action_saturation_fraction": "Control/action_saturation_frac_step",
     "Control/arm_tracking_error": "Control/arm_tracking_error_ep",
     "Control/step_arm_tracking_error": "Control/arm_tracking_error_step",
-    "Control/wuji_tracking_error": "Control/wuji_tracking_error_ep",
-    "Control/step_wuji_tracking_error": "Control/wuji_tracking_error_step",
+    "Control/wuji_tracking_error": "Control/hand_tracking_error_ep",
+    "Control/step_wuji_tracking_error": "Control/hand_tracking_error_step",
+    "Control/wuji_tracking_error_ep": "Control/hand_tracking_error_ep",
+    "Control/wuji_tracking_error_step": "Control/hand_tracking_error_step",
 }
 
 

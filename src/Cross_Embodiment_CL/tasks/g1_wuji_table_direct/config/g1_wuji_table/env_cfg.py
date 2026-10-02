@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Configuration for the visual G1-Wuji table scene."""
+"""Configuration for the shared G1-hand tabletop scene."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from pathlib import Path
 from isaaclab_visualizers.newton import NewtonGLVisualizerCfg
 
 import isaaclab.sim as sim_utils
-from isaaclab.assets import RigidObjectCfg
+from isaaclab.assets import ArticulationCfg, RigidObjectCfg
 from isaaclab.envs import DirectRLEnvCfg
 from isaaclab.markers import FRAME_MARKER_CFG, VisualizationMarkersCfg
 from isaaclab.physics import PhysxAutoCfg
@@ -45,6 +45,14 @@ if _g1_config_spec is None or _g1_config_spec.loader is None:
 _g1_config = importlib.util.module_from_spec(_g1_config_spec)
 _g1_config_spec.loader.exec_module(_g1_config)
 G1_WUJI_CFG = _g1_config.G1_WUJI_CFG
+
+
+def _g1_hand_robot_cfg(hand_type: str, prim_path: str):
+    """Select an assembly while preserving the task's common robot prim path."""
+    cfg = _g1_config.get_g1_hand_cfg(hand_type).replace(prim_path=prim_path)
+    cfg.init_state.joint_pos["right_shoulder_roll_joint"] = -math.radians(110.0)
+    return cfg
+
 
 _FRICTION = 0.5
 """Static and dynamic friction of the hand, table, and apple (whose USD material authors the same value).
@@ -132,7 +140,7 @@ def _mjwarp_physics_cfg(load_visual_shapes: bool) -> NewtonCfg:
 
 @configclass
 class G1WujiTablePhysicsCfg(PresetCfg):
-    """PhysX and Newton backend presets for the G1-Wuji visual scene."""
+    """PhysX and Newton backend presets for the shared G1 tabletop scene."""
 
     isaacsim_physx: PhysxCfg = PhysxCfg()
     # OvPhysX runs the same PhysX solver without Kit, which is the only way to
@@ -334,7 +342,7 @@ class G1WujiTableAdrCfg:
     action_latency_enabled: bool = True
     """Whether the extra ADR master enables per-env action latency."""
     hand_target_scale_enabled: bool = True
-    """Whether the extra ADR master enables per-env Wuji target scaling."""
+    """Whether the extra ADR master enables per-env hand target scaling."""
     friction_enabled: bool = True
     """Whether the extra ADR master enables friction randomization."""
     mass_enabled: bool = True
@@ -354,9 +362,9 @@ class G1WujiTableAdrCfg:
     action_latency_max_steps: int = 3
     """Full-strength maximum per-env action delay [policy steps]."""
     hand_target_scale: float = 0.10
-    """Full-strength half-width of the per-env multiplicative Wuji hand-target scale."""
+    """Full-strength half-width of the per-env multiplicative hand-target scale."""
     friction_range: tuple[float, float] = (0.1, 0.4)
-    """Full-strength friction range for the apple, table, and Wuji hand links."""
+    """Full-strength friction range for the apple, table, and selected hand links."""
     object_mass_scale: float = 0.20
     """Full-strength half-width of the apple's per-env mass scale relative to its default mass."""
     camera_position_enabled: bool = False
@@ -438,26 +446,29 @@ class G1WujiTableAdrPresetCfg(PresetCfg):
 
 @configclass
 class G1WujiTableEnvCfg(DirectRLEnvCfg):
-    """Configuration for a fixed G1-Wuji assembly facing a pelvis-height work table."""
+    """Configuration for a fixed G1 with a selected hand facing a pelvis-height work table."""
 
+    seed = 42
     decimation = 2
     episode_length_s = 8.0
 
     # Normalized full-range joint-position targets for the 7 right-arm joints, followed by
-    # the frozen 18-D Wuji latent action. The waist remains internally held.
+    # the frozen shared 18-D latent action. The waist remains internally held.
     action_space = 25
-    # The actor receives the deployable 171-D policy tensor. The asymmetric critic receives the 171-D clean
+    # The actor receives the 191-D policy tensor. The asymmetric critic receives the 191-D clean
     # simulator tensor plus the fixed-width DR state appended by ``_get_critic_privileged_state``.
-    observation_space = 171
-    state_space = 247
+    hand_type: str = "wuji"
+    """Hand morphology, independently selected from run profiles and training algorithms."""
+    observation_space = 191
+    state_space = 267
     log_control_metrics: bool = False
     """Whether to emit all ``Control/*`` TensorBoard/extras topics."""
     contact_force_observation_max = 20.0
     """Maximum apple contact-force magnitude [N] before the log1p observation transform."""
     arm_action_ema_alpha = 0.25
     """Weight of the current arm target in the policy-rate EMA."""
-    wuji_action_ema_alpha = 0.1
-    """Weight of the current decoded Wuji target in the policy-rate EMA."""
+    hand_action_ema_alpha = 0.1
+    """Weight of the current decoded hand target in the policy-rate EMA."""
     arm_joint_velocity_limit = 0.25
     """Maximum arm joint speed [rad/s], enforced by rate-limiting the post-EMA arm position targets.
 
@@ -468,7 +479,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     is the arm joint-velocity observation scale.
     """
     hand_joint_velocity_limit = 0.5
-    """Maximum Wuji finger joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
+    """Maximum independent hand joint speed [rad/s], enforced like :attr:`arm_joint_velocity_limit`."""
     action_delta_reward_scale = 0.001
     """Penalty scale for consecutive applied normalized-action changes.
 
@@ -567,14 +578,14 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         prim_path="/World/envs/env_[^/]+/G1Wuji/wujihand/right_palm_link",
         update_period=0.0,
         history_length=0,
-        # PHYSX INCOMPATIBILITY: this broad many-to-many filter currently requires Newton.
-        filter_prim_paths_expr=["/World/envs/env_[^/]+/.*"],
+        # Setup replaces this with the configured apple's exact path.
+        filter_prim_paths_expr=[],
         max_contact_data_count_per_prim=64,
     )
     """Shared hand-to-scene sensor template, independent of student force observations.
 
     The groups are the palm and the five fingers, each covering every body that owns a collision shape.
-    Target-object columns are resolved after initialization; torque estimation includes all counterparts.
+    Each sensor filters one explicit apple. Optional force sensors separately enumerate scene counterparts.
     """
     torso_contact_sensor_cfg = ContactSensorCfg(
         prim_path="/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link",
@@ -650,7 +661,11 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     )
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=1, env_spacing=3.0, replicate_physics=True)
 
-    robot_cfg = G1_WUJI_CFG.replace(prim_path="{ENV_REGEX_NS}/G1Wuji")
+    robot_cfg: ArticulationCfg | None = None
+    """Optional complete asset override; otherwise resolve the selected hand at environment creation.
+
+    For programmatic actuator overrides, start with ``assets/g1/g1.py:get_g1_hand_cfg(hand_type)``.
+    """
     table_cfg: RigidObjectCfg = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Table",
         spawn=sim_utils.CuboidCfg(

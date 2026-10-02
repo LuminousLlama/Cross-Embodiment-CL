@@ -145,8 +145,6 @@ _DEX3_JOINTS = (
     "right_hand_middle_0_joint",
     "right_hand_middle_1_joint",
 )
-_DEX3_STIFFNESS = (461.5, 384.67, 124.19, 1154.98, 124.22, 1152.2, 124.22)
-_DEX3_DAMPING = (5.13, 4.26, 1.38, 12.8, 1.38, 12.8, 1.38)
 
 DEX3 = HandAssetSpec(
     key="dex3",
@@ -181,8 +179,9 @@ DEX3 = HandAssetSpec(
         "right_hand_middle_0_joint": 0.05,
         "right_hand_middle_1_joint": 0.05,
     },
-    stiffness=dict(zip(_DEX3_JOINTS, _DEX3_STIFFNESS, strict=True)),
-    damping=dict(zip(_DEX3_JOINTS, _DEX3_DAMPING, strict=True)),
+    # Conservative simulation defaults in SI units, pending system identification.
+    stiffness=dict.fromkeys(_DEX3_JOINTS, 5.0),
+    damping=dict.fromkeys(_DEX3_JOINTS, 0.2),
     armature=0.001,
     mimic_joints={},
     collision_filter_pairs=(),

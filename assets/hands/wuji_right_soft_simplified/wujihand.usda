@@ -58,12 +58,149 @@ def Xform "wujihand_right" (
         "PhysX" (
             prepend payload = @./configuration/wujihand_physics.usd@
         ) {
-            # Keep the authored position-drive target within its USD joint limits.
+            # Author the legal nominal state used by both backend reset buffers.
             over "joints"
             {
-                over "right_finger1_joint1"
+                over "right_finger1_joint1" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
                 {
-                    float drive:angular:physics:targetPosition = 2.7215493
+                    float state:angular:physics:position = 2.8647889756541165
+                    float state:angular:physics:velocity = 0
+                    float drive:angular:physics:targetPosition = 2.864789
+                }
+                over "right_finger1_joint2" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger1_joint3" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger1_joint4" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger2_joint1" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger2_joint2" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger2_joint3" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger2_joint4" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger3_joint1" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger3_joint2" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger3_joint3" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger3_joint4" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger4_joint1" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger4_joint2" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger4_joint3" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger4_joint4" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger5_joint1" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger5_joint2" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger5_joint3" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
+                }
+                over "right_finger5_joint4" (
+                    prepend apiSchemas = ["PhysicsJointStateAPI:angular"]
+                )
+                {
+                    float state:angular:physics:position = 0
+                    float state:angular:physics:velocity = 0
                 }
             }
 

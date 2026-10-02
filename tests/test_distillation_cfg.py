@@ -7,11 +7,13 @@
 
 import pytest
 import torch
-from rsl_rl.models import CNNModel, MLPModel
+from rsl_rl.models import MLPModel
+from rsl_rl.utils import resolve_callable
 from tensordict import TensorDict
 
 from isaaclab_tasks.utils import resolve_task_config
 
+from Cross_Embodiment_CL.models.hand_observation import HAND_MASK_SLICE, HAND_POSITION_SLICE
 from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents.rsl_rl_distillation_cfg import (
     G1WujiTableDepthDistillationBaseRunnerCfg,
     G1WujiTableStateDistillationRunnerCfg,
@@ -20,8 +22,8 @@ from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents.
     G1WujiTablePPORunnerCfg,
 )
 
-_OBSERVATION_DIM = 171
-_STUDENT_OBSERVATION_DIM = 141
+_OBSERVATION_DIM = 191
+_STUDENT_OBSERVATION_DIM = 161
 _GOAL_OBSERVATION_DIM = 9
 _FORCE_OBSERVATION_DIM = 20
 _DEPTH_SIZE = 224
@@ -44,7 +46,7 @@ def _observations(batch: int = 1) -> TensorDict:
 
 
 def _build_mlp(model_cfg, obs_groups: dict[str, list[str]], obs_set: str) -> MLPModel:
-    return MLPModel(
+    return resolve_callable(model_cfg.class_name)(
         _observations(),
         obs_groups,
         obs_set,
@@ -71,6 +73,31 @@ def test_ppo_actor_loads_strictly_into_teacher(distillation_cfg):
     teacher.load_state_dict(actor.state_dict(), strict=True)
 
 
+def test_changing_hand_masks_preserves_valid_joint_statistics_and_zero_padding():
+    """A hand without a joint cannot dilute its normalization or inherit a ghost input."""
+    cfg = G1WujiTablePPORunnerCfg()
+    cfg.actor.hidden_dims = [8]
+    actor = _build_mlp(cfg.actor, cfg.obs_groups, "actor")
+    normalizer = actor.obs_normalizer
+    present = torch.zeros(2, _OBSERVATION_DIM)
+    present[:, HAND_MASK_SLICE] = 1
+    present[:, HAND_POSITION_SLICE.start] = torch.tensor([2.0, 4.0])
+    normalizer.update(present)
+    absent = present.clone()
+    absent[:, HAND_MASK_SLICE.start] = 0
+    absent[:, HAND_POSITION_SLICE.start] = 0
+    normalizer.update(absent)
+    reference = (torch.tensor([2.0, 4.0]) - 3.0) / (1.0 + normalizer.eps)
+    torch.testing.assert_close(normalizer(present)[:, HAND_POSITION_SLICE.start], reference)
+    normalized = normalizer(absent)
+    assert torch.equal(normalized[:, HAND_MASK_SLICE], absent[:, HAND_MASK_SLICE])
+    assert torch.count_nonzero(normalized[:, HAND_POSITION_SLICE.start]) == 0
+    exported = torch.jit.script(actor.as_jit())
+    observations = _observations(batch=2)
+    observations["policy"] = absent
+    torch.testing.assert_close(exported(absent), actor(observations))
+
+
 @pytest.mark.parametrize(
     ("presets", "student_groups", "low_dimensional_size"),
     [
@@ -93,7 +120,7 @@ def test_depth_student_preset_selects_matching_deployable_observations(presets, 
     assert env_cfg.virtual_force.enabled is ("force" in presets)
 
     student_cfg = distillation_cfg.student
-    student = CNNModel(
+    student = resolve_callable(student_cfg.class_name)(
         _observations(),
         distillation_cfg.obs_groups,
         "student",

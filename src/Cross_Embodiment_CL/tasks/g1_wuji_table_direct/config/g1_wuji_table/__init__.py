@@ -24,3 +24,10 @@ gym.register(
         ),
     },
 )
+
+gym.register(
+    id="CrossEmbodimentCl-G1-Hand-Table-Direct",
+    entry_point=f"{__name__}.env:G1WujiTableEnv",
+    disable_env_checker=True,
+    kwargs=gym.spec("CrossEmbodimentCl-G1-Wuji-Table-Direct").kwargs.copy(),
+)

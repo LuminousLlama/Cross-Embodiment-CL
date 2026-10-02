@@ -121,9 +121,9 @@ over "dex3_1_r"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.08953539
+            float drive:angular:physics:damping = 0.0034906585
             float drive:angular:physics:maxForce = 2.45
-            float drive:angular:physics:stiffness = 8.054694
+            float drive:angular:physics:stiffness = 0.08726646
             float drive:angular:physics:targetPosition = 0
             uniform token drive:angular:physics:type = "force"
             float newton:armature = 0.001
@@ -147,9 +147,9 @@ over "dex3_1_r"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.07435103
+            float drive:angular:physics:damping = 0.0034906585
             float drive:angular:physics:maxForce = 1.4
-            float drive:angular:physics:stiffness = 6.713758
+            float drive:angular:physics:stiffness = 0.08726646
             float drive:angular:physics:targetPosition = 0
             uniform token drive:angular:physics:type = "force"
             float newton:armature = 0.001
@@ -173,9 +173,9 @@ over "dex3_1_r"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.024085544
+            float drive:angular:physics:damping = 0.0034906585
             float drive:angular:physics:maxForce = 1.4
-            float drive:angular:physics:stiffness = 2.1675243
+            float drive:angular:physics:stiffness = 0.08726646
             float drive:angular:physics:targetPosition = -2.864789
             uniform token drive:angular:physics:type = "force"
             float newton:armature = 0.001
@@ -199,9 +199,9 @@ over "dex3_1_r"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.22340214
+            float drive:angular:physics:damping = 0.0034906585
             float drive:angular:physics:maxForce = 1.4
-            float drive:angular:physics:stiffness = 20.109684
+            float drive:angular:physics:stiffness = 0.08726646
             float drive:angular:physics:targetPosition = 2.864789
             uniform token drive:angular:physics:type = "force"
             float newton:armature = 0.001
@@ -225,9 +225,9 @@ over "dex3_1_r"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.024085544
+            float drive:angular:physics:damping = 0.0034906585
             float drive:angular:physics:maxForce = 1.4
-            float drive:angular:physics:stiffness = 2.168048
+            float drive:angular:physics:stiffness = 0.08726646
             float drive:angular:physics:targetPosition = 2.864789
             uniform token drive:angular:physics:type = "force"
             float newton:armature = 0.001
@@ -251,9 +251,9 @@ over "dex3_1_r"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.22340214
+            float drive:angular:physics:damping = 0.0034906585
             float drive:angular:physics:maxForce = 1.4
-            float drive:angular:physics:stiffness = 20.158203
+            float drive:angular:physics:stiffness = 0.08726646
             float drive:angular:physics:targetPosition = 2.864789
             uniform token drive:angular:physics:type = "force"
             float newton:armature = 0.001
@@ -277,9 +277,9 @@ over "dex3_1_r"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
-            float drive:angular:physics:damping = 0.024085544
+            float drive:angular:physics:damping = 0.0034906585
             float drive:angular:physics:maxForce = 1.4
-            float drive:angular:physics:stiffness = 2.168048
+            float drive:angular:physics:stiffness = 0.08726646
             float drive:angular:physics:targetPosition = 2.864789
             uniform token drive:angular:physics:type = "force"
             float newton:armature = 0.001

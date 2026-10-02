@@ -12,12 +12,14 @@ in one place.
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg
+
+from Cross_Embodiment_CL.models.hand_registry import get_hand_spec
+from Cross_Embodiment_CL.models.usd_hand_state import read_hand_joint_positions
 
 _G1_ASSET_DIR = Path(__file__).resolve().parent
 
@@ -132,11 +134,38 @@ G1_WUJI_CFG.spawn.usd_path = str(_G1_ASSET_DIR / "g1_with_hands/g1_wuji.usda")
 G1_WUJI_CFG.spawn.activate_contact_sensors = True
 G1_WUJI_CFG.init_state = ArticulationCfg.InitialStateCfg(
     pos=(0.0, 0.0, 0.0),
-    # The thumb-base lower limit is 0.047 rad; this is its valid neutral pose.
-    joint_pos={
-        "right_shoulder_roll_joint": -math.radians(110.0),
-        "right_finger1_joint1": 0.05,
-    },
+    # Read authored hand state only after AppLauncher has initialized USD.
+    joint_pos={},
     joint_vel={},
 )
 """Fixed-base simplified G1 with the local right Wuji hand assembly."""
+
+
+def _authored_hand_cfg(hand_type: str) -> ArticulationCfg:
+    spec = get_hand_spec(hand_type)
+    cfg = G1_BASE_CFG.copy()
+    cfg.spawn.usd_path = str(_G1_ASSET_DIR / f"g1_with_hands/g1_{hand_type}.usda")
+    cfg.spawn.activate_contact_sensors = True
+    cfg.init_state.joint_pos = read_hand_joint_positions(cfg.spawn.usd_path, spec)
+    cfg.actuators["hand"] = ImplicitActuatorCfg(
+        joint_names_expr=list(spec.joint_names),
+        stiffness=None,
+        damping=None,
+    )
+    if spec.follower_joint_names:
+        cfg.actuators["hand_followers"] = ImplicitActuatorCfg(
+            joint_names_expr=list(spec.follower_joint_names),
+            stiffness=None,
+            damping=None,
+        )
+    return cfg
+
+
+def get_g1_hand_cfg(hand_type: str) -> ArticulationCfg:
+    """Copy a G1 hand variant with reset state and new-hand drives authored in USD."""
+    get_hand_spec(hand_type)
+    if hand_type == "wuji":
+        cfg = G1_WUJI_CFG.copy()
+        cfg.init_state.joint_pos = read_hand_joint_positions(cfg.spawn.usd_path, get_hand_spec(hand_type))
+        return cfg
+    return _authored_hand_cfg(hand_type)

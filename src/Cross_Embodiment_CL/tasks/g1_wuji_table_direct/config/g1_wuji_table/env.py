@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Minimal DirectRLEnv used solely to inspect the G1-Wuji table scene."""
+"""Shared G1 tabletop task with a selected hand morphology."""
 
 from __future__ import annotations
 
@@ -34,7 +34,13 @@ from isaaclab.utils.math import (
 )
 from isaaclab.utils.warp import ProxyArray
 
-from Cross_Embodiment_CL.models import WujiLatentActionPipeline
+from Cross_Embodiment_CL.models.hand_observation import (
+    POLICY_OBSERVATION_DIM,
+    STUDENT_OBSERVATION_DIM,
+)
+from Cross_Embodiment_CL.models.hand_registry import get_hand_spec
+from Cross_Embodiment_CL.models.usd_hand_state import read_hand_joint_positions
+from Cross_Embodiment_CL.models.wuji_latent import HandLatentActionPipeline
 
 from .adr import AdaptiveDomainRandomization
 from .depth_camera import (
@@ -44,7 +50,7 @@ from .depth_camera import (
     resize_and_pad_depth,
     warp_depth_intrinsics,
 )
-from .env_cfg import _FRICTION, STUDENT_DEPTH_LETTERBOX, G1WujiTableEnvCfg
+from .env_cfg import _FRICTION, STUDENT_DEPTH_LETTERBOX, G1WujiTableEnvCfg, _g1_hand_robot_cfg
 from .virtual_force import (
     VirtualForceOutput,
     VirtualForcePipeline,
@@ -273,7 +279,7 @@ class _StudentDepthCamera(Camera):
 
 
 class G1WujiTableEnv(DirectRLEnv):
-    """G1-Wuji scene with normalized arm and latent-hand position actions."""
+    """G1 scene with normalized arm and shared latent-hand position actions."""
 
     cfg: G1WujiTableEnvCfg
 
@@ -286,28 +292,8 @@ class G1WujiTableEnv(DirectRLEnv):
         "right_wrist_pitch_joint",
         "right_wrist_yaw_joint",
     )
-    _WUJI_JOINT_NAMES = tuple(f"right_finger{finger}_joint{joint}" for finger in range(1, 6) for joint in range(1, 5))
-    # Side-swing joints of the four fingers, whose range is symmetric about 0 rad.
-    _WUJI_SIDE_SWING_JOINT_NAMES = tuple(f"right_finger{finger}_joint2" for finger in range(2, 6))
-    _HAND_POINT_BODY_NAMES = ("right_palm_link",) + tuple(f"right_finger{finger}_tip_link" for finger in range(1, 6))
-    # Apple contact is sensed per group, over every hand body that owns a collision shape.  The
-    # *_tip_link frames above own none, so a sensor on one reads 0 N forever; fingertip contact
-    # lands on link4.  Fingers 2-5 have no link1 collider either.
-    _CONTACT_BODY_GROUPS = {
-        "palm": ("right_palm_link",),
-        "finger1": (
-            "right_finger1_link1",
-            "right_finger1_link2",
-            "right_finger1_link2_softbody",
-            "right_finger1_link3",
-            "right_finger1_link4",
-        ),
-        **{
-            f"finger{finger}": tuple(f"right_finger{finger}_link{link}" for link in (2, 3, 4)) for finger in range(2, 6)
-        },
-    }
-    _THUMB_CONTACT_GROUP = "finger1"
-    _OBSERVATION_DIM = 171
+    _THUMB_CONTACT_GROUP = "thumb"
+    _OBSERVATION_DIM = POLICY_OBSERVATION_DIM
     # gravity, ADR strength, goal alpha, robot offset, hand target scale, action delay,
     # joint position/velocity biases, object-position bias, three effective friction values,
     # and object mass/inertia scales.  There is no observation delay or actuator DR in this task.
@@ -315,23 +301,52 @@ class G1WujiTableEnv(DirectRLEnv):
     _CRITIC_OBSERVATION_DIM = _OBSERVATION_DIM + _CRITIC_PRIVILEGED_DIM
     # The deployable proprioceptive prefix of the privileged observation: joint positions and
     # velocities, commanded arm and hand targets, and their position limits.
-    _STUDENT_OBSERVATION_DIM = 141
+    _STUDENT_OBSERVATION_DIM = STUDENT_OBSERVATION_DIM
     _GOAL_OBSERVATION_DIM = 9
 
     def __init__(self, cfg: G1WujiTableEnvCfg, render_mode: str | None = None, **kwargs) -> None:
         self._student_depth_preview: torch.Tensor | None = None
+        self.hand_spec = get_hand_spec(cfg.hand_type)
+        self._HAND_POINT_BODY_NAMES = (self.hand_spec.palm_body_name,) + self.hand_spec.tip_body_names
+        self._CONTACT_BODY_GROUPS = self.hand_spec.contact_body_groups
+        self._HAND_JOINT_NAMES = self.hand_spec.joint_names
+        if cfg.virtual_force.enabled and not self.hand_spec.supports_force:
+            raise ValueError(f"Virtual force is unsupported for hand {cfg.hand_type!r}.")
+        if cfg.robot_cfg is None:
+            cfg.robot_cfg = _g1_hand_robot_cfg(cfg.hand_type, "{ENV_REGEX_NS}/G1Wuji")
+        else:
+            read_hand_joint_positions(cfg.robot_cfg.spawn.usd_path, self.hand_spec)
+        self._hand_point_offsets = (self.hand_spec.palm_offset,) + self.hand_spec.read_tip_offsets(
+            cfg.robot_cfg.spawn.usd_path
+        )
         super().__init__(cfg, render_mode, **kwargs)
 
         self.arm_joint_ids, _ = self.robot.find_joints(self._ARM_JOINT_NAMES, preserve_order=True)
-        self.wuji_joint_ids, _ = self.robot.find_joints(self._WUJI_JOINT_NAMES, preserve_order=True)
-        # Commanded hand targets never bend a joint backwards past 0 rad; the thumb base's own limit already sits
-        # just above it, and the four fingers' side-swing joints keep their symmetric range.  Only the command is
-        # restricted: the simulated joints keep their full limits, since the real hand can be pushed backwards.
-        self._wuji_command_lower_floor = torch.tensor(
-            [-torch.inf if name in self._WUJI_SIDE_SWING_JOINT_NAMES else 0.0 for name in self._WUJI_JOINT_NAMES],
+        self.hand_joint_ids, _ = self.robot.find_joints(self._HAND_JOINT_NAMES, preserve_order=True)
+        # Command-only floors are morphology-specific; the solver retains the complete authored ROM.
+        self._hand_command_lower_floor = torch.tensor(
+            [0.0 if name in self.hand_spec.zero_floor_names else -torch.inf for name in self._HAND_JOINT_NAMES],
             device=self.device,
         )
-        self.waist_joint_ids, _ = self.robot.find_joints("waist_.*_joint")
+        self.waist_joint_ids, _ = self.robot.find_joints(
+            ("waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint"), preserve_order=True
+        )
+        for names, ids in ((self._ARM_JOINT_NAMES, self.arm_joint_ids), (self._HAND_JOINT_NAMES, self.hand_joint_ids)):
+            if tuple(self.robot.joint_names[index] for index in ids) != tuple(names) or len(set(ids)) != len(names):
+                raise ValueError(f"Joint mapping must resolve exactly once in declared order: {names}.")
+        self._hand_slot_indices = torch.tensor(self.hand_spec.slot_indices, device=self.device, dtype=torch.long)
+        self._hand_validity = torch.zeros((self.num_envs, 20), device=self.device)
+        self._hand_validity[:, self._hand_slot_indices] = 1.0
+        self._state_joint_ids = self.waist_joint_ids + self.arm_joint_ids + self.hand_joint_ids
+        hand_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.hand_joint_ids]
+        if not torch.isfinite(hand_limits).all() or not (hand_limits[..., 0] < hand_limits[..., 1]).all():
+            raise ValueError("Independent hand joints must have finite, nonempty authored position limits.")
+        reset_hand_pos = self.robot.data.default_joint_pos.torch[:, self.hand_joint_ids]
+        if (
+            not torch.isfinite(reset_hand_pos).all()
+            or not ((reset_hand_pos >= hand_limits[..., 0]) & (reset_hand_pos <= hand_limits[..., 1])).all()
+        ):
+            raise ValueError("Independent hand reset positions must lie within their authored position limits.")
         self.hand_point_body_ids, hand_point_names = self.robot.find_bodies(
             self._HAND_POINT_BODY_NAMES, preserve_order=True
         )
@@ -339,16 +354,16 @@ class G1WujiTableEnv(DirectRLEnv):
             raise ValueError(
                 f"Expected hand point bodies {self._HAND_POINT_BODY_NAMES}, found {tuple(hand_point_names)}."
             )
-        for group_name, sensor in self.contact_sensors.items():
-            if sensor.num_sensors != len(self._CONTACT_BODY_GROUPS[group_name]):
+        for sensor_name, sensor in self.contact_sensors.items():
+            if sensor.num_sensors != 1:
                 raise ValueError(
-                    f"Contact group '{group_name}' expects bodies {self._CONTACT_BODY_GROUPS[group_name]}, "
+                    f"Contact sensor '{sensor_name}' expects exactly one body, "
                     f"but its sensor resolved {sensor.num_sensors}."
                 )
         self._initialize_target_contact_columns()
         self._virtual_force_sensor_body_ids: dict[str, torch.Tensor] = {}
         if self.cfg.virtual_force.enabled:
-            for group_name, sensor in self.contact_sensors.items():
+            for group_name, sensor in self.force_sensors.items():
                 sensor_names = getattr(sensor, "sensor_names", None)
                 if sensor_names is None:
                     sensor_names = sensor.body_names
@@ -359,26 +374,28 @@ class G1WujiTableEnv(DirectRLEnv):
                     dtype=torch.long,
                     device=self.device,
                 )
-        if self.cfg.action_space != len(self.arm_joint_ids) + WujiLatentActionPipeline.latent_dim:
+        if self.cfg.action_space != len(self.arm_joint_ids) + HandLatentActionPipeline.latent_dim:
             raise ValueError(
                 f"{type(self.cfg).__name__} declares action_space={self.cfg.action_space}, but the configured "
-                "right arm plus Wuji latent action require "
-                f"{len(self.arm_joint_ids) + WujiLatentActionPipeline.latent_dim}."
+                "right arm plus shared latent action require "
+                f"{len(self.arm_joint_ids) + HandLatentActionPipeline.latent_dim}."
             )
         if self.cfg.observation_space != self._OBSERVATION_DIM or self.cfg.state_space != self._CRITIC_OBSERVATION_DIM:
             raise ValueError(
                 f"{type(self.cfg).__name__} must declare policy observation space {self._OBSERVATION_DIM} and "
                 f"critic observation space {self._CRITIC_OBSERVATION_DIM}."
             )
-        self.wuji_action_pipeline = WujiLatentActionPipeline(self.device)
+        self.hand_action_pipeline = HandLatentActionPipeline(cfg.hand_type, self.device)
+        if self.hand_action_pipeline.joint_dim != len(self.hand_joint_ids):
+            raise ValueError("Retargeter output dimension does not match the selected independent hand joints.")
         self.virtual_force_pipeline: VirtualForcePipeline | None = None
         self.virtual_force_output: VirtualForceOutput | None = None
         if self.cfg.virtual_force.enabled:
             self._initialize_virtual_force_pipeline()
         if not 0.0 < self.cfg.arm_action_ema_alpha <= 1.0:
             raise ValueError("arm_action_ema_alpha must be in (0, 1].")
-        if not 0.0 < self.cfg.wuji_action_ema_alpha <= 1.0:
-            raise ValueError("wuji_action_ema_alpha must be in (0, 1].")
+        if not 0.0 < self.cfg.hand_action_ema_alpha <= 1.0:
+            raise ValueError("hand_action_ema_alpha must be in (0, 1].")
         if self.cfg.arm_joint_velocity_limit <= 0.0 or self.cfg.hand_joint_velocity_limit <= 0.0:
             raise ValueError("arm_joint_velocity_limit and hand_joint_velocity_limit must be positive.")
         if not 0.0 <= self.cfg.adr.gravity_start <= 1.0:
@@ -394,10 +411,10 @@ class G1WujiTableEnv(DirectRLEnv):
         self._previous_applied_actions = torch.zeros_like(self.actions)
         self._action_delta_reward = torch.zeros(self.num_envs, device=self.device)
         self.arm_joint_targets = torch.zeros((self.num_envs, len(self.arm_joint_ids)), device=self.device)
-        self.wuji_joint_targets = torch.zeros((self.num_envs, len(self.wuji_joint_ids)), device=self.device)
+        self.hand_joint_targets = torch.zeros((self.num_envs, len(self.hand_joint_ids)), device=self.device)
         # Targets at the start of the current policy step, which _apply_action interpolates from.
         self._arm_joint_targets_start = torch.zeros_like(self.arm_joint_targets)
-        self._wuji_joint_targets_start = torch.zeros_like(self.wuji_joint_targets)
+        self._hand_joint_targets_start = torch.zeros_like(self.hand_joint_targets)
         self._arm_anti_windup_active = torch.zeros_like(self.arm_joint_targets, dtype=torch.bool)
         self._action_substep = 0
         self.waist_joint_targets = torch.zeros((self.num_envs, len(self.waist_joint_ids)), device=self.device)
@@ -418,8 +435,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._gravity_frac = 1.0
         self._last_applied_gravity_frac: float | None = None
         self._apply_adr_gravity(force=True)
-        # Retain this zero placeholder in the privileged critic state so existing
-        # 247-D critic/checkpoint contracts do not change while robot-position DR is unused.
+        # Robot-position DR is unused; retain its fixed-width zero critic placeholder.
         self._adr_robot_position_offset = torch.zeros((self.num_envs, 3), device=self.device)
         self._adr_hand_target_scale = torch.ones(self.num_envs, device=self.device)
         self._adr_action_delay_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
@@ -540,20 +556,34 @@ class G1WujiTableEnv(DirectRLEnv):
         self.apple = RigidObject(self.cfg.object_cfg)
         # Both modes sense hand-to-scene contacts; only torque estimation needs points and friction.
         self.contact_sensors: dict[str, ContactSensor] = {}
-        contact_sensor_template = self.cfg.contact_sensor_cfg
+        self.force_sensors: dict[str, ContactSensor] = {}
+        self.contact_groups: dict[str, tuple[str, ...]] = {}
+        contact_sensor_template = self.cfg.contact_sensor_cfg.replace(
+            filter_prim_paths_expr=[self.cfg.object_cfg.prim_path]
+        )
         if self.cfg.virtual_force.enabled:
             if self.cfg.virtual_force.max_contact_data_count_per_prim < 1:
                 raise ValueError("virtual_force.max_contact_data_count_per_prim must be positive.")
-            contact_sensor_template = contact_sensor_template.replace(
+            force_sensor_template = self.cfg.contact_sensor_cfg.replace(
+                filter_prim_paths_expr=self._force_contact_partner_paths(),
                 track_contact_points=True,
                 track_friction_forces=True,
                 max_contact_data_count_per_prim=self.cfg.virtual_force.max_contact_data_count_per_prim,
             )
         for group_name, body_names in self._CONTACT_BODY_GROUPS.items():
-            sensor_cfg = contact_sensor_template.replace(
-                prim_path=f"/World/envs/env_[^/]+/G1Wuji/wujihand/({'|'.join(body_names)})"
-            )
-            self.contact_sensors[group_name] = ContactSensor(sensor_cfg)
+            if not body_names:
+                continue
+            sensor_names = []
+            for body_index, body_name in enumerate(body_names):
+                sensor_name = f"{group_name}__{body_index}"
+                sensor_cfg = contact_sensor_template.replace(prim_path=f"/World/envs/env_[^/]+/G1Wuji/{body_name}")
+                self.contact_sensors[sensor_name] = ContactSensor(sensor_cfg)
+                if self.cfg.virtual_force.enabled:
+                    self.force_sensors[sensor_name] = ContactSensor(
+                        force_sensor_template.replace(prim_path=sensor_cfg.prim_path)
+                    )
+                sensor_names.append(sensor_name)
+            self.contact_groups[group_name] = tuple(sensor_names)
         self.torso_contact_sensor = ContactSensor(
             self.cfg.torso_contact_sensor_cfg.replace(filter_prim_paths_expr=[self.cfg.object_cfg.prim_path])
         )
@@ -572,11 +602,31 @@ class G1WujiTableEnv(DirectRLEnv):
         self.scene.rigid_objects["table"] = self.table
         self.scene.rigid_objects["apple"] = self.apple
         self.scene.sensors.update({f"{name}_contact": sensor for name, sensor in self.contact_sensors.items()})
+        self.scene.sensors.update({f"{name}_force": sensor for name, sensor in self.force_sensors.items()})
         self.scene.sensors["torso_contact"] = self.torso_contact_sensor
         if self.depth_camera is not None:
             self.scene.sensors["depth_camera"] = self.depth_camera
         light_cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.75, 0.75, 0.75))
         light_cfg.func("/World/Light", light_cfg)
+
+    def _force_contact_partner_paths(self) -> list[str]:
+        """Enumerate exact collider-owning rigid bodies for optional force sensing."""
+        from pxr import Usd, UsdPhysics
+
+        stage = Usd.Stage.Open(self.cfg.robot_cfg.spawn.usd_path)
+        if stage is None or not stage.GetDefaultPrim().IsValid():
+            raise ValueError("Force sensing requires a robot USD with a valid default prim.")
+        asset_root = stage.GetDefaultPrim().GetPath()
+        paths = [self.cfg.object_cfg.prim_path, self.cfg.table_cfg.prim_path]
+        for prim in stage.Traverse():
+            if prim.HasAPI(UsdPhysics.RigidBodyAPI) and any(
+                child.HasAPI(UsdPhysics.CollisionAPI) for child in Usd.PrimRange(prim)
+            ):
+                relative_path = prim.GetPath().MakeRelativePath(asset_root)
+                paths.append(f"{self.cfg.robot_cfg.prim_path}/{relative_path}")
+        if len(paths) != len(set(paths)):
+            raise ValueError("Force contact partner paths must be unique.")
+        return paths
 
     def _make_adr_friction_terms(self) -> dict[str, tuple[randomize_rigid_body_material, float]]:
         """Instantiate one ``randomize_rigid_body_material`` term per friction-randomized asset.
@@ -588,7 +638,10 @@ class G1WujiTableEnv(DirectRLEnv):
         """
         if "newton" not in self.sim.physics_manager.__name__.lower():
             return {}
-        hand_asset_cfg = SceneEntityCfg("robot", body_names=["right_palm_link", "right_finger.*"])
+        hand_body_names = sorted(
+            {path.rsplit("/", 1)[-1] for paths in self.hand_spec.contact_body_groups.values() for path in paths}
+        )
+        hand_asset_cfg = SceneEntityCfg("robot", body_names=hand_body_names)
         hand_asset_cfg.resolve(self.scene)
         terms: dict[str, tuple[randomize_rigid_body_material, float]] = {}
         asset_cfgs = (("apple", SceneEntityCfg("apple")), ("table", SceneEntityCfg("table")), ("hand", hand_asset_cfg))
@@ -716,7 +769,7 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
     def _pre_physics_step(self, actions: torch.Tensor) -> None:
-        """Map normalized arm positions and Wuji latent actions onto speed-capped physical joint targets."""
+        """Map normalized arm positions and shared latent actions onto speed-capped physical joint targets."""
         self.actions[:] = torch.clamp(actions, -1.0, 1.0)
         applied_actions = self.actions
         if self._adr_action_latency_active:
@@ -729,7 +782,7 @@ class G1WujiTableEnv(DirectRLEnv):
         )
         self._previous_applied_actions.copy_(applied_actions)
         self._arm_joint_targets_start.copy_(self.arm_joint_targets)
-        self._wuji_joint_targets_start.copy_(self.wuji_joint_targets)
+        self._hand_joint_targets_start.copy_(self.hand_joint_targets)
         self._action_substep = 0
         arm_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.arm_joint_ids]
         arm_lower, arm_upper = arm_limits[..., 0], arm_limits[..., 1]
@@ -745,36 +798,36 @@ class G1WujiTableEnv(DirectRLEnv):
             )
         )
 
-        wuji_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.wuji_joint_ids]
-        wuji_command_lower = self._wuji_command_lower_limits(wuji_limits)
-        wuji_latent_action = applied_actions[:, len(self.arm_joint_ids) :]
+        hand_limits = self.robot.data.soft_joint_pos_limits.torch[:, self.hand_joint_ids]
+        hand_command_lower = self._hand_command_lower_limits(hand_limits)
+        hand_latent_action = applied_actions[:, len(self.arm_joint_ids) :]
         if self._adr_hand_target_scale_active:
             # Apply the per-env hand-target scale to the decoded target before the joint-limit clamp
             # that latent_action_to_joint_target would otherwise apply first.
-            raw_wuji_targets = self.wuji_action_pipeline.retarget_mano_pose(
-                self.wuji_action_pipeline.decode_latent_action(wuji_latent_action)
+            raw_hand_targets = self.hand_action_pipeline.retarget_mano_pose(
+                self.hand_action_pipeline.decode_latent_action(hand_latent_action)
             )
-            wuji_targets = torch.clamp(
-                raw_wuji_targets * self._adr_hand_target_scale.unsqueeze(-1), wuji_command_lower, wuji_limits[..., 1]
+            hand_targets = torch.clamp(
+                raw_hand_targets * self._adr_hand_target_scale.unsqueeze(-1), hand_command_lower, hand_limits[..., 1]
             )
         else:
-            wuji_targets = self.wuji_action_pipeline.latent_action_to_joint_target(
-                wuji_latent_action, wuji_command_lower, wuji_limits[..., 1]
+            hand_targets = self.hand_action_pipeline.latent_action_to_joint_target(
+                hand_latent_action, hand_command_lower, hand_limits[..., 1]
             )
         self._advance_joint_targets(
-            self.wuji_joint_targets,
-            wuji_targets,
-            self.wuji_joint_ids,
-            self.cfg.wuji_action_ema_alpha,
+            self.hand_joint_targets,
+            hand_targets,
+            self.hand_joint_ids,
+            self.cfg.hand_action_ema_alpha,
             self.cfg.hand_joint_velocity_limit,
         )
         # The anti-windup clamp follows the measured position, which contact can push backwards; never command that.
-        self.wuji_joint_targets.clamp_(min=wuji_command_lower)
+        self.hand_joint_targets.clamp_(min=hand_command_lower)
         self._apply_adr_gravity()
 
-    def _wuji_command_lower_limits(self, wuji_limits: torch.Tensor) -> torch.Tensor:
-        """Return the effective Wuji command lower limits [rad]."""
-        return torch.maximum(wuji_limits[..., 0], self._wuji_command_lower_floor)
+    def _hand_command_lower_limits(self, hand_limits: torch.Tensor) -> torch.Tensor:
+        """Return the selected hand's effective command lower limits [rad]."""
+        return torch.maximum(hand_limits[..., 0], self._hand_command_lower_floor)
 
     def _apply_adr_gravity(self, force: bool = False) -> None:
         """Scale gravity from ``adr.gravity_start`` to full strength with ADR.
@@ -885,7 +938,7 @@ class G1WujiTableEnv(DirectRLEnv):
         return log
 
     def _apply_action(self) -> None:
-        """Apply arm and Wuji targets while holding all waist joints at zero."""
+        """Apply arm and hand targets while holding all waist joints at zero."""
         # Spread each policy step's capped target change evenly over its physics substeps, so the drives
         # track a ramp rather than a staircase, whose jumps overshoot the cap between policy steps.  If the
         # backend folds decimation into one call, this applies a partial step, which still respects the cap.
@@ -896,8 +949,8 @@ class G1WujiTableEnv(DirectRLEnv):
             joint_ids=self.arm_joint_ids,
         )
         self.robot.actuators.target_command.set_position_index(
-            value=torch.lerp(self._wuji_joint_targets_start, self.wuji_joint_targets, fraction),
-            joint_ids=self.wuji_joint_ids,
+            value=torch.lerp(self._hand_joint_targets_start, self.hand_joint_targets, fraction),
+            joint_ids=self.hand_joint_ids,
         )
         # Velocity feedforward, disabled for now: the ramp's slope as the drive velocity target stops damping
         # from braking the ramp into a damping / stiffness * speed lag, but at the capped speeds that lag is
@@ -908,8 +961,8 @@ class G1WujiTableEnv(DirectRLEnv):
         #     joint_ids=self.arm_joint_ids,
         # )
         # self.robot.actuators.target_command.set_velocity_index(
-        #     value=(self.wuji_joint_targets - self._wuji_joint_targets_start) / self.step_dt,
-        #     joint_ids=self.wuji_joint_ids,
+        #     value=(self.hand_joint_targets - self._hand_joint_targets_start) / self.step_dt,
+        #     joint_ids=self.hand_joint_ids,
         # )
         self.robot.actuators.target_command.set_position_index(
             value=self.waist_joint_targets,
@@ -935,7 +988,7 @@ class G1WujiTableEnv(DirectRLEnv):
         if cfg.system_id_model_path is not None:
             system_id_model = WujiForceSystemIdModel(
                 cfg.system_id_model_path,
-                actuator_joint_names=list(self._WUJI_JOINT_NAMES),
+                actuator_joint_names=list(self._HAND_JOINT_NAMES),
                 num_envs=self.num_envs,
                 device=self.device,
                 sample_residual=cfg.system_id_sample_residual,
@@ -966,7 +1019,7 @@ class G1WujiTableEnv(DirectRLEnv):
         jacobian_rows: list[torch.Tensor] = []
         body_link_positions = self.robot.data.body_link_pos_w.torch
         body_link_jacobians = self.robot.data.body_link_jacobian_w.torch
-        for group_name, sensor in self.contact_sensors.items():
+        for group_name, sensor in self.force_sensors.items():
             data = sensor.data
             normal_force = data.normal_force_matrix_w
             friction_force = data.friction_force_matrix_w
@@ -1005,7 +1058,7 @@ class G1WujiTableEnv(DirectRLEnv):
             jacobian_body_ids = body_ids - 1
             if bool((jacobian_body_ids < 0).any()):
                 raise RuntimeError("Virtual force sensing cannot use the fixed articulation root body.")
-            jacobian_rows.append(body_link_jacobians[:, jacobian_body_ids, :, :][:, :, :, self.wuji_joint_ids])
+            jacobian_rows.append(body_link_jacobians[:, jacobian_body_ids, :, :][:, :, :, self.hand_joint_ids])
 
         forces_w = torch.cat(contact_forces, dim=1)
         moments_w = torch.cat(contact_moments, dim=1)
@@ -1015,9 +1068,9 @@ class G1WujiTableEnv(DirectRLEnv):
             contact_linear_jacobians_w=jacobians_w[:, :, :3],
             contact_moments_w=moments_w,
             contact_angular_jacobians_w=jacobians_w[:, :, 3:],
-            joint_position=self.robot.data.joint_pos.torch[:, self.wuji_joint_ids],
-            joint_velocity=self.robot.data.joint_vel.torch[:, self.wuji_joint_ids],
-            joint_command=self.wuji_joint_targets,
+            joint_position=self.robot.data.joint_pos.torch[:, self.hand_joint_ids],
+            joint_velocity=self.robot.data.joint_vel.torch[:, self.hand_joint_ids],
+            joint_command=self.hand_joint_targets,
         )
 
     def get_virtual_force_output(self) -> VirtualForceOutput | None:
@@ -1050,20 +1103,22 @@ class G1WujiTableEnv(DirectRLEnv):
         # Arm and hand speeds are scaled by the task caps rather than the looser solver limits.
         joint_velocity_limits = self.robot.data.soft_joint_vel_limits.torch.clone()
         joint_velocity_limits[:, self.arm_joint_ids] = self.cfg.arm_joint_velocity_limit
-        joint_velocity_limits[:, self.wuji_joint_ids] = self.cfg.hand_joint_velocity_limit
+        joint_velocity_limits[:, self.hand_joint_ids] = self.cfg.hand_joint_velocity_limit
         joint_velocity_limits.clamp_min_(1.0e-6)
         clean_joint_velocity = torch.clamp(clean_joint_velocity_raw / joint_velocity_limits, -1.0, 1.0)
         actor_joint_velocity = torch.clamp(actor_joint_velocity_raw / joint_velocity_limits, -1.0, 1.0)
 
         arm_limits = joint_limits[:, self.arm_joint_ids]
-        wuji_limits = joint_limits[:, self.wuji_joint_ids]
-        wuji_command_limits = torch.stack((self._wuji_command_lower_limits(wuji_limits), wuji_limits[..., 1]), dim=-1)
+        hand_limits = joint_limits[:, self.hand_joint_ids]
+        hand_command_limits = torch.stack((self._hand_command_lower_limits(hand_limits), hand_limits[..., 1]), dim=-1)
         arm_target = torch.clamp(
             scale_transform(self.arm_joint_targets, arm_limits[..., 0], arm_limits[..., 1]), -1.0, 1.0
         )
-        wuji_target = torch.clamp(
-            scale_transform(self.wuji_joint_targets, wuji_limits[..., 0], wuji_limits[..., 1]), -1.0, 1.0
+        hand_target = torch.clamp(
+            scale_transform(self.hand_joint_targets, hand_limits[..., 0], hand_limits[..., 1]), -1.0, 1.0
         )
+        hand_target = self._pad_hand_slots(hand_target)
+        hand_command_limits = self._pad_hand_slots(hand_command_limits)
 
         clean_object_position = self.apple.data.root_pos_w.torch
         actor_object_position = clean_object_position
@@ -1103,12 +1158,13 @@ class G1WujiTableEnv(DirectRLEnv):
         ) -> tuple[torch.Tensor, torch.Tensor]:
             proprioception = torch.cat(
                 (
-                    joint_position,
-                    joint_velocity,
+                    self._canonical_joint_state(joint_position),
+                    self._canonical_joint_state(joint_velocity),
                     arm_target,
-                    wuji_target,
+                    hand_target,
                     arm_limits.flatten(start_dim=1),
-                    wuji_command_limits.flatten(start_dim=1),
+                    hand_command_limits.flatten(start_dim=1),
+                    self._hand_validity,
                 ),
                 dim=-1,
             )
@@ -1120,7 +1176,7 @@ class G1WujiTableEnv(DirectRLEnv):
                     object_velocity,
                     goal_position - object_position,
                     goal_rotation_error_6d,
-                    contact_force,
+                    self._pad_contact_groups(contact_force),
                 ),
                 dim=-1,
             )
@@ -1183,6 +1239,33 @@ class G1WujiTableEnv(DirectRLEnv):
             )
         return observations
 
+    def _pad_hand_slots(self, values: torch.Tensor) -> torch.Tensor:
+        """Scatter independent hand coordinates into semantic slots, retaining exact zero padding."""
+        if values.shape[1] != len(self.hand_joint_ids):
+            raise ValueError(f"Expected {len(self.hand_joint_ids)} independent hand coordinates, got {values.shape}.")
+        padded = values.new_zeros((values.shape[0], 20, *values.shape[2:]))
+        padded[:, self._hand_slot_indices] = values
+        return padded
+
+    def _canonical_joint_state(self, values: torch.Tensor) -> torch.Tensor:
+        """Assemble waist, arm, and independent hand state by declared names."""
+        return torch.cat(
+            (
+                values[:, self.waist_joint_ids],
+                values[:, self.arm_joint_ids],
+                self._pad_hand_slots(values[:, self.hand_joint_ids]),
+            ),
+            dim=1,
+        )
+
+    def _pad_contact_groups(self, values: torch.Tensor) -> torch.Tensor:
+        """Expose fixed palm/thumb/index/middle/ring/little contacts with missing fingers zero."""
+        result = values.new_zeros((values.shape[0], 6))
+        groups = ("palm", "thumb", "index", "middle", "ring", "little")
+        for index, name in enumerate(self.contact_groups):
+            result[:, groups.index(name)] = values[:, index]
+        return result
+
     def _publish_student_depth_preview(self, student_depth: torch.Tensor) -> None:
         """Expose the normalized student image as grayscale through the camera panel's RGB key."""
         grayscale = normalized_depth_to_grayscale(student_depth.permute(0, 2, 3, 1))
@@ -1225,8 +1308,8 @@ class G1WujiTableEnv(DirectRLEnv):
                 self._adr_robot_position_offset,
                 self._adr_hand_target_scale.unsqueeze(-1),
                 action_delay,
-                self._adr_joint_pos_obs_bias,
-                self._adr_joint_vel_obs_bias,
+                self._canonical_joint_state(self._adr_joint_pos_obs_bias),
+                self._canonical_joint_state(self._adr_joint_vel_obs_bias),
                 self._adr_object_pos_obs_bias,
                 self._adr_friction_values,
                 self._adr_object_mass_scale.unsqueeze(-1),
@@ -1243,6 +1326,11 @@ class G1WujiTableEnv(DirectRLEnv):
         """
         self.extras.pop("log", None)
         hand_points = self.robot.data.body_pos_w.torch[:, self.hand_point_body_ids]
+        offsets = hand_points.new_tensor(self._hand_point_offsets)
+        hand_points = hand_points + quat_apply(
+            self.robot.data.body_quat_w.torch[:, self.hand_point_body_ids],
+            offsets.unsqueeze(0).expand(self.num_envs, -1, -1),
+        )
         object_position = self.apple.data.root_pos_w.torch
         hand_point_dist = torch.linalg.vector_norm(hand_points - object_position.unsqueeze(1), dim=-1)
         hand_dist = hand_point_dist.max(dim=1).values
@@ -1265,7 +1353,7 @@ class G1WujiTableEnv(DirectRLEnv):
             # A thumb-and-finger pinch earns the binary contact bonus; pose progress is ungated.
             contact_gate = thumb_and_other_finger_gate(
                 contact_force_stack,
-                tuple(self.contact_sensors),
+                tuple(self.contact_groups),
                 self.cfg.contact_force_threshold,
                 self._THUMB_CONTACT_GROUP,
             )
@@ -1293,7 +1381,7 @@ class G1WujiTableEnv(DirectRLEnv):
             # lift term, and no press guard -- the gate alone stands in for all three.
             contact_gate = thumb_and_other_finger_gate(
                 contact_force_stack,
-                tuple(self.contact_sensors),
+                tuple(self.contact_groups),
                 self.cfg.adept_gate_force,
                 self._THUMB_CONTACT_GROUP,
             )
@@ -1326,8 +1414,8 @@ class G1WujiTableEnv(DirectRLEnv):
         arm_tracking_error = torch.abs(
             self.robot.data.joint_pos.torch[:, self.arm_joint_ids] - self.arm_joint_targets
         ).mean(dim=-1)
-        wuji_tracking_error = torch.abs(
-            self.robot.data.joint_pos.torch[:, self.wuji_joint_ids] - self.wuji_joint_targets
+        hand_tracking_error = torch.abs(
+            self.robot.data.joint_pos.torch[:, self.hand_joint_ids] - self.hand_joint_targets
         ).mean(dim=-1)
         self._update_episode_metrics(
             reach_reward,
@@ -1342,7 +1430,7 @@ class G1WujiTableEnv(DirectRLEnv):
             object_position[:, 2],
             contact_gate,
             arm_tracking_error,
-            wuji_tracking_error,
+            hand_tracking_error,
             contact_force_stack,
             nearest_hand_dist,
             goal_alpha_step,
@@ -1377,29 +1465,14 @@ class G1WujiTableEnv(DirectRLEnv):
         return torch.clamp((object_position[:, 2] - rest_height) / (goal_height - rest_height), 0.0, 1.0)
 
     def _initialize_target_contact_columns(self) -> None:
-        """Cache target columns from resolved rigid-body identities after sensor initialization."""
-        # PHYSX INCOMPATIBILITY: broad many-to-many filtering and counterpart body identities below
-        # use Newton APIs. Revisit backend parity here; never substitute a guessed column on PhysX.
-        if not hasattr(self.apple, "root_view") or any(
-            not hasattr(sensor.contact_view, "counterpart_indices") for sensor in self.contact_sensors.values()
-        ):
-            raise NotImplementedError(
-                "Shared broad contact sensing currently requires Newton; PhysX parity is pending."
-            )
-        from isaaclab_newton.physics import NewtonManager
-
-        model_body_paths = NewtonManager.get_model().body_label
-        # RigidObject has one body. Views and sensors describe the first of the homogeneous envs.
-        (target_body_path,) = self.apple.root_view.link_labels
+        """Validate the one explicit apple filter and its single counterpart column."""
         self._target_contact_columns: dict[str, int] = {}
-        for group_name, sensor in self.contact_sensors.items():
-            view = sensor.contact_view
-            if view.counterpart_type != "body":
-                raise ValueError(f"Contact group '{group_name}' must report body-level counterparts.")
-            counterpart_paths = [model_body_paths[index] for index in view.counterpart_indices[0]]
-            self._target_contact_columns[group_name] = resolve_target_contact_column(
-                counterpart_paths, target_body_path
-            )
+        for sensor_name, sensor in self.contact_sensors.items():
+            if sensor.cfg.filter_prim_paths_expr != [self.cfg.object_cfg.prim_path]:
+                raise ValueError(f"Contact sensor {sensor_name!r} must filter only the target apple.")
+            if sensor.data.normal_force_matrix_w.torch.shape[2] != 1:
+                raise ValueError(f"Contact sensor {sensor_name!r} must resolve exactly one apple counterpart.")
+            self._target_contact_columns[sensor_name] = 0
 
     def _contact_group_forces(self) -> torch.Tensor:
         """Return each contact group's target-object normal force [N], summed over the group's bodies.
@@ -1411,10 +1484,16 @@ class G1WujiTableEnv(DirectRLEnv):
         """
         return torch.stack(
             [
-                torch.linalg.vector_norm(
-                    sensor.data.normal_force_matrix_w.torch[:, :, self._target_contact_columns[group_name]], dim=-1
-                ).sum(dim=1)
-                for group_name, sensor in self.contact_sensors.items()
+                sum(
+                    torch.linalg.vector_norm(
+                        self.contact_sensors[sensor_name].data.normal_force_matrix_w.torch[
+                            :, :, self._target_contact_columns[sensor_name]
+                        ],
+                        dim=-1,
+                    ).sum(dim=1)
+                    for sensor_name in sensor_names
+                )
+                for sensor_names in self.contact_groups.values()
             ],
             dim=-1,
         )
@@ -1442,8 +1521,7 @@ class G1WujiTableEnv(DirectRLEnv):
             f"{mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_GEOM, geom) or ''}"
             for geom in range(mj_model.ngeom)
         ]
-        # "g1_simplified" is the USD sub-asset name for the arm/torso, mirroring "wujihand" for the hand
-        # (see the robot prim paths in env_cfg.py); it covers the non-hand robot geoms used for self-contact.
+        # The shared G1 sub-asset covers non-hand robot geoms used for self-contact.
         (
             self._hand_geoms,
             self._apple_geoms,
@@ -1453,7 +1531,14 @@ class G1WujiTableEnv(DirectRLEnv):
             self._torso_geoms,
         ) = (
             torch.tensor([key in label for label in labels], device=self.device)
-            for key in ("wujihand", "Apple", "Table", "g1_simplified", "right_elbow_link", "torso_link")
+            for key in (
+                self.hand_spec.hand_prim_path,
+                "Apple",
+                "Table",
+                "g1_simplified",
+                "right_elbow_link",
+                "torso_link",
+            )
         )
         if not (
             self._hand_geoms.any()
@@ -1555,7 +1640,7 @@ class G1WujiTableEnv(DirectRLEnv):
         }
         self._episode_contact_gate_steps = torch.zeros(self.num_envs, device=self.device)
         self._episode_arm_tracking_error_sum = torch.zeros(self.num_envs, device=self.device)
-        self._episode_wuji_tracking_error_sum = torch.zeros(self.num_envs, device=self.device)
+        self._episode_hand_tracking_error_sum = torch.zeros(self.num_envs, device=self.device)
         self._episode_min_hand_distance = torch.full((self.num_envs,), torch.inf, device=self.device)
         self._episode_min_keypoint_error = torch.full((self.num_envs,), torch.inf, device=self.device)
         self._episode_max_object_height = torch.full((self.num_envs,), -torch.inf, device=self.device)
@@ -1588,7 +1673,7 @@ class G1WujiTableEnv(DirectRLEnv):
         object_height: torch.Tensor,
         contact_gate: torch.Tensor,
         arm_tracking_error: torch.Tensor,
-        wuji_tracking_error: torch.Tensor,
+        hand_tracking_error: torch.Tensor,
         contact_force_stack: torch.Tensor,
         hand_distance_nearest: torch.Tensor,
         goal_alpha_step: float,
@@ -1612,7 +1697,7 @@ class G1WujiTableEnv(DirectRLEnv):
         self._episode_reward_sums["action_delta"] += action_delta_reward
         self._episode_contact_gate_steps += contact_gate
         self._episode_arm_tracking_error_sum += arm_tracking_error
-        self._episode_wuji_tracking_error_sum += wuji_tracking_error
+        self._episode_hand_tracking_error_sum += hand_tracking_error
         self._episode_min_hand_distance = torch.minimum(self._episode_min_hand_distance, hand_distance_farthest)
         self._episode_min_keypoint_error = torch.minimum(self._episode_min_keypoint_error, keypoint_error)
         self._episode_max_object_height = torch.maximum(self._episode_max_object_height, object_height)
@@ -1626,12 +1711,12 @@ class G1WujiTableEnv(DirectRLEnv):
         log = {
             "Task/keypoint_error_step": keypoint_error.mean(),
             "Task/object_height_step": object_height.mean(),
-            # Distances from the apple centre to the six hand points (palm and fingertips).
+            # Distances from the apple centre to the palm and active fingertips.
             "Reach/hand_distance_farthest_step": hand_distance_farthest.mean(),
             "Reach/hand_distance_nearest_step": hand_distance_nearest.mean(),
             "Contact/force_max_step": contact_force_stack.max(dim=1).values.mean(),
             "Contact/force_thumb_step": contact_force_stack[
-                :, list(self.contact_sensors).index(self._THUMB_CONTACT_GROUP)
+                :, list(self.contact_groups).index(self._THUMB_CONTACT_GROUP)
             ].mean(),
             "Contact/gate_frac_step": contact_gate.float().mean(),
             "Contact/groups_over_threshold_step": (contact_force_stack > self.cfg.contact_force_threshold)
@@ -1652,7 +1737,7 @@ class G1WujiTableEnv(DirectRLEnv):
                 {
                     "Control/action_saturation_frac_step": (self.actions.abs() >= 0.999).float().mean(),
                     "Control/arm_tracking_error_step": arm_tracking_error.mean(),
-                    "Control/wuji_tracking_error_step": wuji_tracking_error.mean(),
+                    "Control/hand_tracking_error_step": hand_tracking_error.mean(),
                 }
             )
         if self.cfg.adr.enabled:
@@ -1662,7 +1747,7 @@ class G1WujiTableEnv(DirectRLEnv):
         log.update(
             {
                 f"Contact/touch_frac_{name}_step": (contact_force_stack[:, index] > 0.0).float().mean()
-                for index, name in enumerate(self.contact_sensors)
+                for index, name in enumerate(self.contact_groups)
             }
         )
         if self.cfg.log_control_metrics:
@@ -1725,8 +1810,8 @@ class G1WujiTableEnv(DirectRLEnv):
                         "Control/arm_tracking_error_ep": (
                             self._episode_arm_tracking_error_sum[reset_ids] / episode_steps
                         ).mean(),
-                        "Control/wuji_tracking_error_ep": (
-                            self._episode_wuji_tracking_error_sum[reset_ids] / episode_steps
+                        "Control/hand_tracking_error_ep": (
+                            self._episode_hand_tracking_error_sum[reset_ids] / episode_steps
                         ).mean(),
                     }
                 )
@@ -1875,13 +1960,13 @@ class G1WujiTableEnv(DirectRLEnv):
         if hasattr(self, "arm_joint_targets"):
             default_joint_pos = self.robot.data.default_joint_pos.torch[env_ids]
             self.arm_joint_targets[env_ids] = default_joint_pos[:, self.arm_joint_ids]
-            self.wuji_joint_targets[env_ids] = default_joint_pos[:, self.wuji_joint_ids]
+            self.hand_joint_targets[env_ids] = default_joint_pos[:, self.hand_joint_ids]
         if hasattr(self, "_episode_reward_sums"):
             for values in self._episode_reward_sums.values():
                 values[env_ids] = 0.0
             self._episode_contact_gate_steps[env_ids] = 0.0
             self._episode_arm_tracking_error_sum[env_ids] = 0.0
-            self._episode_wuji_tracking_error_sum[env_ids] = 0.0
+            self._episode_hand_tracking_error_sum[env_ids] = 0.0
             self._episode_min_hand_distance[env_ids] = torch.inf
             self._episode_min_keypoint_error[env_ids] = torch.inf
             self._episode_max_object_height[env_ids] = -torch.inf
