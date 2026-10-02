@@ -22,6 +22,7 @@ DEFAULT_TAGS = [
     "Train/mean_reward",
     "Train/mean_episode_length",
     "Task/success",
+    "Task/success-percentage-completed-episode-count",
     "Task/object_height_ep_max",
     "Task/keypoint_error_ep_min",
     "Task/keypoint_error_ep_final",

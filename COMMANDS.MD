@@ -21,6 +21,9 @@ runtime does not support this heterogeneous clone plan; `physics=physx` may sele
 ## Train
 
 Training and distillation use full domain randomization with `dr_full`.
+`Task/success` is the successful fraction of episodes completed within each learning iteration;
+`Task/success-percentage-completed-episode-count` is its denominator (zero when no episodes finish).
+Iterations without completions omit `Task/success`. ADR retains its independent update window.
 
 ### PPO
 
