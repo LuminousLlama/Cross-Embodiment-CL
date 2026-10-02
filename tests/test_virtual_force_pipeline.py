@@ -11,11 +11,11 @@ import numpy as np
 import pytest
 import torch
 
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (
-    G1WujiTableEnv,
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env import (
+    G1HandTableEnv,
     resolve_target_contact_column,
 )
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.virtual_force import (
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.virtual_force import (
     VirtualForcePipeline,
     VirtualForcePipelineConfig,
     WujiForceSystemIdModel,
@@ -56,7 +56,7 @@ def test_contact_group_forces_follow_target_full_path_across_counterpart_order()
             _target_contact_columns={"thumb": target_column, "index": target_column},
             contact_groups={"thumb": ("thumb",), "index": ("index",)},
         )
-        actual_forces.append(G1WujiTableEnv._contact_group_forces(fake_env))
+        actual_forces.append(G1HandTableEnv._contact_group_forces(fake_env))
 
     for actual in actual_forces:
         torch.testing.assert_close(actual, expected)

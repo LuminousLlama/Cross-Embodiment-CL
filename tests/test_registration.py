@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Tests for the generated task registrations."""
+"""Tests for the project task registrations."""
 
 import gymnasium as gym
 
@@ -11,7 +11,7 @@ import Cross_Embodiment_CL.tasks  # noqa: F401
 
 
 def test_task_registrations():
-    """The generated tasks must expose valid environment and agent entry points."""
+    """Tasks must expose valid environment and agent entry points."""
     expected = {
         "CrossEmbodimentCl-Balance-Cartpole-Direct": {
             "entry_point": "Cross_Embodiment_CL.tasks.balance_direct.config.cartpole.env:BalanceEnv",
@@ -24,22 +24,22 @@ def test_task_registrations():
             ),
             "default_agent": "skrl",
         },
-        "CrossEmbodimentCl-G1-Wuji-Table-Direct": {
-            "entry_point": "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env:G1WujiTableEnv",
+        "CrossEmbodimentCl-G1-Hand-Table-Direct": {
+            "entry_point": "Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env:G1HandTableEnv",
             "env_cfg_entry_point": (
-                "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg:G1WujiTableRunPresetCfg"
+                "Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env_cfg:G1HandTableRunPresetCfg"
             ),
             "rsl_rl_cfg_entry_point": (
-                "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents."
-                "rsl_rl_ppo_cfg:G1WujiTablePPORunnerCfg"
+                "Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.agents."
+                "rsl_rl_ppo_cfg:G1HandTablePPORunnerCfg"
             ),
             "rsl_rl_distillation_cfg_entry_point": (
-                "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents."
-                "rsl_rl_distillation_cfg:G1WujiTableDepthDistillationRunnerCfg"
+                "Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.agents."
+                "rsl_rl_distillation_cfg:G1HandTableDepthDistillationRunnerCfg"
             ),
             "rsl_rl_state_distillation_cfg_entry_point": (
-                "Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents."
-                "rsl_rl_distillation_cfg:G1WujiTableStateDistillationRunnerCfg"
+                "Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.agents."
+                "rsl_rl_distillation_cfg:G1HandTableStateDistillationRunnerCfg"
             ),
         },
     }

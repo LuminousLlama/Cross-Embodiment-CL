@@ -9,14 +9,13 @@
 4. `uv run isaaclab random_agent --task CrossEmbodimentCl-Balance-Cartpole-Direct --viz newton`
 
 
-# Auto generated stuff below
-
-An installable downstream Isaac Lab task package generated with a standard uv `src` layout.
+An installable downstream Isaac Lab task package with a standard uv `src` layout.
 
 The registered tasks are:
 
 - `CrossEmbodimentCl-Balance-Cartpole-Direct`
 - `CrossEmbodimentCl-Balance-Marl-Cartpole-Direct`
+- `CrossEmbodimentCl-G1-Hand-Table-Direct` (see [COMMANDS.MD](COMMANDS.MD))
 
 ## Installation
 
@@ -43,7 +42,7 @@ uv run --extra isaacsim isaaclab random_agent --task <TASK_NAME> physics=isaacsi
 The `ov` extra installs both the `ovphysx` and `ovrtx` runtimes. You can also select `ovrtx` independently when using
 Newton physics with the OVRTX renderer. Commit `pyproject.toml` and `uv.lock` so collaborators use the same environment.
 
-## Run the generated tasks
+## Run the registered tasks
 
 Replace the placeholders below with a task listed above and a selected RL library.
 
@@ -77,7 +76,7 @@ creating a sibling of `config/cartpole`; add another task by creating a sibling 
 
 ## Development
 
-Run the generated registration test and code-quality checks through the project environment:
+Run the registration tests and code-quality checks through the project environment:
 
 ```bash
 uv run pytest

@@ -12,9 +12,9 @@ import torch
 import yaml
 from pxr import Usd
 
+from Cross_Embodiment_CL.models.hand_latent import HandLatentActionPipeline
 from Cross_Embodiment_CL.models.hand_registry import get_hand_spec
 from Cross_Embodiment_CL.models.usd_hand_state import read_hand_joint_positions
-from Cross_Embodiment_CL.models.wuji_latent import HandLatentActionPipeline
 
 
 @pytest.mark.parametrize("hand_type", ["wuji", "inspire", "dex3"])

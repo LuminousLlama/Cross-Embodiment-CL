@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Headless end-to-end validation for the Wuji latent action contract."""
+"""Headless end-to-end validation for the shared hand latent action contract."""
 
 from isaaclab.app import AppLauncher
 
@@ -22,10 +22,10 @@ from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry  # noqa: E402
 
 import Cross_Embodiment_CL.tasks  # noqa: E402, F401
 from Cross_Embodiment_CL.models.hand_registry import get_hand_spec  # noqa: E402
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.depth_camera import (  # noqa: E402
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.depth_camera import (  # noqa: E402
     normalized_depth_to_grayscale,
 )
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (  # noqa: E402
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env import (  # noqa: E402
     goal_pose_in_base_frame,
 )
 
@@ -58,7 +58,7 @@ def test_observation_uses_raw_joint_positions_and_command_limits(
     physics_preset: str, hand_type: str, object_bank: bool
 ) -> None:
     """Joint order and padding stay correct across different simulator topologies."""
-    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Hand-Table-Direct", "env_cfg_entry_point")
     env_cfg = resolve_presets(env_cfg, selected=(physics_preset,))
     env_cfg.hand_type = hand_type
     if object_bank:
@@ -66,7 +66,7 @@ def test_observation_uses_raw_joint_positions_and_command_limits(
     env_cfg.scene.num_envs = 4
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = False
-    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    env = gym.make("CrossEmbodimentCl-G1-Hand-Table-Direct", cfg=env_cfg)
     try:
         env.reset(seed=42)
         unwrapped = env.unwrapped
@@ -103,16 +103,16 @@ def test_observation_uses_raw_joint_positions_and_command_limits(
         assert torch.allclose(robot.data.joint_pos.torch[:, shoulder_roll_joint_id], expected_shoulder_roll)
 
         arm_limits = robot.data.soft_joint_pos_limits.torch[:, unwrapped.arm_joint_ids]
-        wuji_asset_limits = robot.data.soft_joint_pos_limits.torch[:, unwrapped.hand_joint_ids]
-        wuji_command_limits = torch.stack(
+        hand_asset_limits = robot.data.soft_joint_pos_limits.torch[:, unwrapped.hand_joint_ids]
+        hand_command_limits = torch.stack(
             (
-                torch.maximum(wuji_asset_limits[..., 0], unwrapped._hand_command_lower_floor),
-                wuji_asset_limits[..., 1],
+                torch.maximum(hand_asset_limits[..., 0], unwrapped._hand_command_lower_floor),
+                hand_asset_limits[..., 1],
             ),
             dim=-1,
         )
         expected_command_limits = torch.cat(
-            (arm_limits.flatten(start_dim=1), wuji_command_limits.flatten(start_dim=1)), dim=-1
+            (arm_limits.flatten(start_dim=1), hand_command_limits.flatten(start_dim=1)), dim=-1
         )
         observed_command_limits = torch.cat(
             (
@@ -125,8 +125,8 @@ def test_observation_uses_raw_joint_positions_and_command_limits(
 
         zero_floor = unwrapped._hand_command_lower_floor == 0.0
         if hand_type == "wuji":
-            assert (wuji_asset_limits[..., 0][:, zero_floor] < 0.0).any()
-        assert torch.all(wuji_command_limits[..., 0][:, zero_floor] >= 0.0)
+            assert (hand_asset_limits[..., 0][:, zero_floor] < 0.0).any()
+        assert torch.all(hand_command_limits[..., 0][:, zero_floor] >= 0.0)
         for _ in range(4):
             obs, reward, _, _, _ = env.step(torch.zeros((4, 25), device=unwrapped.device))
             assert torch.isfinite(obs["policy"]).all()
@@ -141,13 +141,13 @@ def test_observation_uses_raw_joint_positions_and_command_limits(
 @pytest.mark.parametrize("physics_preset", ["newton_mjwarp", "isaacsim_physx"])
 def test_virtual_force_packet_uses_common_contact_and_jacobian_apis(physics_preset: str) -> None:
     """Catch backend-specific sensor wiring, body ordering, and packet-shape regressions."""
-    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Hand-Table-Direct", "env_cfg_entry_point")
     env_cfg = resolve_presets(env_cfg, selected=(physics_preset,))
     env_cfg.scene.num_envs = 2
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = False
     env_cfg.virtual_force.enabled = True
-    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    env = gym.make("CrossEmbodimentCl-G1-Hand-Table-Direct", cfg=env_cfg)
     try:
         observations, _ = env.reset(seed=42)
         unwrapped = env.unwrapped
@@ -215,7 +215,7 @@ def test_every_hand_body_sensor_reports_real_target_contact_and_clears(hand_type
             for index, body_path in enumerate(bodies):
                 sensor_name = f"{group}__{index}"
                 sensor = task.contact_sensors[sensor_name]
-                assert sensor.cfg.prim_path.endswith(f"/G1Wuji/{body_path}")
+                assert sensor.cfg.prim_path.endswith(f"/G1Hand/{body_path}")
                 body = authored.GetPrimAtPath(authored.GetDefaultPrim().GetPath().AppendPath(body_path))
 
                 def belongs_to_body(prim, body=body):
@@ -309,11 +309,11 @@ def test_every_hand_body_sensor_reports_real_target_contact_and_clears(hand_type
 @pytest.mark.parametrize("hand_type", ["wuji", "inspire", "dex3"])
 def test_depth_view_publishes_the_exact_final_student_image(hand_type: str) -> None:
     """The viewer-facing camera output is the finalized student tensor in NHWC layout."""
-    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Hand-Table-Direct", "env_cfg_entry_point")
     env_cfg = resolve_presets(env_cfg, selected=("depth_view",))
     env_cfg.hand_type = hand_type
     env_cfg.sim.visualizer_cfgs = []
-    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    env = gym.make("CrossEmbodimentCl-G1-Hand-Table-Direct", cfg=env_cfg)
     try:
         env.reset(seed=42)
         unwrapped = env.unwrapped
@@ -337,7 +337,7 @@ def test_depth_view_publishes_the_exact_final_student_image(hand_type: str) -> N
 @pytest.mark.parametrize("hand_type", ["wuji", "inspire", "dex3"])
 def test_sensor_noise_is_actor_only_and_critic_gets_dr_state(hand_type: str) -> None:
     """Sensor noise stays actor-only while the critic receives clean state plus DR metadata."""
-    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Hand-Table-Direct", "env_cfg_entry_point")
     env_cfg = resolve_presets(env_cfg, selected=("newton_mjwarp",))
     env_cfg.hand_type = hand_type
     env_cfg.scene.num_envs = 2
@@ -347,7 +347,7 @@ def test_sensor_noise_is_actor_only_and_critic_gets_dr_state(hand_type: str) -> 
     env_cfg.adr.extra_enabled = True
     env_cfg.adr.sensor_noise_enabled = True
     env_cfg.adr.initial_level = env_cfg.adr.max_level
-    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    env = gym.make("CrossEmbodimentCl-G1-Hand-Table-Direct", cfg=env_cfg)
     try:
         env.reset(seed=42)
         unwrapped = env.unwrapped
@@ -377,11 +377,11 @@ def test_sensor_noise_is_actor_only_and_critic_gets_dr_state(hand_type: str) -> 
 @pytest.mark.integration
 def test_nonfinite_state_returns_zero_terminal_reward() -> None:
     """A state rejected by the done guard must not leak a NaN reward to the trainer."""
-    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Hand-Table-Direct", "env_cfg_entry_point")
     env_cfg = resolve_presets(env_cfg)
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = False
-    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    env = gym.make("CrossEmbodimentCl-G1-Hand-Table-Direct", cfg=env_cfg)
     try:
         env.reset(seed=42)
         unwrapped = env.unwrapped
@@ -400,12 +400,12 @@ def test_nonfinite_state_returns_zero_terminal_reward() -> None:
 @pytest.mark.integration
 def test_wuji_latent_round_trip_ping_pong() -> None:
     """Project two simulated poses and verify their latent commands move the hand."""
-    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Hand-Table-Direct", "env_cfg_entry_point")
     env_cfg = resolve_presets(env_cfg)
     # The default preset opens the Newton viewer; keep this runtime test headless.
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = True
-    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    env = gym.make("CrossEmbodimentCl-G1-Hand-Table-Direct", cfg=env_cfg)
     try:
         unwrapped = env.unwrapped
         env.reset(seed=42)
@@ -578,15 +578,15 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
 @pytest.mark.integration
 @pytest.mark.parametrize("hand_type", ["wuji", "inspire", "dex3"])
 @pytest.mark.parametrize("physics_preset", ["newton_mjwarp", "isaacsim_physx"])
-def test_wuji_multi_env_reset_initializes_ema_targets(hand_type: str, physics_preset: str) -> None:
+def test_hand_multi_env_reset_initializes_ema_targets(hand_type: str, physics_preset: str) -> None:
     """Reset clears controller history and stepping preserves the fixed pelvis."""
-    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Wuji-Table-Direct", "env_cfg_entry_point")
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Hand-Table-Direct", "env_cfg_entry_point")
     env_cfg = resolve_presets(env_cfg, selected=(physics_preset,))
     env_cfg.hand_type = hand_type
     env_cfg.scene.num_envs = 2
     env_cfg.sim.visualizer_cfgs = []
     env_cfg.debug.keypoint_markers = False
-    env = gym.make("CrossEmbodimentCl-G1-Wuji-Table-Direct", cfg=env_cfg)
+    env = gym.make("CrossEmbodimentCl-G1-Hand-Table-Direct", cfg=env_cfg)
     try:
         observations, _ = env.reset(seed=42)
         unwrapped = env.unwrapped

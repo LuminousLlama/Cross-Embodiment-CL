@@ -83,10 +83,10 @@ copy the complete folder to:
 <primary>/logs/<rl-library>/<task>/00_SERVER_LOGS/<run-folder>/
 ```
 
-For example, an RSL-RL G1-Wuji run belongs at:
+For example, an RSL-RL G1-hand run belongs at:
 
 ```text
-<primary>/logs/rsl_rl/g1_wuji_table_direct/00_SERVER_LOGS/<run-folder>/
+<primary>/logs/rsl_rl/g1_hand_table_direct/00_SERVER_LOGS/<run-folder>/
 ```
 
 Derive `<rl-library>`, `<task>`, and `<run-folder>` from the actual remote run path rather than

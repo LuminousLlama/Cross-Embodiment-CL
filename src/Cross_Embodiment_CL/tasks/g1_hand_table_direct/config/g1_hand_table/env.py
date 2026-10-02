@@ -34,13 +34,13 @@ from isaaclab.utils.math import (
 )
 from isaaclab.utils.warp import ProxyArray
 
+from Cross_Embodiment_CL.models.hand_latent import HandLatentActionPipeline
 from Cross_Embodiment_CL.models.hand_observation import (
     POLICY_OBSERVATION_DIM,
     STUDENT_OBSERVATION_DIM,
 )
 from Cross_Embodiment_CL.models.hand_registry import get_hand_spec
 from Cross_Embodiment_CL.models.usd_hand_state import read_hand_joint_positions
-from Cross_Embodiment_CL.models.wuji_latent import HandLatentActionPipeline
 
 from .adr import AdaptiveDomainRandomization
 from .depth_camera import (
@@ -55,7 +55,7 @@ from .env_cfg import (
     OBJECT_COLLISION_SHAPE_COUNTS,
     OBJECT_REST_HEIGHTS,
     STUDENT_DEPTH_LETTERBOX,
-    G1WujiTableEnvCfg,
+    G1HandTableEnvCfg,
     _g1_hand_robot_cfg,
 )
 from .openusd_work import limit_openusd_scene_import, restore_openusd_concurrency
@@ -349,10 +349,10 @@ class _StudentDepthCamera(Camera):
         depth.copy_(randomized.permute(0, 2, 3, 1))
 
 
-class G1WujiTableEnv(DirectRLEnv):
+class G1HandTableEnv(DirectRLEnv):
     """G1 scene with normalized arm and shared latent-hand position actions."""
 
-    cfg: G1WujiTableEnvCfg
+    cfg: G1HandTableEnvCfg
 
     _ARM_JOINT_NAMES = (
         "right_shoulder_pitch_joint",
@@ -375,7 +375,7 @@ class G1WujiTableEnv(DirectRLEnv):
     _STUDENT_OBSERVATION_DIM = STUDENT_OBSERVATION_DIM
     _GOAL_OBSERVATION_DIM = 9
 
-    def __init__(self, cfg: G1WujiTableEnvCfg, render_mode: str | None = None, **kwargs) -> None:
+    def __init__(self, cfg: G1HandTableEnvCfg, render_mode: str | None = None, **kwargs) -> None:
         global _object_clone_seed
 
         self._student_depth_preview: torch.Tensor | None = None
@@ -391,7 +391,7 @@ class G1WujiTableEnv(DirectRLEnv):
         if cfg.virtual_force.enabled and not self.hand_spec.supports_force:
             raise ValueError(f"Virtual force is unsupported for hand {cfg.hand_type!r}.")
         if cfg.robot_cfg is None:
-            cfg.robot_cfg = _g1_hand_robot_cfg(cfg.hand_type, "{ENV_REGEX_NS}/G1Wuji")
+            cfg.robot_cfg = _g1_hand_robot_cfg(cfg.hand_type, "{ENV_REGEX_NS}/G1Hand")
         else:
             read_hand_joint_positions(cfg.robot_cfg.spawn.usd_path, self.hand_spec)
         self._hand_point_offsets = (self.hand_spec.palm_offset,) + self.hand_spec.read_tip_offsets(
@@ -697,7 +697,7 @@ class G1WujiTableEnv(DirectRLEnv):
             sensor_names = []
             for body_index, body_name in enumerate(body_names):
                 sensor_name = f"{group_name}__{body_index}"
-                sensor_cfg = contact_sensor_template.replace(prim_path=f"/World/envs/env_[^/]+/G1Wuji/{body_name}")
+                sensor_cfg = contact_sensor_template.replace(prim_path=f"/World/envs/env_[^/]+/G1Hand/{body_name}")
                 self.contact_sensors[sensor_name] = ContactSensor(sensor_cfg)
                 if self.cfg.virtual_force.enabled:
                     self.force_sensors[sensor_name] = ContactSensor(
@@ -1433,9 +1433,9 @@ class G1WujiTableEnv(DirectRLEnv):
         )
 
     def _get_rewards(self) -> torch.Tensor:
-        """Reward reaching, thumb-opposed contact, and the upright object pose.
+        """Reward reaching, thumb-opposed contact, and the target object pose.
 
-        ``reward_mode`` (see :attr:`G1WujiTableEnvCfg.reward_mode`) switches between today's
+        ``reward_mode`` (see :attr:`G1HandTableEnvCfg.reward_mode`) switches between the
         shaped reward and the ADEPT-style minimal reward.
         """
         self.extras.pop("log", None)
@@ -1491,8 +1491,7 @@ class G1WujiTableEnv(DirectRLEnv):
             reward = reach_reward + goal_reward + contact_reward + lift_reward
         elif self.cfg.reward_mode == "adept":
             # Grasp gate: the thumb and at least one other finger (never the palm) each past
-            # adept_gate_force, per the ADEPT paper's minimal reward. No shaped contact term, no
-            # lift term, and no press guard -- the gate alone stands in for all three.
+            # adept_gate_force, per the ADEPT paper's minimal reward.
             contact_gate = thumb_and_other_finger_gate(
                 contact_force_stack,
                 tuple(self.contact_groups),
@@ -1800,7 +1799,7 @@ class G1WujiTableEnv(DirectRLEnv):
         ``ep_final``, and ``ep_return`` (sum) summarise the episodes that reset this step.
 
         ``contact_gate`` and ``goal_alpha_step`` are the grasp gate and goal
-        sharpness from :meth:`G1WujiTableEnv._get_rewards`: the ``Contact/gate_frac_*`` tags
+        sharpness from :meth:`G1HandTableEnv._get_rewards`: the ``Contact/gate_frac_*`` tags
         below read the gate used by the active reward formulation, and ``goal_alpha_step`` reports
         the active scheduled sharpness or 0.0 when no schedule applies.
         """

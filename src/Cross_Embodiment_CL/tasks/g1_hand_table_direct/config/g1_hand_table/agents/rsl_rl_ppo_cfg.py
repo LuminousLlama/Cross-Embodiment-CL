@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""RSL-RL PPO baseline for the G1-Wuji tabletop task."""
+"""RSL-RL PPO baseline for the G1-hand tabletop task."""
 
 from isaaclab.utils import configclass
 
@@ -11,13 +11,13 @@ from isaaclab_rl.rsl_rl import RslRlMLPModelCfg, RslRlOnPolicyRunnerCfg, RslRlPp
 
 
 @configclass
-class G1WujiTablePPORunnerCfg(RslRlOnPolicyRunnerCfg):
+class G1HandTablePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     """Untuned state-based PPO baseline for the masked 191-D G1-hand observation."""
 
     num_steps_per_env = 32
     max_iterations = 10_000
     save_interval = 250
-    experiment_name = "g1_wuji_table_direct"
+    experiment_name = "g1_hand_table_direct"
     # The actor retains the deployable policy tensor. The critic gets the clean simulator tensor with the
     # exact per-environment DR state appended by the environment.
     obs_groups = {"actor": ["policy"], "critic": ["critic"]}

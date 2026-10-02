@@ -14,8 +14,8 @@ import torch
 from rsl_rl.utils.logger import Logger
 
 from Cross_Embodiment_CL.models.episode_logging import CompletedEpisodeLogging
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (
-    G1WujiTableEnv,
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env import (
+    G1HandTableEnv,
     balanced_random_clone_strategy,
     latch_first_success_steps,
     per_object_success_metrics,
@@ -158,7 +158,7 @@ def test_training_success_weights_completed_episodes_and_clears_each_iteration()
     for reset_ids in ([0], [], list(range(1, n))):
         env.reset_buf = torch.zeros(n, dtype=torch.bool)
         env.reset_buf[reset_ids] = True
-        G1WujiTableEnv._update_episode_metrics(
+        G1HandTableEnv._update_episode_metrics(
             env,
             zeros,
             zeros,
@@ -194,7 +194,7 @@ def test_training_success_weights_completed_episodes_and_clears_each_iteration()
     algorithm.storage.step = 0
     algorithm.storage.num_transitions_per_env = 1
     env.reset_buf.zero_()
-    G1WujiTableEnv._update_episode_metrics(
+    G1HandTableEnv._update_episode_metrics(
         env,
         zeros,
         zeros,

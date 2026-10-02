@@ -13,7 +13,7 @@ from pxr import Usd, UsdPhysics
 
 from isaaclab.utils.string import resolve_matching_names_values
 
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg import G1_WUJI_CFG
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env_cfg import G1_WUJI_CFG
 
 HAND_USD = Path(__file__).resolve().parents[1] / "assets/hands/wuji_right_soft_simplified/wujihand.usda"
 JOINT_NAMES = [f"right_finger{finger}_joint{joint}" for finger in range(1, 6) for joint in range(1, 5)]

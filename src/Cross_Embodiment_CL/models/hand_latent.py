@@ -16,13 +16,11 @@ import yaml
 
 from .hand_registry import get_hand_spec
 
-_ASSET_DIR = Path(__file__).resolve().parents[3] / "assets/models/wuji_latent"
+_ASSET_DIR = Path(__file__).resolve().parents[3] / "assets/models/hand_latent"
 _AUTOENCODER_PATH = _ASSET_DIR / "mano_pose_autoencoder_63d.pt"
 
 MANO_POSE_DIM = 63
 HAND_LATENT_DIM = 18
-WUJI_JOINT_DIM = 20
-WUJI_LATENT_DIM = HAND_LATENT_DIM
 
 
 class _PoseAutoencoder(nn.Module):
@@ -76,9 +74,6 @@ class HandLatentProjection:
     latent_action: torch.Tensor
     joint_target: torch.Tensor
     error: torch.Tensor
-
-
-WujiLatentProjection = HandLatentProjection
 
 
 class HandLatentActionPipeline:
@@ -232,12 +227,3 @@ class HandLatentActionPipeline:
             joint_target = self.latent_action_to_joint_target(latent_action, lower_limits, upper_limits)
             error = torch.linalg.vector_norm(joint_target - target, dim=-1)
         return HandLatentProjection(mano_pose, latent_action, joint_target, error)
-
-
-class WujiLatentActionPipeline(HandLatentActionPipeline):
-    """Compatibility entry point for the original Wuji action pipeline."""
-
-    joint_dim = WUJI_JOINT_DIM
-
-    def __init__(self, device: torch.device | str) -> None:
-        super().__init__("wuji", device)

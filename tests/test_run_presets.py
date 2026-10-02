@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Tests for the G1-Wuji run presets, resolved the way ``isaaclab train``/``play`` resolve them."""
+"""Tests for the G1-hand run presets, resolved the way ``isaaclab train``/``play`` resolve them."""
 
 import subprocess
 import sys
@@ -18,7 +18,7 @@ from isaaclab_tasks.utils import resolve_task_config
 
 import Cross_Embodiment_CL.tasks  # noqa: F401
 
-TASK = "CrossEmbodimentCl-G1-Wuji-Table-Direct"
+TASK = "CrossEmbodimentCl-G1-Hand-Table-Direct"
 AGENT = "rsl_rl_cfg_entry_point"
 
 
@@ -30,7 +30,7 @@ def test_cli_defers_usd_until_runtime_and_registers_hand_schemas():
             "-c",
             """
 import sys
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg import _g1_hand_robot_cfg
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env_cfg import _g1_hand_robot_cfg
 assert 'pxr.Usd' not in sys.modules and 'pxr.Sdf' not in sys.modules
 _g1_hand_robot_cfg('inspire', '/World/Robot')
 from pxr import Usd

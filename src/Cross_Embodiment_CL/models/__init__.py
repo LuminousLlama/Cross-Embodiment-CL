@@ -5,8 +5,8 @@
 
 """Frozen learned models used by Cross Embodiment environments."""
 
+from .hand_latent import HandLatentActionPipeline, HandLatentProjection
 from .hand_registry import HAND_SPECS, HandSpec, get_hand_spec
-from .wuji_latent import HandLatentActionPipeline, HandLatentProjection, WujiLatentActionPipeline, WujiLatentProjection
 
 __all__ = [
     "HAND_SPECS",
@@ -14,6 +14,4 @@ __all__ = [
     "get_hand_spec",
     "HandLatentActionPipeline",
     "HandLatentProjection",
-    "WujiLatentActionPipeline",
-    "WujiLatentProjection",
 ]

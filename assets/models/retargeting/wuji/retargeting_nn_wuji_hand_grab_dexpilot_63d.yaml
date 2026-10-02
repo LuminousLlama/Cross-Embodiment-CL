@@ -1,6 +1,6 @@
 model_type: RetargetingNN
 output_units: rad
-state_dict_path: ../../wuji_latent/retargeting_nn_wuji_hand_grab_dexpilot_63d.pth
+state_dict_path: ../../hand_latent/retargeting_nn_wuji_hand_grab_dexpilot_63d.pth
 autoencoder_path: ../../autoencoder/mano_pose_autoencoder_63d.pt
 latent_distribution: embedded in mano_pose_autoencoder_63d.pt
 mano_dim: 63

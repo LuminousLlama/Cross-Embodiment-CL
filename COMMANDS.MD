@@ -233,7 +233,7 @@ Repeat for the other hands and `physics=isaacsim_physx`. Numerical reset/step, s
 padding, command-limit, and fixed-pelvis checks are in the existing runtime test:
 
 ```bash
-uv run pytest tests/test_wuji_latent_round_trip.py -q \
+uv run pytest tests/test_hand_latent_round_trip.py -q \
   -k 'observation_uses_raw_joint_positions or multi_env_reset'
 ```
 
@@ -244,7 +244,7 @@ then checks force activation, clearing after separation, environment isolation, 
 on both backends. It also exercises Wuji's optional detailed force sensors.
 
 ```bash
-uv run pytest tests/test_wuji_latent_round_trip.py -q -s \
+uv run pytest tests/test_hand_latent_round_trip.py -q -s \
   -k every_hand_body_sensor
 ```
 
@@ -288,7 +288,7 @@ presets=<run-profile>,dr_none env.adr.initial_level=0 env.adr.gravity_start=<gra
 
 ```bash
 uv run tensorboard \
-  --logdir logs/rsl_rl/g1_wuji_table_direct \
+  --logdir logs/rsl_rl/g1_hand_table_direct \
   --port <port> \
   --bind_all
 ```

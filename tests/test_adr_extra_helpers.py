@@ -8,7 +8,7 @@
 import pytest
 import torch
 
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env import (
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env import (
     ActionDelayBuffer,
     PendingPhysicsRandomization,
     action_delta_regularization,

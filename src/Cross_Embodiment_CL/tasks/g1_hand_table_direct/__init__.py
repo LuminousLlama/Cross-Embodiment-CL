@@ -3,4 +3,4 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Direct-workflow scene containing the G1-Wuji assembly and a work table."""
+"""Direct-workflow scene containing a G1 with a selected hand and a work table."""

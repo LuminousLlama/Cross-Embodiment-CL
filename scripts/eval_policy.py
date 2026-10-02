@@ -8,7 +8,7 @@ preset parsing, environment creation, runner construction, ``runner.load``, and
 ``runner.get_inference_policy`` (the deterministic mean action), but drops JIT/ONNX export,
 video, real-time sleeping, and the infinite loop in favor of a fixed number of episodes.
 
-Every scalar in ``extras["log"]`` (see ``G1WujiTableEnv._update_episode_metrics``) is
+Every scalar in ``extras["log"]`` (see ``G1HandTableEnv._update_episode_metrics``) is
 aggregated as a weighted mean, weighted by the number of environments that finished on that
 step; since the env only adds its ``*_ep*`` tags on steps where ``reset_ids`` is non-empty,
 and those are already averaged over just the finished environments, this weighting turns the
@@ -16,7 +16,7 @@ per-step averages into a single per-episode mean across the whole run. The alway
 ``*_step`` tags are aggregated the same way, over only the steps that had a completed episode.
 
 Usage:
-    uv run python scripts/eval_policy.py --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+    uv run python scripts/eval_policy.py --task CrossEmbodimentCl-G1-Hand-Table-Direct \
         --checkpoint <model.pt> presets=eval [--seed S] [--episodes N]
 """
 

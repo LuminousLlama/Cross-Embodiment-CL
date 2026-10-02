@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Tests for the G1-Wuji distillation runner configurations."""
+"""Tests for the G1-hand distillation runner configurations."""
 
 from importlib.metadata import version
 from types import SimpleNamespace
@@ -20,12 +20,12 @@ from isaaclab_rl.rsl_rl.utils import handle_deprecated_rsl_rl_cfg
 from isaaclab_tasks.utils import resolve_task_config
 
 from Cross_Embodiment_CL.models.hand_observation import HAND_MASK_SLICE, HAND_POSITION_SLICE
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents.rsl_rl_distillation_cfg import (
-    G1WujiTableDepthDistillationBaseRunnerCfg,
-    G1WujiTableStateDistillationRunnerCfg,
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.agents.rsl_rl_distillation_cfg import (
+    G1HandTableDepthDistillationBaseRunnerCfg,
+    G1HandTableStateDistillationRunnerCfg,
 )
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.agents.rsl_rl_ppo_cfg import (
-    G1WujiTablePPORunnerCfg,
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.agents.rsl_rl_ppo_cfg import (
+    G1HandTablePPORunnerCfg,
 )
 
 _OBSERVATION_DIM = 191
@@ -34,7 +34,7 @@ _GOAL_OBSERVATION_DIM = 9
 _FORCE_OBSERVATION_DIM = 20
 _DEPTH_SIZE = 224
 _ACTION_DIM = 25
-_TASK = "CrossEmbodimentCl-G1-Wuji-Table-Direct"
+_TASK = "CrossEmbodimentCl-G1-Hand-Table-Direct"
 _AGENT = "rsl_rl_distillation_cfg_entry_point"
 
 
@@ -67,13 +67,13 @@ def _build_mlp(model_cfg, obs_groups: dict[str, list[str]], obs_set: str) -> MLP
 @pytest.mark.parametrize(
     "distillation_cfg",
     [
-        G1WujiTableStateDistillationRunnerCfg(),
-        G1WujiTableDepthDistillationBaseRunnerCfg(),
+        G1HandTableStateDistillationRunnerCfg(),
+        G1HandTableDepthDistillationBaseRunnerCfg(),
     ],
 )
 def test_ppo_actor_loads_strictly_into_teacher(distillation_cfg):
     """A PPO checkpoint's actor weights must load strictly into the distillation teacher."""
-    ppo_cfg = G1WujiTablePPORunnerCfg()
+    ppo_cfg = G1HandTablePPORunnerCfg()
     actor = _build_mlp(ppo_cfg.actor, ppo_cfg.obs_groups, "actor")
     teacher = _build_mlp(distillation_cfg.teacher, distillation_cfg.obs_groups, "teacher")
     teacher.load_state_dict(actor.state_dict(), strict=True)
@@ -81,7 +81,7 @@ def test_ppo_actor_loads_strictly_into_teacher(distillation_cfg):
 
 def test_changing_hand_masks_preserves_valid_joint_statistics_and_zero_padding():
     """A hand without a joint cannot dilute its normalization or inherit a ghost input."""
-    cfg = G1WujiTablePPORunnerCfg()
+    cfg = G1HandTablePPORunnerCfg()
     cfg.actor.hidden_dims = [8]
     actor = _build_mlp(cfg.actor, cfg.obs_groups, "actor")
     normalizer = actor.obs_normalizer
@@ -143,7 +143,7 @@ def test_depth_student_preset_selects_matching_deployable_observations(presets, 
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("cfg_type", [G1WujiTablePPORunnerCfg, G1WujiTableStateDistillationRunnerCfg])
+@pytest.mark.parametrize("cfg_type", [G1HandTablePPORunnerCfg, G1HandTableStateDistillationRunnerCfg])
 def test_success_denominator_uses_real_algorithm_rollout_boundaries(cfg_type):
     """PPO and distillation wiring must log the count only at each storage boundary."""
     cfg = cfg_type()

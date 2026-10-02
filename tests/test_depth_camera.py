@@ -10,7 +10,7 @@ import math
 import pytest
 import torch
 
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.depth_camera import (
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.depth_camera import (
     D435_DEPTH_848X480,
     PinholeIntrinsics,
     fit_depth_letterbox,

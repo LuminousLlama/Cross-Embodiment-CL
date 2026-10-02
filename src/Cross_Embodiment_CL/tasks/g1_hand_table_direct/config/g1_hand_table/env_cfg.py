@@ -69,7 +69,7 @@ OBJECT_COLLISION_SHAPE_COUNTS = {
 }
 """Authored collision-hull counts used to equalize Newton's per-world shape stride."""
 OBJECT_NAMES = tuple(OBJECT_REST_HEIGHTS)
-"""Canonical object-bank names accepted by :attr:`G1WujiTableEnvCfg.active_objects`."""
+"""Canonical object-bank names accepted by :attr:`G1HandTableEnvCfg.active_objects`."""
 
 
 def _object_usd_path(name: str) -> str:
@@ -177,7 +177,7 @@ def _mjwarp_physics_cfg(load_visual_shapes: bool) -> NewtonCfg:
 
 
 @configclass
-class G1WujiTablePhysicsCfg(PresetCfg):
+class G1HandTablePhysicsCfg(PresetCfg):
     """PhysX and Newton backend presets for the shared G1 tabletop scene."""
 
     isaacsim_physx: PhysxCfg = PhysxCfg()
@@ -187,7 +187,7 @@ class G1WujiTablePhysicsCfg(PresetCfg):
     # The stock GPU buffer capacities are sized for far heavier scenes than one fixed-base
     # arm, one object and one table.  Measured at 2048 environments, the values below cut
     # PhysX's GPU footprint by ~1.7 GB with byte-identical rollout metrics and no capacity
-    # warnings.  Raise them again if this scene ever gains objects.
+    # warnings. Recheck capacities when the per-environment collision load increases.
     ovphysx: OvPhysxCfg = OvPhysxCfg(
         gpu_max_rigid_contact_count=2**20,
         gpu_found_lost_aggregate_pairs_capacity=2**22,
@@ -206,7 +206,7 @@ class G1WujiTablePhysicsCfg(PresetCfg):
 
 
 @configclass
-class G1WujiTableResetCfg:
+class G1HandTableResetCfg:
     """Task-reset controls independent of ADR."""
 
     object_on_table: bool = False
@@ -214,7 +214,7 @@ class G1WujiTableResetCfg:
 
 
 @configclass
-class G1WujiTableDebugCfg:
+class G1HandTableDebugCfg:
     """Diagnostic drawing, off for training."""
 
     keypoint_markers: bool = False
@@ -224,7 +224,7 @@ class G1WujiTableDebugCfg:
 
 
 @configclass
-class G1WujiTableDepthPreviewCfg:
+class G1HandTableDepthPreviewCfg:
     """Student-depth viewer output independent of the debug-marker bundle."""
 
     enabled: bool = False
@@ -232,15 +232,15 @@ class G1WujiTableDepthPreviewCfg:
 
 
 @configclass
-class G1WujiTableDepthPreviewPresetCfg(PresetCfg):
+class G1HandTableDepthPreviewPresetCfg(PresetCfg):
     """Enable the policy-input preview only for the composable ``depth_view`` overlay."""
 
-    default: G1WujiTableDepthPreviewCfg = G1WujiTableDepthPreviewCfg()
-    depth_view: G1WujiTableDepthPreviewCfg = default.replace(enabled=True)
+    default: G1HandTableDepthPreviewCfg = G1HandTableDepthPreviewCfg()
+    depth_view: G1HandTableDepthPreviewCfg = default.replace(enabled=True)
 
 
 @configclass
-class G1WujiTableSceneCfg(InteractiveSceneCfg):
+class G1HandTableSceneCfg(InteractiveSceneCfg):
     """Scene assets populated by the direct environment before scene construction."""
 
     robot: object | None = None
@@ -252,9 +252,9 @@ STUDENT_DEPTH_SIZE = 224
 """Side [px] of the student's square depth image."""
 STUDENT_DEPTH_LETTERBOX = fit_depth_letterbox(D435_DEPTH_848X480, STUDENT_DEPTH_SIZE)
 """Full-width D435 depth stream resized and padded to the student's square input."""
-_STUDENT_DEPTH_CAMERA_PRIM_PATH = "{ENV_REGEX_NS}/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
+_STUDENT_DEPTH_CAMERA_PRIM_PATH = "{ENV_REGEX_NS}/G1Hand/g1_simplified/torso_link/d435_link/depth_camera"
 """Prim path of the student's D435 depth imager."""
-_STUDENT_DEPTH_CAMERA_STREAM_PATTERN = "/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link/d435_link/depth_camera"
+_STUDENT_DEPTH_CAMERA_STREAM_PATTERN = "/World/envs/env_[^/]+/G1Hand/g1_simplified/torso_link/d435_link/depth_camera"
 """Resolved camera-prim regex required by the Newton visualizer stream lookup."""
 
 
@@ -284,7 +284,7 @@ def _student_depth_camera_cfg() -> CameraCfg:
 
 
 @configclass
-class G1WujiTableDepthCameraPresetCfg(PresetCfg):
+class G1HandTableDepthCameraPresetCfg(PresetCfg):
     """Enable the student's head depth camera for the composable depth-view overlay."""
 
     default: CameraCfg | None = None
@@ -292,7 +292,7 @@ class G1WujiTableDepthCameraPresetCfg(PresetCfg):
 
 
 @configclass
-class G1WujiTableVisualizerPresetCfg(PresetCfg):
+class G1HandTableVisualizerPresetCfg(PresetCfg):
     """Select the normal scene viewer or the composable student-depth preview."""
 
     default: list[VisualizerCfg] = [NewtonGLVisualizerCfg()]
@@ -309,8 +309,8 @@ class G1WujiTableVisualizerPresetCfg(PresetCfg):
 
 
 @configclass
-class G1WujiTableVirtualForceCfg:
-    """Virtual Wuji actuator-torque packet used for diagnostics before student integration."""
+class G1HandTableVirtualForceCfg:
+    """Virtual Wuji actuator-torque sensing for diagnostics and student observations."""
 
     enabled: bool = False
     """Whether to collect hand contact wrenches and update the virtual torque model."""
@@ -345,15 +345,15 @@ class G1WujiTableVirtualForceCfg:
 
 
 @configclass
-class G1WujiTableVirtualForcePresetCfg(PresetCfg):
+class G1HandTableVirtualForcePresetCfg(PresetCfg):
     """Keep virtual force disabled unless the independent force overlay enables it."""
 
-    default: G1WujiTableVirtualForceCfg = G1WujiTableVirtualForceCfg()
-    force: G1WujiTableVirtualForceCfg = default.replace(enabled=True)
+    default: G1HandTableVirtualForceCfg = G1HandTableVirtualForceCfg()
+    force: G1HandTableVirtualForceCfg = default.replace(enabled=True)
 
 
 @configclass
-class G1WujiTableAdrCfg:
+class G1HandTableAdrCfg:
     """Adaptive domain-randomization schedule and term configuration."""
 
     enabled: bool = False
@@ -457,11 +457,11 @@ class G1WujiTableAdrCfg:
 
 
 @configclass
-class G1WujiTableAdrPresetCfg(PresetCfg):
+class G1HandTableAdrPresetCfg(PresetCfg):
     """ADR presets for nominal, no-DR, and full-DR runs."""
 
-    default: G1WujiTableAdrCfg = G1WujiTableAdrCfg()
-    dr_none: G1WujiTableAdrCfg = default.replace(
+    default: G1HandTableAdrCfg = G1HandTableAdrCfg()
+    dr_none: G1HandTableAdrCfg = default.replace(
         enabled=True,
         initial_level=50,
         max_level=50,
@@ -475,7 +475,7 @@ class G1WujiTableAdrPresetCfg(PresetCfg):
         friction_enabled=False,
         mass_enabled=False,
     )
-    dr_full: G1WujiTableAdrCfg = default.replace(
+    dr_full: G1HandTableAdrCfg = default.replace(
         enabled=True,
         initial_level=50,
         max_level=50,
@@ -492,7 +492,7 @@ class G1WujiTableAdrPresetCfg(PresetCfg):
 
 
 @configclass
-class G1WujiTableEnvCfg(DirectRLEnvCfg):
+class G1HandTableEnvCfg(DirectRLEnvCfg):
     """Configuration for a fixed G1 with a selected hand facing a pelvis-height work table."""
 
     seed = 42
@@ -566,23 +566,23 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     """Uniform target-frame yaw range [rad] about the nominal world frame."""
     object_spawn_height_offset_cm = 5.0
     """Legacy vertical object spawn offset [cm]; randomized reset uses per-object rest heights."""
-    reset: G1WujiTableResetCfg = G1WujiTableResetCfg()
+    reset: G1HandTableResetCfg = G1HandTableResetCfg()
     """Task-reset controls; unlike ADR, these apply at every reset."""
-    adr: G1WujiTableAdrCfg = G1WujiTableAdrPresetCfg()
+    adr: G1HandTableAdrCfg = G1HandTableAdrPresetCfg()
     """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
-    virtual_force: G1WujiTableVirtualForceCfg = G1WujiTableVirtualForcePresetCfg()
+    virtual_force: G1HandTableVirtualForceCfg = G1HandTableVirtualForcePresetCfg()
     """Virtual Wuji actuator-torque sensing, enabled only by the ``force`` overlay."""
     adr_debug_spawn_area_vis: bool = False
     """Legacy opt-in alias for :attr:`debug.adr_spawn_area_marker`."""
-    debug: G1WujiTableDebugCfg = G1WujiTableDebugCfg(keypoint_markers=True, adr_spawn_area_marker=True)
+    debug: G1HandTableDebugCfg = G1HandTableDebugCfg(keypoint_markers=True, adr_spawn_area_marker=True)
     """Viewer diagnostics; headless run profiles turn them off."""
-    depth_preview: G1WujiTableDepthPreviewCfg = G1WujiTableDepthPreviewPresetCfg()
+    depth_preview: G1HandTableDepthPreviewCfg = G1HandTableDepthPreviewPresetCfg()
     """Composable grayscale preview of the exact student depth input."""
     contact_debug: bool = False
     """Whether to sample MJWarp contact and constraint demand for capacity sizing; off during normal runs."""
     contact_debug_interval: int = 1
     """Number of policy steps between contact-demand samples when :attr:`contact_debug` is enabled."""
-    depth_camera: CameraCfg | None = G1WujiTableDepthCameraPresetCfg()
+    depth_camera: CameraCfg | None = G1HandTableDepthCameraPresetCfg()
     """The student's head depth camera.
 
     Adds the ``camera`` observation; ``distill`` and ``depth_view`` enable it.
@@ -629,7 +629,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     )
     """Unit-width blue square scaled to the configured ADR spawn area at runtime."""
     contact_sensor_cfg = ContactSensorCfg(
-        prim_path="/World/envs/env_[^/]+/G1Wuji/wujihand/right_palm_link",
+        prim_path="/World/envs/env_[^/]+/G1Hand/wujihand/right_palm_link",
         update_period=0.0,
         history_length=0,
         # Setup replaces this with the configured object's exact path.
@@ -638,11 +638,11 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     )
     """Shared hand-to-scene sensor template, independent of student force observations.
 
-    The groups are the palm and the five fingers, each covering every body that owns a collision shape.
+    Groups cover the selected hand's palm and fingers, including their collision-bearing bodies.
     Each sensor filters one explicit object. Optional force sensors separately enumerate scene counterparts.
     """
     torso_contact_sensor_cfg = ContactSensorCfg(
-        prim_path="/World/envs/env_[^/]+/G1Wuji/g1_simplified/torso_link",
+        prim_path="/World/envs/env_[^/]+/G1Hand/g1_simplified/torso_link",
         update_period=0.0,
         history_length=0,
     )
@@ -650,19 +650,18 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     keypoint_extent = 0.15
     """Half-side length [m] of the virtual object-frame cube used for pose reward."""
     reward_mode: str = "adept"
-    """Reward formulation used by :meth:`G1WujiTableEnv._get_rewards`.
+    """Reward formulation used by :meth:`G1HandTableEnv._get_rewards`.
 
-    ``"shaped"`` (default) is reach + ungated keypoint-goal reward + optional lift + a flat
-    thumb-and-finger contact bonus. ``"adept"`` is the ADEPT-style minimal
+    ``"shaped"`` is reach + ungated keypoint-goal reward + optional lift + a flat
+    thumb-and-finger contact bonus. ``"adept"`` (default) is the ADEPT-style minimal
     reward: reach, plus a goal term gated on a two-body force threshold (thumb and any other
-    finger, not the palm) whose keypoint-error sharpness ramps over training, plus a flat
-    contact bonus under the same gate. It has no lift term and no press guard. Any other value
-    raises ``ValueError``. ``"shaped"`` stays the default until ``"adept"`` is shown to train.
+    finger, not the palm) whose keypoint-error sharpness follows ADR strength, plus a flat
+    contact bonus under the same gate and optional lift. Any other value raises ``ValueError``.
     """
     adept_gate_force: float = 0.3
     """``reward_mode="adept"`` per-body contact-force threshold [N] for the grasp gate.
 
-    The gate requires the thumb (:attr:`G1WujiTableEnv._THUMB_CONTACT_GROUP`) and at least one
+    The gate requires the thumb (:attr:`G1HandTableEnv._THUMB_CONTACT_GROUP`) and at least one
     other finger, excluding the palm, to each exceed this force.
     """
     adept_contact_reward_scale: float = 0.01
@@ -674,7 +673,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     adept_lift_reward_scale: float = 0.0
     """``reward_mode="adept"`` optional dense per-step reward for height progress toward the goal.
 
-    Reuses the shaped mode's ``lift_fraction`` (see :meth:`G1WujiTableEnv._lift_fraction`). 0.0
+    Reuses the shaped mode's ``lift_fraction`` (see :meth:`G1HandTableEnv._lift_fraction`). 0.0
     (default) adds nothing, so pure ADEPT behaviour is byte-identical; the gated, alpha-sharpened
     goal term alone gives no gradient toward lifting while far from the goal, which this term
     supplies when set nonzero. :attr:`lift_reward_enabled` globally disables this term too.
@@ -703,7 +702,7 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,
         render_interval=decimation,
-        physics=G1WujiTablePhysicsCfg(),
+        physics=G1HandTablePhysicsCfg(),
         # PhysX's default material for shapes without one (Newton uses ``default_shape_cfg`` instead).
         # UNTESTED on PhysX: the max combine mode and resulting contact friction are only verified on Newton.
         physics_material=PhysxRigidBodyMaterialCfg(
@@ -711,9 +710,9 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
         ),
         # Run profiles may replace the normal viewer with a headless default. ``depth_view`` remains
         # an independent overlay in either case, and an explicit ``--viz`` still takes precedence.
-        visualizer_cfgs=G1WujiTableVisualizerPresetCfg(),
+        visualizer_cfgs=G1HandTableVisualizerPresetCfg(),
     )
-    scene: G1WujiTableSceneCfg = G1WujiTableSceneCfg(num_envs=1, env_spacing=3.0, replicate_physics=True)
+    scene: G1HandTableSceneCfg = G1HandTableSceneCfg(num_envs=1, env_spacing=3.0, replicate_physics=True)
 
     robot_cfg: ArticulationCfg | None = None
     """Optional complete asset override; otherwise resolve the selected hand at environment creation.
@@ -784,31 +783,31 @@ class G1WujiTableEnvCfg(DirectRLEnvCfg):
 
 def _run_profile_cfg(
     *, num_envs: int, headless: bool, load_visual_shapes: bool, depth_camera: bool = False
-) -> G1WujiTableEnvCfg:
+) -> G1HandTableEnvCfg:
     """Build one complete run profile while retaining independent feature overlays."""
-    cfg = G1WujiTableEnvCfg()
+    cfg = G1HandTableEnvCfg()
     cfg.scene = cfg.scene.replace(num_envs=num_envs)
     cfg.sim = cfg.sim.replace(
-        physics=G1WujiTablePhysicsCfg(default=_mjwarp_physics_cfg(load_visual_shapes=load_visual_shapes)),
-        visualizer_cfgs=G1WujiTableVisualizerPresetCfg(default=[] if headless else [NewtonGLVisualizerCfg()]),
+        physics=G1HandTablePhysicsCfg(default=_mjwarp_physics_cfg(load_visual_shapes=load_visual_shapes)),
+        visualizer_cfgs=G1HandTableVisualizerPresetCfg(default=[] if headless else [NewtonGLVisualizerCfg()]),
     )
     cfg.debug = (
-        G1WujiTableDebugCfg() if headless else G1WujiTableDebugCfg(keypoint_markers=True, adr_spawn_area_marker=True)
+        G1HandTableDebugCfg() if headless else G1HandTableDebugCfg(keypoint_markers=True, adr_spawn_area_marker=True)
     )
     if depth_camera:
-        cfg.depth_camera = G1WujiTableDepthCameraPresetCfg(default=_student_depth_camera_cfg())
+        cfg.depth_camera = G1HandTableDepthCameraPresetCfg(default=_student_depth_camera_cfg())
     return cfg
 
 
 @configclass
-class G1WujiTableRunPresetCfg(PresetCfg):
+class G1HandTableRunPresetCfg(PresetCfg):
     """Mutually exclusive run profiles with stackable depth, force, and DR overlays."""
 
-    default: G1WujiTableEnvCfg = _run_profile_cfg(num_envs=1, headless=False, load_visual_shapes=True)
-    train: G1WujiTableEnvCfg = _run_profile_cfg(num_envs=2048, headless=True, load_visual_shapes=False)
-    debug: G1WujiTableEnvCfg = _run_profile_cfg(num_envs=4, headless=False, load_visual_shapes=True)
-    eval: G1WujiTableEnvCfg = _run_profile_cfg(num_envs=16, headless=True, load_visual_shapes=False)
-    distill: G1WujiTableEnvCfg = _run_profile_cfg(
+    default: G1HandTableEnvCfg = _run_profile_cfg(num_envs=1, headless=False, load_visual_shapes=True)
+    train: G1HandTableEnvCfg = _run_profile_cfg(num_envs=2048, headless=True, load_visual_shapes=False)
+    debug: G1HandTableEnvCfg = _run_profile_cfg(num_envs=4, headless=False, load_visual_shapes=True)
+    eval: G1HandTableEnvCfg = _run_profile_cfg(num_envs=16, headless=True, load_visual_shapes=False)
+    distill: G1HandTableEnvCfg = _run_profile_cfg(
         num_envs=1024,
         headless=True,
         load_visual_shapes=True,

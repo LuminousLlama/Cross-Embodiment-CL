@@ -21,13 +21,13 @@ from isaaclab_rl.rsl_rl import (
 
 from isaaclab_tasks.utils import PresetCfg
 
-from .rsl_rl_ppo_cfg import G1WujiTablePPORunnerCfg
+from .rsl_rl_ppo_cfg import G1HandTablePPORunnerCfg
 
-_TEACHER_ACTOR = G1WujiTablePPORunnerCfg().actor
+_TEACHER_ACTOR = G1HandTablePPORunnerCfg().actor
 
 
 @configclass
-class G1WujiTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
+class G1HandTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
     """Plumbing check: a student with the teacher's own 191-D privileged observation.
 
     With identical inputs and architecture the student should reach the teacher's success rate, so a
@@ -37,7 +37,7 @@ class G1WujiTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
     num_steps_per_env = 32
     max_iterations = 300
     save_interval = 50
-    experiment_name = "g1_wuji_table_distill"
+    experiment_name = "g1_hand_table_distill"
     obs_groups = {"teacher": ["policy"], "student": ["policy"]}
     # Must match the PPO actor exactly: the checkpoint's actor_state_dict is loaded strictly.
     teacher = RslRlMLPModelCfg(
@@ -68,7 +68,7 @@ class G1WujiTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
 
 
 @configclass
-class G1WujiTableDepthDistillationBaseRunnerCfg(G1WujiTableStateDistillationRunnerCfg):
+class G1HandTableDepthDistillationBaseRunnerCfg(G1HandTableStateDistillationRunnerCfg):
     """The deployable student: proprioception, a 9-D base-frame goal, and depth.
 
     Needs the depth camera, so launch the environment with ``presets=distill``.
@@ -94,10 +94,10 @@ class G1WujiTableDepthDistillationBaseRunnerCfg(G1WujiTableStateDistillationRunn
 
 
 @configclass
-class G1WujiTableDepthDistillationRunnerCfg(PresetCfg):
+class G1HandTableDepthDistillationRunnerCfg(PresetCfg):
     """Depth-student configuration with an independently stackable force overlay."""
 
-    default: G1WujiTableDepthDistillationBaseRunnerCfg = G1WujiTableDepthDistillationBaseRunnerCfg()
-    force: G1WujiTableDepthDistillationBaseRunnerCfg = default.replace(
+    default: G1HandTableDepthDistillationBaseRunnerCfg = G1HandTableDepthDistillationBaseRunnerCfg()
+    force: G1HandTableDepthDistillationBaseRunnerCfg = default.replace(
         obs_groups={"teacher": ["policy"], "student": ["student", "goal", "force", "camera"]}
     )

@@ -7,7 +7,7 @@
 
 import pytest
 
-from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.adr import (
+from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.adr import (
     AdaptiveDomainRandomization,
 )
 

@@ -3,4 +3,4 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Configuration package for the G1-Wuji table scene."""
+"""Agent configurations for the G1-hand table task."""

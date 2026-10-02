@@ -1,12 +1,12 @@
-# G1-Wuji D435 Student Distillation
+# G1-Hand D435 Student Distillation
 
 ## Status
 
 The privileged PPO teacher R007 was behavior-cloned into a depth student with RSL-RL DAgger. The
 student received the former 87-D proprioception and one normalized 224x224 D435 depth image; the teacher
-used the former 117-D privileged observation. Current runs can select either 141-D proprioception, a 9-D
+used the former 117-D privileged observation. Current runs can select either 161-D proprioception, a 9-D
 base-frame target pose, and depth (`presets=distill`) or the same inputs plus 20-D virtual force
-(`presets=distill,force`), alongside the teacher's unchanged 171-D privileged observation. The goal is
+(`presets=distill,force`, Wuji only), alongside the teacher's 191-D policy observation. The goal is
 encoded as its pelvis-frame position plus the first two columns of its pelvis-frame rotation matrix.
 That checkpoint predates and is incompatible with both current observation contracts.
 
@@ -40,7 +40,7 @@ the independent `force` overlay, PPO training and ordinary evaluation do not pay
 When enabled, observations contain a separate
 `force` tensor with shape `(num_envs, 20)` in `right_finger1_joint1` through
 `right_finger5_joint4` order. The force-distillation student consumes this tensor alongside its unchanged
-141-D proprioceptive `student` group, 9-D `goal` group, and camera image, giving it 170 low-dimensional
+161-D proprioceptive `student` group, 9-D `goal` group, and camera image, giving it 190 low-dimensional
 inputs. Code that
 needs the diagnostic packet can call
 `env.unwrapped.get_virtual_force_output()` to obtain ideal contact torque, observed/modelled torque,
@@ -61,5 +61,5 @@ estimator's 120 Hz clock, but it cannot reconstruct the intermediate physics-ste
 
 ## Reproduce
 
-Use the commands in `COMMANDS.MD`. For a linked worktree, run the sibling main checkout's prepared
-venv with `PYTHONPATH=$PWD/src`, ensuring project imports resolve from the active worktree.
+Use the commands in `COMMANDS.MD`. In a linked worktree, prefix them with `./worktree-local` to
+reuse the primary checkout's prepared environment with imports from the active worktree.

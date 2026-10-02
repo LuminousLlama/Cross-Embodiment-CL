@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One G1-Wuji training job per machine, in tmux, pinned to a commit.
+# One G1-hand training job per machine, in tmux, pinned to a commit.
 #
 #   scripts/exp.sh launch <local|server> <name> <commit> [isaaclab train args...]
 #   scripts/exp.sh status <local|server> <name>
@@ -63,12 +63,12 @@ export VIRTUAL_ENV="$venv" PATH="$venv/bin:\$HOME/.local/bin:\$PATH" PYTHONPATH=
 {
   echo "EXP name=$name commit=\$(git rev-parse --short HEAD) host=\$(hostname) start=\$(date -Is) args=$args"
   python -c 'import Cross_Embodiment_CL as m; print("EXP package", m.__file__)'
-  isaaclab train --rl_library rsl_rl --task CrossEmbodimentCl-G1-Wuji-Table-Direct --run_name $name presets=train $args
+  isaaclab train --rl_library rsl_rl --task CrossEmbodimentCl-G1-Hand-Table-Direct --run_name $name presets=train $args
   code=\$?
   echo "EXP_EXIT=\$code"
   ck=\$(ls -t \$(ls -td logs/rsl_rl/*/*_$name | head -n 1)/model_*.pt 2>/dev/null | head -n 1)
   if [ "\$code" = 0 ] && [ -f scripts/eval_policy.py ] && [ -n "\$ck" ]; then
-    timeout 1200 python scripts/eval_policy.py --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+    timeout 1200 python scripts/eval_policy.py --task CrossEmbodimentCl-G1-Hand-Table-Direct \
       --checkpoint "\$ck" presets=eval --episodes 64 $evalargs > "logs/exp/${name}_eval.log" 2>&1
     echo "EXP_EVAL_EXIT=\$? \$ck"
   fi

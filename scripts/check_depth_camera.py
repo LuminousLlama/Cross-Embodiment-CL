@@ -13,7 +13,7 @@ known scene points projected onto it.  The JSON summary records:
 - the object centre's projected pixel and rendered depth, to confirm the object stays in frame.
 
 Usage:
-    python scripts/check_depth_camera.py --task CrossEmbodimentCl-G1-Wuji-Table-Direct \
+    python scripts/check_depth_camera.py --task CrossEmbodimentCl-G1-Hand-Table-Direct \
         --checkpoint <teacher model.pt> --out_dir <dir> presets=distill
 """
 
@@ -46,7 +46,7 @@ for _entry_point in metadata.entry_points(group="isaaclab.tasks"):
     _entry_point.load()
 
 parser = argparse.ArgumentParser(description="Check the student depth camera headlessly.")
-parser.add_argument("--task", type=str, default="CrossEmbodimentCl-G1-Wuji-Table-Direct", help="Name of the task.")
+parser.add_argument("--task", type=str, default="CrossEmbodimentCl-G1-Hand-Table-Direct", help="Name of the task.")
 parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point", help="Teacher agent config entry point.")
 parser.add_argument("--out_dir", type=str, required=True, help="Directory for images and the JSON summary.")
 parser.add_argument(
@@ -163,7 +163,7 @@ def main(env_cfg: DirectRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
     frame_steps = sorted({int(step) for step in args_cli.frame_steps.split(",")})
     os.makedirs(args_cli.out_dir, exist_ok=True)
 
-    from Cross_Embodiment_CL.tasks.g1_wuji_table_direct.config.g1_wuji_table.env_cfg import STUDENT_DEPTH_LETTERBOX
+    from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env_cfg import STUDENT_DEPTH_LETTERBOX
 
     with launch_simulation(env_cfg, args_cli):
         env = RslRlVecEnvWrapper(

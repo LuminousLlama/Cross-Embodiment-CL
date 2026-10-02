@@ -29,7 +29,7 @@ def limit_openusd_scene_import() -> None:
         _previous_concurrency = Work.GetConcurrencyLimit()
     Work.SetConcurrencyLimit(1)
     if Work.GetConcurrencyLimit() != 1:
-        raise RuntimeError("OpenUSD concurrency was initialized before the G1-Wuji scene-import guard.")
+        raise RuntimeError("OpenUSD concurrency was initialized before the G1-hand scene-import guard.")
 
 
 def restore_openusd_concurrency() -> None:
