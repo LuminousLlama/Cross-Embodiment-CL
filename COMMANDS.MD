@@ -10,6 +10,9 @@ The environment defaults to seed 42; override it with `env.seed=<seed>` (or `--s
 ## Train
 
 Training and distillation use full domain randomization with `dr_full`.
+`Task/success` is the successful fraction of episodes completed within each learning iteration;
+`Task/success-percentage-completed-episode-count` is its denominator (zero when no episodes finish).
+Iterations without completions omit `Task/success`. ADR retains its independent update window.
 
 ### PPO
 

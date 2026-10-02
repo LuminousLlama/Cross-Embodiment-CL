@@ -1785,7 +1785,8 @@ class G1WujiTableEnv(DirectRLEnv):
                 self._adr_completed_episodes += len(reset_ids)
             log.update(
                 {
-                    "Task/success": episode_success.float().mean(),
+                    # RSL-RL concatenates these per-episode flags across the rollout before averaging.
+                    "Task/success": episode_success.float(),
                     "Task/first_success_frac_ep": first_successful.float().mean(),
                     "Task/keypoint_error_ep_final": keypoint_error[reset_ids].mean(),
                     "Task/position_error_ep_final": position_error[reset_ids].mean(),

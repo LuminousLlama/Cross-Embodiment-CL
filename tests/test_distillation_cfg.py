@@ -5,11 +5,17 @@
 
 """Tests for the G1-Wuji distillation runner configurations."""
 
+from importlib.metadata import version
+from types import SimpleNamespace
+
 import pytest
 import torch
 from rsl_rl.models import MLPModel
+from rsl_rl.runners import OnPolicyRunner
 from rsl_rl.utils import resolve_callable
 from tensordict import TensorDict
+
+from isaaclab_rl.rsl_rl.utils import handle_deprecated_rsl_rl_cfg
 
 from isaaclab_tasks.utils import resolve_task_config
 
@@ -134,3 +140,31 @@ def test_depth_student_preset_selects_matching_deployable_observations(presets, 
     # 224 -> 55 -> 26 -> 12 px through the encoder, followed by the selected low-dimensional inputs.
     assert student.mlp[0].in_features == 64 * 12 * 12 + low_dimensional_size
     assert student(_observations(batch=2)).shape == (2, _ACTION_DIM)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("cfg_type", [G1WujiTablePPORunnerCfg, G1WujiTableStateDistillationRunnerCfg])
+def test_success_denominator_uses_real_algorithm_rollout_boundaries(cfg_type):
+    """PPO and distillation wiring must log the count only at each storage boundary."""
+    cfg = cfg_type()
+    cfg.num_steps_per_env = 3
+    for name in ("actor", "critic", "student", "teacher"):
+        if hasattr(cfg, name):
+            getattr(cfg, name).hidden_dims = [8]
+    obs = _observations(batch=2)
+    obs["critic"] = torch.cat((obs["policy"], torch.zeros(2, 76)), dim=-1)
+    env = SimpleNamespace(get_observations=lambda: obs, cfg={}, num_envs=2, num_actions=_ACTION_DIM)
+    cfg = handle_deprecated_rsl_rl_cfg(cfg, version("rsl-rl-lib"))
+    runner = OnPolicyRunner(env, cfg.to_dict())
+    for counts in ((1, 0, 2), (0, 0, 0)):
+        runner.alg.storage.clear()
+        for step, count in enumerate(counts):
+            extras = {"log": {"Task/success": torch.ones(count)} if count else {}}
+            with torch.inference_mode():
+                runner.alg.act(obs)
+                runner.alg.process_env_step(obs, torch.zeros(2), torch.zeros(2), extras)
+            tag = "Task/success-percentage-completed-episode-count"
+            if step == cfg.num_steps_per_env - 1:
+                assert extras["log"][tag] == sum(counts)
+            else:
+                assert tag not in extras["log"]
