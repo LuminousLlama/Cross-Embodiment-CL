@@ -82,7 +82,7 @@ override-dependencies = [
 "torchvision" = [{ index = "pytorch-cu128", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" }, { index = "pytorch-cu128", marker = "sys_platform == 'win32'" }, { index = "pytorch-cu130", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" }]
 
 [tool.uv.build-backend]
-module-name = "Cross_Embodiment_CL"
+module-name = ["Cross_Embodiment_CL", "learning"]
 
 [tool.ruff]
 line-length = 120
@@ -92,7 +92,7 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["Cross_Embodiment_CL"]
+known-first-party = ["Cross_Embodiment_CL", "learning"]
 section-order = [
     "future",
     "standard-library",
@@ -120,7 +120,7 @@ isaaclab = ["isaaclab", "isaaclab_newton", "isaaclab_ov", "isaaclab_physx"]
 docstring-code-format = true
 
 [tool.pyright]
-include = ["src", "scripts", "tests"]
+include = ["src", "learning", "scripts", "tests"]
 exclude = ["**/__pycache__", "**/logs", ".git", ".venv", ".vscode"]
 typeCheckingMode = "basic"
 

@@ -13,6 +13,7 @@ import torch
 from rsl_rl.models import MLPModel
 from rsl_rl.runners import OnPolicyRunner
 from rsl_rl.utils import resolve_callable
+from rsl_rl.utils.logger import Logger
 from tensordict import TensorDict
 
 from isaaclab_rl.rsl_rl.utils import handle_deprecated_rsl_rl_cfg
@@ -27,6 +28,7 @@ from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.agents.
 from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.agents.rsl_rl_ppo_cfg import (
     G1HandTablePPORunnerCfg,
 )
+from learning.utils.alphabetical_logging import _UPSTREAM_LOG
 
 _OBSERVATION_DIM = 191
 _STUDENT_OBSERVATION_DIM = 161
@@ -144,8 +146,9 @@ def test_depth_student_preset_selects_matching_deployable_observations(presets, 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("cfg_type", [G1HandTablePPORunnerCfg, G1HandTableStateDistillationRunnerCfg])
-def test_success_denominator_uses_real_algorithm_rollout_boundaries(cfg_type):
-    """PPO and distillation wiring must log the count only at each storage boundary."""
+def test_success_denominator_uses_real_algorithm_rollout_boundaries(cfg_type, capsys, monkeypatch):
+    """Real algorithms must publish completion counts and keep live metrics sorted."""
+    monkeypatch.setattr(Logger, "log", _UPSTREAM_LOG)
     cfg = cfg_type()
     cfg.num_steps_per_env = 3
     for name in ("actor", "critic", "student", "teacher"):
@@ -168,3 +171,31 @@ def test_success_denominator_uses_real_algorithm_rollout_boundaries(cfg_type):
                 assert extras["log"][tag] == sum(counts)
             else:
                 assert tag not in extras["log"]
+
+    # Different steps can publish different keys; keep their union and aggregation intact.
+    runner.logger.ep_extras = [
+        {"Task/zeta": torch.tensor([2.0, 4.0]), "Contact/beta": 1.0, "Reach/alpha": torch.tensor(3.0)},
+        {"Task/zeta": torch.tensor([6.0]), "Contact/alpha": 2.0, "Contact/beta": torch.tensor(5.0)},
+    ]
+    expected = {"Contact/alpha": 2.0, "Contact/beta": 3.0, "Reach/alpha": 3.0, "Task/zeta": 4.0}
+    scalars = {}
+    runner.logger.writer = SimpleNamespace(add_scalar=lambda tag, value, step: scalars.update({tag: float(value)}))
+    capsys.readouterr()
+    runner.logger.log(
+        it=0,
+        start_it=0,
+        total_it=1,
+        collect_time=0.1,
+        learn_time=0.1,
+        loss_dict={},
+        learning_rate=0.001,
+        action_std=torch.ones(1),
+        rnd_weight=None,
+    )
+    output = capsys.readouterr().out
+    logged_tags = [tag for tag in scalars if tag in expected]
+    printed_tags = [line.strip().split(":")[0] for line in output.splitlines() if "/" in line and ":" in line]
+    assert logged_tags == sorted(expected)
+    assert printed_tags == sorted(expected)
+    assert {tag: scalars[tag] for tag in expected} == expected
+    assert runner.logger.ep_extras == []

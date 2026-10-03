@@ -9,9 +9,15 @@ import torch
 from rsl_rl.algorithms import PPO, Distillation
 from tensordict import TensorDict
 
+from .alphabetical_logging import install_alphabetical_logging
+
 
 class CompletedEpisodeLogging:
     """Add a rollout completion count without changing algorithm updates."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        install_alphabetical_logging()
 
     def process_env_step(self, obs: TensorDict, rewards: torch.Tensor, dones: torch.Tensor, extras: dict) -> None:
         """Record the transition and publish the count on the rollout's final step."""

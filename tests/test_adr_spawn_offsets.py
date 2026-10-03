@@ -13,7 +13,6 @@ import pytest
 import torch
 from rsl_rl.utils.logger import Logger
 
-from Cross_Embodiment_CL.models.episode_logging import CompletedEpisodeLogging
 from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env import (
     G1HandTableEnv,
     balanced_random_clone_strategy,
@@ -22,6 +21,7 @@ from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env imp
     sample_goal_poses_outside_success_threshold,
     sample_spawn_offsets,
 )
+from learning.utils.episode_logging import CompletedEpisodeLogging
 
 
 @pytest.mark.unit

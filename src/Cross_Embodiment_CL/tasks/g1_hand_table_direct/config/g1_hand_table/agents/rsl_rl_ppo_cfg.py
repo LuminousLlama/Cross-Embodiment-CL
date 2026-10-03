@@ -35,7 +35,7 @@ class G1HandTablePPORunnerCfg(RslRlOnPolicyRunnerCfg):
         obs_normalization=True,
     )
     algorithm = RslRlPpoAlgorithmCfg(
-        class_name="Cross_Embodiment_CL.models.episode_logging:CompletedEpisodePPO",
+        class_name="learning.utils.episode_logging:CompletedEpisodePPO",
         value_loss_coef=1.0,
         use_clipped_value_loss=True,
         clip_param=0.2,

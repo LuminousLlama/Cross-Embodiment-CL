@@ -57,7 +57,7 @@ class G1HandTableStateDistillationRunnerCfg(RslRlDistillationRunnerCfg):
         distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(init_std=0.05),
     )
     algorithm = RslRlDistillationAlgorithmCfg(
-        class_name="Cross_Embodiment_CL.models.episode_logging:CompletedEpisodeDistillation",
+        class_name="learning.utils.episode_logging:CompletedEpisodeDistillation",
         num_learning_epochs=2,
         learning_rate=1.0e-3,
         # Storage yields one batch per rollout step; one optimizer step per batch keeps the
