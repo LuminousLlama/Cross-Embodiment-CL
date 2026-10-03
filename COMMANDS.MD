@@ -50,6 +50,23 @@ uv run isaaclab train --rl_library rsl_rl \
   presets=train,dr_curriculum
 ```
 
+### Multi-GPU PPO
+
+`--num_envs` is per GPU. Use `scripts/multigpu_worker.py`, not `isaaclab train_multigpu`: it registers the task on every rank and keeps observation normalizers identical across ranks.
+
+```bash
+NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 \
+uv run python -m torch.distributed.run --nproc_per_node <gpus> --local_ranks_filter 0 \
+  scripts/multigpu_worker.py --rl_library rsl_rl \
+  --task CrossEmbodimentCl-G1-Hand-Table-Direct \
+  --num_envs <envs-per-gpu> \
+  --seed <seed> \
+  --max_iterations <iterations> \
+  --run_name <run-name> \
+  --distributed \
+  presets=train,dr_curriculum
+```
+
 ### Resume PPO
 
 ```bash
