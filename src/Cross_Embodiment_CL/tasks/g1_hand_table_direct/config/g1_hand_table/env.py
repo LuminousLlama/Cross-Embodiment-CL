@@ -532,10 +532,16 @@ class G1HandTableEnv(DirectRLEnv):
         self.object_start_position = torch.tensor(self.cfg.object_cfg.init_state.pos, device=self.device).repeat(
             self.num_envs, 1
         )
-        self.object_rest_height = torch.tensor(
-            [OBJECT_REST_HEIGHTS[self.cfg.active_objects[index]] for index in self.object_variant_ids],
+        # Express bank heights relative to the original apple config so existing absolute
+        # height overrides keep their meaning and the default apple offset is exactly zero.
+        self._object_height_offsets = torch.tensor(
+            [
+                OBJECT_REST_HEIGHTS[self.cfg.active_objects[index]] - OBJECT_REST_HEIGHTS["YcbApple"]
+                for index in self.object_variant_ids
+            ],
             device=self.device,
         )
+        self.object_rest_height = self.cfg.object_rest_height + self._object_height_offsets
         self.object_variant_ids_tensor = torch.tensor(self.object_variant_ids, dtype=torch.long, device=self.device)
         self.adr: AdaptiveDomainRandomization | None = None
         if self.cfg.adr.enabled:
@@ -1989,7 +1995,9 @@ class G1HandTableEnv(DirectRLEnv):
         )
         object_position = self.object.data.root_pos_w.torch
         table_top_height = self.scene.env_origins[:, 2] + self.table_top_height
-        object_below_table = object_position[:, 2] < table_top_height
+        # USD origins differ: a clamp/ball root can be below the table while its collider rests on top.
+        # Retain the apple's original cutoff, translated by each asset's canonical root offset.
+        object_below_table = object_position[:, 2] < table_top_height + self._object_height_offsets
         object_start_position = self.object_start_position + self.scene.env_origins
         if self.cfg.workspace_termination_enabled:
             object_too_far = (
@@ -2116,9 +2124,10 @@ class G1HandTableEnv(DirectRLEnv):
         if self.cfg.reset.object_on_table:
             object_pose[:, 2] = self.object_rest_height[env_ids]
         else:
-            object_pose[:, 2] = self.object_rest_height[env_ids] + torch.empty(
-                len(env_ids), device=self.device
-            ).uniform_(0.0, self.cfg.object_spawn_height_above_table)
+            object_pose[:, 2] = (
+                torch.empty(len(env_ids), device=self.device).uniform_(*self.cfg.object_spawn_z_range)
+                + self._object_height_offsets[env_ids]
+            )
         self.object_start_position[env_ids, :3] = object_pose[:, :3]
         goal_positions, goal_rotations = sample_goal_poses_outside_success_threshold(
             object_positions=object_pose[:, :3],

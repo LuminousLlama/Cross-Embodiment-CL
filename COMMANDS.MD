@@ -15,6 +15,12 @@ For example, append:
 env.active_objects=YcbApple,YcbBanana,YcbTomatoSoupCan
 ```
 
+Each asset uses its own canonical root height. `env.object_spawn_z_range=[0.04,0.24]` and
+`env.object_rest_height=0.04` retain their apple-reference meaning; other assets add their
+canonical height offset. `env.reset.object_on_table=True` fixes the height at that rest value.
+Object XY and goal XYZ/roll/pitch/yaw are sampled on every reset, including `dr_none`;
+the object retains its authored starting orientation. Goal ranges are shared across the bank.
+
 For multi-object PhysX runs, append `physics=isaacsim_physx` explicitly. The installed OVPhysX
 runtime does not support this heterogeneous clone plan; `physics=physx` may select OVPhysX automatically.
 

@@ -543,15 +543,19 @@ class G1HandTableEnvCfg(DirectRLEnvCfg):
     goal_position = (0.35, -0.05, 0.24)
     """Legacy nominal object goal position [m] in the environment frame."""
     object_rest_height = 0.04
-    """Nominal tabletop root height [m]; runtime uses the selected object's bank metadata."""
+    """Apple-reference tabletop root height [m]; each bank asset adds its canonical root offset."""
     object_spawn_x_range = (0.25, 0.35)
     """Uniform object reset x-coordinate range [m] in the environment frame."""
     object_spawn_y_range = (-0.30, -0.10)
     """Uniform object reset y-coordinate range [m] in the environment frame."""
     object_spawn_height_above_table = 0.20
-    """Object reset ceiling above each object's canonical tabletop root height [m]."""
+    """Default reset-height span [m]; override ``object_spawn_z_range`` to change the sampled range."""
     object_spawn_z_range = (object_rest_height, object_rest_height + object_spawn_height_above_table)
-    """Nominal object reset z range; runtime offsets it from each object's rest height."""
+    """Apple-reference root-z range [m]; each bank asset adds its canonical root offset.
+
+    The apple uses this range unchanged. ``reset.object_on_table`` instead uses
+    ``object_rest_height`` plus the same per-object offset.
+    """
     goal_spawn_x_range = (0.25, 0.35)
     """Uniform target-frame x-coordinate range [m] in the environment frame."""
     goal_spawn_y_range = (-0.30, -0.10)

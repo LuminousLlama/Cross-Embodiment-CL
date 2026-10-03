@@ -15,7 +15,7 @@ import torch  # noqa: E402
 from pxr import Gf, Usd, UsdGeom, UsdPhysics  # noqa: E402
 
 import isaaclab.sim as sim_utils  # noqa: E402
-from isaaclab.utils.math import quat_apply, quat_from_euler_xyz, unscale_transform  # noqa: E402
+from isaaclab.utils.math import euler_xyz_from_quat, quat_apply, quat_from_euler_xyz, unscale_transform  # noqa: E402
 
 from isaaclab_tasks.utils.hydra import resolve_presets  # noqa: E402
 from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry  # noqa: E402
@@ -133,6 +133,103 @@ def test_observation_uses_raw_joint_positions_and_command_limits(
             assert torch.isfinite(reward).all()
         env.reset(seed=42)
         assert unwrapped.object_variant_ids == variants
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("physics_preset", ["newton_mjwarp", "isaacsim_physx"])
+@pytest.mark.parametrize("hand_type", ["wuji", "inspire", "dex3"])
+def test_object_bank_reset_heights_and_goal_randomization_with_full_dr(physics_preset, hand_type):
+    """Height overrides, negative asset origins, and goal sampling must work together under full DR."""
+    from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env_cfg import (
+        OBJECT_NAMES,
+        OBJECT_REST_HEIGHTS,
+    )
+
+    cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Hand-Table-Direct", "env_cfg_entry_point")
+    cfg = resolve_presets(cfg, selected=(physics_preset, "dr_full"))
+    cfg.hand_type = hand_type
+    cfg.active_objects = list(OBJECT_NAMES)
+    cfg.scene.num_envs = 2 * len(OBJECT_NAMES)
+    cfg.sim.visualizer_cfgs = []
+    cfg.debug.keypoint_markers = False
+    cfg.object_rest_height = 0.05
+    cfg.object_spawn_z_range = (0.12, 0.14)
+    cfg.adr.physics_update_every_steps = 1
+    env = gym.make("CrossEmbodimentCl-G1-Hand-Table-Direct", cfg=cfg)
+    try:
+        env.reset(seed=42)
+        task = env.unwrapped
+        offsets = torch.tensor(
+            [
+                OBJECT_REST_HEIGHTS[cfg.active_objects[index]] - OBJECT_REST_HEIGHTS["YcbApple"]
+                for index in task.object_variant_ids
+            ],
+            device=task.device,
+        )
+        for _ in range(3):
+            position = task.object.data.root_pos_w.torch - task.scene.env_origins
+            relative_z = position[:, 2] - offsets
+            assert torch.all(relative_z >= cfg.object_spawn_z_range[0] - 1e-6)
+            assert torch.all(relative_z <= cfg.object_spawn_z_range[1] + 1e-6)
+            for axis, bounds in enumerate((cfg.object_spawn_x_range, cfg.object_spawn_y_range)):
+                assert torch.all(position[:, axis] >= bounds[0])
+                assert torch.all(position[:, axis] <= bounds[1])
+            torch.testing.assert_close(
+                task.object.data.root_quat_w.torch, task.object.data.default_root_pose.torch[:, 3:7]
+            )
+            for axis, bounds in enumerate((cfg.goal_spawn_x_range, cfg.goal_spawn_y_range, cfg.goal_spawn_z_range)):
+                assert torch.all(task.goal_position[:, axis] >= bounds[0])
+                assert torch.all(task.goal_position[:, axis] <= bounds[1])
+            angles = torch.stack(euler_xyz_from_quat(task.goal_rotation), dim=-1)
+            angles = (angles + torch.pi) % (2 * torch.pi) - torch.pi
+            for axis, bounds in enumerate((cfg.goal_roll_range, cfg.goal_pitch_range, cfg.goal_yaw_range)):
+                assert torch.all(angles[:, axis] >= bounds[0] - 1e-6)
+                assert torch.all(angles[:, axis] <= bounds[1] + 1e-6)
+            object_points = task._transform_keypoints(
+                task.object.data.root_pos_w.torch, task.object.data.root_quat_w.torch
+            )
+            goal_points = task._transform_keypoints(task.goal_position + task.scene.env_origins, task.goal_rotation)
+            assert torch.all(
+                torch.linalg.vector_norm(object_points - goal_points, dim=-1).mean(1)
+                > cfg.success_keypoint_error_threshold
+            )
+            env.reset()
+        # Partial episode resets must use the selected environments' own asset offsets.
+        previous_pose = task.object.data.root_pose_w.torch.clone()
+        previous_goals = task.goal_position.clone()
+        reset_ids = torch.arange(0, cfg.scene.num_envs, 3, device=task.device)
+        untouched = torch.ones(cfg.scene.num_envs, dtype=torch.bool, device=task.device)
+        untouched[reset_ids] = False
+        task._reset_idx(reset_ids)
+        torch.testing.assert_close(task.object.data.root_pose_w.torch[untouched], previous_pose[untouched])
+        torch.testing.assert_close(task.goal_position[untouched], previous_goals[untouched])
+        relative_z = (
+            task.object.data.root_pos_w.torch[reset_ids, 2] - task.scene.env_origins[reset_ids, 2] - offsets[reset_ids]
+        )
+        assert torch.all(relative_z >= cfg.object_spawn_z_range[0] - 1e-6)
+        assert torch.all(relative_z <= cfg.object_spawn_z_range[1] + 1e-6)
+        cfg.reset.object_on_table = True
+        env.reset()
+        torch.testing.assert_close(
+            task.object.data.root_pos_w.torch[:, 2] - task.scene.env_origins[:, 2],
+            offsets + cfg.object_rest_height,
+        )
+        task._get_dones()
+        assert not task._termination_below_table.any()
+        pose = task.object.data.root_pose_w.torch.clone()
+        pose[:, 2] = task.scene.env_origins[:, 2] + task.table_top_height + offsets - 0.01
+        task.object.write_root_pose_to_sim_index(root_pose=pose)
+        task._get_dones()
+        assert task._termination_below_table.all()
+        env.reset()
+        for _ in range(4):
+            observations, rewards, _, _, _ = env.step(torch.zeros((cfg.scene.num_envs, 25), device=task.device))
+            assert torch.isfinite(observations["policy"]).all()
+            assert torch.isfinite(rewards).all()
+        assert (task._adr_object_mass_scale != 1).any()
+        assert (task._adr_object_pos_obs_bias != 0).any()
     finally:
         env.close()
 

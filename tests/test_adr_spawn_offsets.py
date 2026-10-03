@@ -223,3 +223,33 @@ def test_training_success_weights_completed_episodes_and_clears_each_iteration()
         if call.args[0] == "Task/success-percentage-completed-episode-count"
     ]
     assert counts == [0]
+
+
+@pytest.mark.unit
+def test_object_bank_rest_heights_match_authored_collider_clearance():
+    """Collider edits must not silently make bank reset metadata penetrate or float above the table."""
+    from pxr import Usd, UsdGeom, UsdPhysics
+
+    from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env_cfg import (
+        OBJECT_REST_HEIGHTS,
+        _object_usd_path,
+    )
+
+    clearances = {}
+    for name, rest_height in OBJECT_REST_HEIGHTS.items():
+        stage = Usd.Stage.Open(_object_usd_path(name))
+        root = stage.GetDefaultPrim()
+        transforms = UsdGeom.XformCache()
+        lowest_z = min(
+            transforms.ComputeRelativeTransform(prim, root)[0].Transform(point)[2]
+            * UsdGeom.GetStageMetersPerUnit(stage)
+            for prim in Usd.PrimRange(root)
+            if prim.IsA(UsdGeom.Mesh)
+            and prim.HasAPI(UsdPhysics.CollisionAPI)
+            and prim.GetAttribute("physics:collisionEnabled").Get() is not False
+            for point in UsdGeom.Mesh(prim).GetPointsAttr().Get()
+        )
+        clearances[name] = rest_height + lowest_z
+    assert clearances["YcbApple"] > 0
+    for name, clearance in clearances.items():
+        assert clearance == pytest.approx(clearances["YcbApple"], abs=1e-6), name
