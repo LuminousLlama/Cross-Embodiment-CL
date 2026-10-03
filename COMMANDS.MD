@@ -31,6 +31,10 @@ Training and distillation use full domain randomization with `dr_full`.
 `Task/success-percentage-completed-episode-count` is its denominator (zero when no episodes finish).
 Iterations without completions omit `Task/success`. ADR retains its independent update window.
 
+Penetration diagnostics are off by default. Append `env.log_penetration_metrics=true`
+to opt in to MJWarp penetration metrics; this scans the contact buffer every policy step.
+Contact-capacity diagnostics are independent: `env.contact_debug=true`.
+
 ### PPO
 
 ```bash

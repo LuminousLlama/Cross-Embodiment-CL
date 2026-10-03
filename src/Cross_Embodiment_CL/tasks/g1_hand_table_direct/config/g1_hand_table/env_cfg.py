@@ -586,6 +586,8 @@ class G1HandTableEnvCfg(DirectRLEnvCfg):
     """Whether to sample MJWarp contact and constraint demand for capacity sizing; off during normal runs."""
     contact_debug_interval: int = 1
     """Number of policy steps between contact-demand samples when :attr:`contact_debug` is enabled."""
+    log_penetration_metrics: bool = False
+    """Opt in to per-step MJWarp penetration diagnostics, which scan the full contact buffer."""
     depth_camera: CameraCfg | None = G1HandTableDepthCameraPresetCfg()
     """The student's head depth camera.
 

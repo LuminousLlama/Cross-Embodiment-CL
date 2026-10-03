@@ -5,11 +5,16 @@
 
 """Unit tests for the extra-ADR pure helpers: scaled uniform sampling, action latency, and its buffer."""
 
+from types import SimpleNamespace
+
 import pytest
 import torch
 
+from isaaclab.envs import DirectRLEnv
+
 from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env import (
     ActionDelayBuffer,
+    G1HandTableEnv,
     PendingPhysicsRandomization,
     action_delta_regularization,
     sample_latency_steps,
@@ -17,6 +22,54 @@ from Cross_Embodiment_CL.tasks.g1_hand_table_direct.config.g1_hand_table.env imp
     shaped_goal_and_contact_rewards,
     thumb_and_other_finger_gate,
 )
+
+
+@pytest.mark.unit
+def test_contact_capacity_probe_does_not_enable_penetration(monkeypatch):
+    """Capacity sizing must remain available with expensive penetration diagnostics disabled."""
+    from isaaclab_newton.physics import NewtonManager
+
+    data = object()
+    monkeypatch.setattr(NewtonManager, "_solver", SimpleNamespace(mj_model=object(), mjw_data=data))
+    env = G1HandTableEnv.__new__(G1HandTableEnv)
+    env.cfg = SimpleNamespace(log_penetration_metrics=False, contact_debug=False)
+    env._init_penetration_probe()
+    assert env._mjw_data is None
+
+    env.cfg.contact_debug = True
+    env._init_penetration_probe()
+    assert env._mjw_data is data
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("indices", [[], [1, 3]])
+def test_step_reset_reuses_indices_and_preserves_empty_reset(monkeypatch, indices):
+    """Reset exactly the environments used by metrics without recompacting their mask."""
+    env = G1HandTableEnv.__new__(G1HandTableEnv)
+    env.cfg = SimpleNamespace(compute_final_obs=False)
+    env.common_step_counter = env._step_reset_ids_step = 7
+    env._step_reset_ids = torch.tensor(indices, dtype=torch.int32)
+    calls = []
+    monkeypatch.setattr(env, "_reset_idx", calls.append)
+
+    assert env._reset_envs_from_buffer() is env._step_reset_ids
+    assert len(calls) == bool(indices)
+    if indices:
+        assert calls[0] is env._step_reset_ids
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("final_obs, cached_step", [(True, 7), (False, 6)])
+def test_step_reset_delegates_terminal_observations_and_stale_indices(monkeypatch, final_obs, cached_step):
+    """Terminal observation handling and masks changed outside a step retain the base reset path."""
+    env = G1HandTableEnv.__new__(G1HandTableEnv)
+    env.cfg = SimpleNamespace(compute_final_obs=final_obs)
+    env.common_step_counter = 7
+    env._step_reset_ids_step = cached_step
+    expected = object()
+    monkeypatch.setattr(DirectRLEnv, "_reset_envs_from_buffer", lambda self: expected)
+
+    assert env._reset_envs_from_buffer() is expected
 
 
 @pytest.mark.unit

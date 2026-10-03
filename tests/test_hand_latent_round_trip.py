@@ -484,12 +484,50 @@ def test_nonfinite_state_returns_zero_terminal_reward() -> None:
         unwrapped = env.unwrapped
         unwrapped.object.data.root_pos_w.torch[0, 0] = torch.nan
 
-        terminated, _ = unwrapped._get_dones()
+        terminated, timed_out = unwrapped._get_dones()
+        unwrapped.reset_terminated.copy_(terminated)
+        unwrapped.reset_time_outs.copy_(timed_out)
+        unwrapped.reset_buf.copy_(terminated | timed_out)
         reward = unwrapped._get_rewards()
 
         assert terminated.item()
         assert unwrapped._termination_nonfinite.item()
         assert torch.equal(reward, torch.zeros_like(reward))
+        unwrapped._reset_envs_from_buffer()
+        assert unwrapped._nonfinite_diag_count == 1
+        assert all(torch.isfinite(value).all() for value in unwrapped._get_observations().values())
+    finally:
+        env.close()
+
+
+@pytest.mark.integration
+def test_adr_counts_completed_episodes_until_curriculum_update() -> None:
+    """Device-side accumulation must count partial reset batches and flush at the original cadence."""
+    env_cfg = load_cfg_from_registry("CrossEmbodimentCl-G1-Hand-Table-Direct", "env_cfg_entry_point")
+    env_cfg = resolve_presets(env_cfg, selected=("train",))
+    env_cfg.scene.num_envs = 4
+    env_cfg.adr.enabled = True
+    env_cfg.adr.update_every_steps = 4
+    env_cfg.adr.gravity_start = 1.0
+    env = gym.make("CrossEmbodimentCl-G1-Hand-Table-Direct", cfg=env_cfg)
+    try:
+        env.reset(seed=42)
+        task = env.unwrapped
+        task.goal_position.copy_(task.object.data.root_pos_w.torch - task.scene.env_origins)
+        task.goal_rotation.copy_(task.object.data.root_quat_w.torch)
+        task._get_dones()
+        for step, reset_indices, expected_count in ((1, [0, 2], 2), (3, [1], 3)):
+            task.common_step_counter = step
+            task.reset_buf.zero_()
+            task.reset_buf[reset_indices] = True
+            task._get_rewards()
+            assert int(task._adr_successful_episodes) == expected_count
+            assert task._adr_completed_episodes == expected_count
+        task.common_step_counter = env_cfg.adr.update_every_steps
+        task.reset_buf.zero_()
+        task._get_rewards()
+        assert task.adr.last_success_rate == 1.0
+        assert int(task._adr_successful_episodes) == task._adr_completed_episodes == 0
     finally:
         env.close()
 
@@ -529,6 +567,9 @@ def test_wuji_latent_round_trip_ping_pong() -> None:
         assert torch.isfinite(rewards).all()
         _, _, _, _, default_extras = env.step(torch.zeros((1, unwrapped.cfg.action_space), device=unwrapped.device))
         assert not any(key.startswith("Control/") for key in default_extras["log"])
+        assert not any("penetrat" in key for key in default_extras["log"])
+        unwrapped.cfg.log_penetration_metrics = True
+        unwrapped._init_penetration_probe()
         unwrapped.cfg.log_control_metrics = True
         unwrapped.episode_length_buf.fill_(unwrapped.max_episode_length - 1)
         _, _, _, _, extras = env.step(torch.zeros((1, unwrapped.cfg.action_space), device=unwrapped.device))

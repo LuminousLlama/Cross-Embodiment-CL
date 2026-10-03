@@ -52,6 +52,18 @@ def test_per_object_success_metrics_groups_only_completed_object_episodes():
 
 
 @pytest.mark.unit
+def test_single_object_success_metrics_matches_grouped_path_and_omits_empty_batch():
+    """The homogeneous-scene shortcut must agree with the multi-object grouping semantics."""
+    successes = torch.tensor([True, False, True])
+    variants = torch.zeros_like(successes, dtype=torch.long)
+    single = per_object_success_metrics(successes, variants, ("YcbApple",))
+    grouped = per_object_success_metrics(successes, variants, ("YcbApple", "YcbBanana"))
+    assert single.keys() == grouped.keys()
+    torch.testing.assert_close(single["Task/success_ycb_apple_ep"], grouped["Task/success_ycb_apple_ep"])
+    assert per_object_success_metrics(successes[:0], variants[:0], ("YcbApple",)) == {}
+
+
+@pytest.mark.unit
 def test_sample_spawn_offsets_is_zero_at_zero_strength():
     dx, dy = sample_spawn_offsets(n=1000, strength=0.0, box_x=0.11, box_y=0.20)
 
@@ -117,6 +129,7 @@ def test_training_success_weights_completed_episodes_and_clears_each_iteration()
             active_objects=("YcbApple",),
             success_keypoint_error_threshold=0.10,
             log_control_metrics=False,
+            log_penetration_metrics=False,
             adr=SimpleNamespace(enabled=False),
             contact_force_threshold=1.0,
         ),
@@ -134,6 +147,7 @@ def test_training_success_weights_completed_episodes_and_clears_each_iteration()
         _mjw_data=None,
         _contact_demand_metrics=lambda: {},
         episode_length_buf=torch.ones(n, dtype=torch.long),
+        common_step_counter=0,
         object_variant_ids_tensor=torch.zeros(n, dtype=torch.long),
         _termination_torso_object=zeros.bool(),
         _termination_below_table=zeros.bool(),

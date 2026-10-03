@@ -116,6 +116,12 @@ def per_object_success_metrics(
 ) -> dict[str, torch.Tensor]:
     """Return final episode-success means for object variants represented in this reset batch."""
     metrics: dict[str, torch.Tensor] = {}
+    if episode_success.numel() == 0:
+        return metrics
+    if len(active_objects) == 1:
+        # A single-object scene assigns variant zero to every environment; no device mask is needed.
+        qualifier = re.sub(r"(?<!^)(?=[A-Z])", "_", active_objects[0]).lower()
+        return {f"Task/success_{qualifier}_ep": episode_success.float().mean()}
     for variant_id, object_name in enumerate(active_objects):
         selected = object_variant_ids == variant_id
         if selected.any():
@@ -205,9 +211,10 @@ def sample_goal_poses_outside_success_threshold(
         ) + candidate_positions.unsqueeze(1)
         keypoint_error = torch.linalg.vector_norm(object_keypoints[pending] - candidate_keypoints, dim=-1).mean(dim=1)
         accepted = keypoint_error > success_threshold
-        accepted_ids = pending[accepted]
-        goal_positions[accepted_ids] = candidate_positions[accepted]
-        goal_rotations[accepted_ids] = candidate_rotations[accepted]
+        # Rejected slots are overwritten on the next pass. Only compact the remaining slots,
+        # avoiding three CUDA boolean-index synchronizations without changing the random draws.
+        goal_positions[pending] = candidate_positions
+        goal_rotations[pending] = candidate_rotations
         pending = pending[~accepted]
     return goal_positions, goal_rotations
 
@@ -550,7 +557,7 @@ class G1HandTableEnv(DirectRLEnv):
                 success_threshold=self.cfg.adr.success_threshold,
                 level=self.cfg.adr.initial_level,
             )
-            self._adr_successful_episodes = 0
+            self._adr_successful_episodes = torch.zeros((), dtype=torch.long, device=self.device)
             self._adr_completed_episodes = 0
         self._gravity_frac = 1.0
         self._last_applied_gravity_frac: float | None = None
@@ -1555,8 +1562,8 @@ class G1HandTableEnv(DirectRLEnv):
             goal_alpha_step,
         )
         if self.cfg.adr.enabled and self.common_step_counter % self.cfg.adr.update_every_steps == 0:
-            self.adr.update(self._adr_successful_episodes, self._adr_completed_episodes)
-            self._adr_successful_episodes = 0
+            self.adr.update(int(self._adr_successful_episodes.item()), self._adr_completed_episodes)
+            self._adr_successful_episodes.zero_()
             self._adr_completed_episodes = 0
         if (self._adr_friction_active or self._adr_mass_active) and self._adr_physics_pending.due(
             self.common_step_counter
@@ -1625,6 +1632,8 @@ class G1HandTableEnv(DirectRLEnv):
         penetration tags are simply not logged.
         """
         self._mjw_data = None
+        if not (self.cfg.log_penetration_metrics or self.cfg.contact_debug):
+            return
         try:
             import mujoco
 
@@ -1634,6 +1643,9 @@ class G1HandTableEnv(DirectRLEnv):
         solver = getattr(NewtonManager, "_solver", None)
         mj_model = getattr(solver, "mj_model", None)
         if mj_model is None:
+            return
+        self._mjw_data = solver.mjw_data
+        if not self.cfg.log_penetration_metrics:
             return
         labels = [
             f"{mujoco.mj_id2name(mj_model, mujoco.mjtObj.mjOBJ_BODY, int(mj_model.geom_bodyid[geom])) or ''}/"
@@ -1871,7 +1883,7 @@ class G1HandTableEnv(DirectRLEnv):
         )
         if self.cfg.log_control_metrics:
             log.update(self._arm_control_metrics())
-        if self._mjw_data is not None:
+        if self.cfg.log_penetration_metrics and self._mjw_data is not None:
             # Deepest contact per environment [m], averaged over environments.
             hand_penetration, table_penetration, self_penetration, elbow_torso_penetration = self._contact_penetration()
             self._episode_max_hand_penetration = torch.maximum(self._episode_max_hand_penetration, hand_penetration)
@@ -1888,6 +1900,8 @@ class G1HandTableEnv(DirectRLEnv):
         log.update(self._contact_demand_metrics())
 
         reset_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        self._step_reset_ids = reset_ids.int()
+        self._step_reset_ids_step = self.common_step_counter
         if len(reset_ids) > 0:
             episode_steps = self.episode_length_buf[reset_ids].clamp_min(1).float()
             log.update(
@@ -1907,7 +1921,7 @@ class G1HandTableEnv(DirectRLEnv):
             first_success_steps = self._episode_first_success_step[reset_ids]
             first_successful = first_success_steps >= 0
             if self.cfg.adr.enabled:
-                self._adr_successful_episodes += int(episode_success.sum().item())
+                self._adr_successful_episodes += episode_success.sum()
                 self._adr_completed_episodes += len(reset_ids)
             log.update(
                 {
@@ -1942,7 +1956,7 @@ class G1HandTableEnv(DirectRLEnv):
                         ).mean(),
                     }
                 )
-            if self._mjw_data is not None:
+            if self.cfg.log_penetration_metrics and self._mjw_data is not None:
                 log["Contact/penetration_hand_ep_max"] = self._episode_max_hand_penetration[reset_ids].mean()
                 log["Contact/penetration_self_ep_max"] = self._episode_max_self_penetration[reset_ids].mean()
                 log["Contact/penetration_elbow_torso_ep_max"] = self._episode_max_elbow_torso_penetration[
@@ -2026,25 +2040,15 @@ class G1HandTableEnv(DirectRLEnv):
         terminated = torso_contact | object_below_table | object_too_far | nonfinite
         time_out = self.episode_length_buf >= self.max_episode_length - 1
 
-        if nonfinite.any() and self._nonfinite_diag_count < 50:
-            self._nonfinite_diag_count += 1
-            bad_envs = nonfinite.nonzero(as_tuple=False).squeeze(-1)
-            bad_groups = [
-                name
-                for name, group_nonfinite in (
-                    ("arm_or_hand_joints", arm_or_hand_joints_nonfinite),
-                    ("object_pose", object_pose_nonfinite),
-                    ("object_vel", object_vel_nonfinite),
-                )
-                if group_nonfinite.any()
-            ]
-            print(
-                f"[nonfinite-guard] step={self.common_step_counter} bad_envs={bad_envs.numel()} "
-                f"groups={bad_groups} prev_object_speed_max={self._prev_object_speed[bad_envs].max().item():.4f} "
-                f"prev_object_height_max={self._prev_object_height[bad_envs].max().item():.4f}"
-            )
+        self._nonfinite_state_groups = (
+            ("arm_or_hand_joints", arm_or_hand_joints_nonfinite),
+            ("object_pose", object_pose_nonfinite),
+            ("object_vel", object_vel_nonfinite),
+        )
+        self._nonfinite_diag_prev_speed = self._prev_object_speed
+        self._nonfinite_diag_prev_height = self._prev_object_height
 
-        # Cache the last known-finite object speed and height for the diagnostic above; a non-finite
+        # Cache the last known-finite object speed and height for reset diagnostics; a non-finite
         # environment keeps whatever it last had until its reset overwrites the underlying sim state.
         object_speed = torch.linalg.vector_norm(object_lin_vel, dim=-1)
         finite_speed = torch.isfinite(object_speed)
@@ -2054,8 +2058,29 @@ class G1HandTableEnv(DirectRLEnv):
 
         return terminated, time_out
 
+    def _reset_envs_from_buffer(self) -> torch.Tensor | None:
+        """Reuse the current step's reset indices already compacted for episode metrics."""
+        if self.cfg.compute_final_obs or getattr(self, "_step_reset_ids_step", None) != self.common_step_counter:
+            return super()._reset_envs_from_buffer()
+        reset_ids = self._step_reset_ids
+        if len(reset_ids) > 0:
+            self._reset_idx(reset_ids)
+        return reset_ids
+
     def _reset_idx(self, env_ids: Sequence[int]) -> None:
         """Restore the authored robot pose and sample a fresh object pose."""
+        # Log after reward/metric work has been queued and reset indices have synchronized, rather
+        # than stalling immediately after physics in _get_dones. Recovery still runs every step.
+        if self._nonfinite_diag_count < 50 and self._termination_nonfinite[env_ids].any():
+            self._nonfinite_diag_count += 1
+            bad_envs = torch.as_tensor(env_ids, device=self.device)[self._termination_nonfinite[env_ids]]
+            bad_groups = [name for name, group_nonfinite in self._nonfinite_state_groups if group_nonfinite.any()]
+            print(
+                f"[nonfinite-guard] step={self.common_step_counter} bad_envs={bad_envs.numel()} "
+                f"groups={bad_groups} "
+                f"prev_object_speed_max={self._nonfinite_diag_prev_speed[bad_envs].max().item():.4f} "
+                f"prev_object_height_max={self._nonfinite_diag_prev_height[bad_envs].max().item():.4f}"
+            )
         super()._reset_idx(env_ids)
         if getattr(self, "virtual_force_pipeline", None) is not None:
             self.virtual_force_pipeline.reset(torch.as_tensor(env_ids, dtype=torch.long, device=self.device))
