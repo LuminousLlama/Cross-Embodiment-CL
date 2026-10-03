@@ -216,13 +216,17 @@ def test_train_and_dr_none_select_nominal_gravity_without_randomized_terms():
 
 
 @pytest.mark.unit
-def test_eval_and_dr_full_enable_all_randomized_terms_at_full_level():
-    """The full-DR preset ramps gravity from zero at level zero to full strength."""
-    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=["presets=eval,dr_full"])
+@pytest.mark.parametrize(
+    ("profile", "preset", "initial_level"), [("eval", "dr_full", 50), ("train", "dr_curriculum", 0)]
+)
+def test_full_dr_presets_enable_all_randomized_terms_at_selected_start_level(profile, preset, initial_level):
+    """Run-profile composition must preserve all DR terms and the selected curriculum start."""
+    env_cfg, _ = resolve_task_config(TASK, AGENT, overrides=[f"presets={profile},{preset}"])
 
     adr = env_cfg.adr
     assert adr.enabled is True
-    assert adr.initial_level == adr.max_level == 50
+    assert adr.initial_level == initial_level
+    assert adr.max_level == 50
     assert adr.gravity_start == 0.0
     assert adr.gravity_start + (1.0 - adr.gravity_start) * 0 / adr.max_level == 0.0
     assert adr.friction_range == (0.1, 0.4)

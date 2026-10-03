@@ -458,7 +458,7 @@ class G1HandTableAdrCfg:
 
 @configclass
 class G1HandTableAdrPresetCfg(PresetCfg):
-    """ADR presets for nominal, no-DR, and full-DR runs."""
+    """ADR presets for nominal, no-DR, full-DR, and curriculum runs."""
 
     default: G1HandTableAdrCfg = G1HandTableAdrCfg()
     dr_none: G1HandTableAdrCfg = default.replace(
@@ -489,6 +489,7 @@ class G1HandTableAdrPresetCfg(PresetCfg):
         friction_enabled=True,
         mass_enabled=True,
     )
+    dr_curriculum: G1HandTableAdrCfg = dr_full.replace(initial_level=0)
 
 
 @configclass
@@ -573,7 +574,7 @@ class G1HandTableEnvCfg(DirectRLEnvCfg):
     reset: G1HandTableResetCfg = G1HandTableResetCfg()
     """Task-reset controls; unlike ADR, these apply at every reset."""
     adr: G1HandTableAdrCfg = G1HandTableAdrPresetCfg()
-    """ADR settings; select ``presets=dr_none`` or ``presets=dr_full`` to compose a run preset."""
+    """ADR settings; compose a run profile with ``dr_none``, ``dr_full``, or ``dr_curriculum``."""
     virtual_force: G1HandTableVirtualForceCfg = G1HandTableVirtualForcePresetCfg()
     """Virtual Wuji actuator-torque sensing, enabled only by the ``force`` overlay."""
     adr_debug_spawn_area_vis: bool = False

@@ -26,7 +26,10 @@ runtime does not support this heterogeneous clone plan; `physics=physx` may sele
 
 ## Train
 
-Training and distillation use full domain randomization with `dr_full`.
+Teacher PPO training uses `dr_curriculum`, starting at level 0 and advancing toward 50
+when success exceeds 40%. Student distillation uses `dr_full`, starting at maximum
+domain randomization (level 50) with the same DR terms.
+Gravity ramps from 0g to 1g; append `env.adr.gravity_start=1.0` to keep full gravity throughout.
 `Task/success` is the successful fraction of episodes completed within each learning iteration;
 `Task/success-percentage-completed-episode-count` is its denominator (zero when no episodes finish).
 Iterations without completions omit `Task/success`. ADR retains its independent update window.
@@ -44,7 +47,7 @@ uv run isaaclab train --rl_library rsl_rl \
   --seed <seed> \
   --max_iterations <iterations> \
   --run_name <run-name> \
-  presets=train,dr_full
+  presets=train,dr_curriculum
 ```
 
 ### Resume PPO
@@ -57,7 +60,8 @@ uv run isaaclab train --rl_library rsl_rl \
   --seed <seed> \
   --max_iterations <additional-iterations> \
   --run_name <run-name> \
-  presets=train,dr_full
+  env.adr.initial_level=<resume_level>
+  presets=train,dr_curriculum
 ```
 
 ### Depth-student distillation
@@ -269,6 +273,14 @@ uv run isaaclab zero_agent \
 ## Common ADR overrides
 
 Append overrides after the preset selector.
+
+### Full DR with a success-gated curriculum
+
+Replace the existing preset selector with:
+
+```bash
+presets=<run-profile>,dr_curriculum
+```
 
 ### Keep gravity at 1g throughout ADR
 
